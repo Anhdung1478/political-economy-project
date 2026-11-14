@@ -3,7 +3,8 @@ import { io, type Socket } from 'socket.io-client';
 import type { Emoji } from '../../../shared/config';
 import type { Ack, ClientToServer, Phase, PollChoice, RoomSnapshot, ServerToClient } from '../../../shared/types';
 
-export const socket: Socket<ServerToClient, ClientToServer> = io({ transports: ['websocket', 'polling'] });
+export const socket: Socket<ServerToClient, ClientToServer> = io({ transports: ['websocket', 'polling'], tryAllTransports: true });
+// tryAllTransports: fall back to long-polling when a reverse proxy does not forward WebSocket upgrades.
 
 interface RoomStore { state: RoomSnapshot | null; connected: boolean; serverOffset: number }
 let current: RoomStore = { state: null, connected: socket.connected, serverOffset: 0 };
