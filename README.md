@@ -4,8 +4,8 @@ Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
 
 > Nền kinh tế thị trường hoàn hảo nên được vận hành bởi **"bàn tay vô hình"** hay **"bàn tay hữu hình"**?
 
-- **10 phút thuyết trình** (3 người, 13 slide) với poll trực tiếp và biểu đồ cung – cầu động.
-- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 5 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn.
+- **10 phút thuyết trình** (3 người, 14 slide) với poll trực tiếp và biểu đồ cung – cầu động.
+- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 6 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn → chợ tự do.
 
 ## Ba màn hình
 
@@ -56,10 +56,12 @@ Trạng thái game nằm trong RAM, restart server là ván mới.
 1. Trước giờ: deploy với `HOST_KEY` và `PUBLIC_URL` đúng tên miền; mở thử `/` trên laptop chiếu.
 2. Mở sẵn 2 tab: tab 1 là `/` (slide), tab 2 là `/host?key=<HOST_KEY>` (mã tự biến khỏi thanh địa chỉ sau khi vào).
 3. Slide 1: cả lớp quét QR, nhập tên, bình chọn. Giữ điện thoại lại cho phần game.
-4. Hết slide 13: chuyển sang tab host, bấm nút xanh (hoặc `→` trên bút trình chiếu) để đi qua từng bước. Nút tự khoá ~1 giây sau mỗi bước nên bấm đúp không bị trôi vòng.
+4. Slide 14 là QR to để cả lớp quét. Xong thì chuyển sang tab host, bấm nút xanh (hoặc `→` trên bút trình chiếu) để đi qua từng bước. Nút tự khoá ~1 giây sau mỗi bước nên bấm đúp không bị trôi vòng.
 5. Muốn chơi lại: **Reset**. Quán của người đã thoát sẽ bị dọn.
 
 Khi `NODE_ENV=production` (mặc định trong Docker), server từ chối khởi động nếu thiếu `HOST_KEY`.
+
+Flow chi tiết từng bước: [docs/huong-dan-thuyet-trinh.md](docs/huong-dan-thuyet-trinh.md).
 
 ## Sửa nội dung
 

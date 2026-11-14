@@ -316,7 +316,7 @@ export const SLIDES: Slide[] = [
           <In i={2}><ul className="points">
             <li>Vốn 15k/ly, mỗi quán pha tối đa 10 ly.</li>
             <li>Khách mua ở quán <strong>rẻ nhất trước</strong>, giá quá túi tiền thì bỏ đi.</li>
-            <li>5 vòng, mỗi vòng một “bàn tay” khác nhau xuất hiện.</li>
+            <li>6 vòng, mỗi vòng một “bàn tay” khác nhau xuất hiện.</li>
             <li>Lãi nhiều nhất thì thắng. Ế nhất… cũng có giải.</li>
           </ul></In>
           <In i={3} className="chip chip--matcha game-joined"><PlayerCount /> chủ quán đã vào chợ</In>
@@ -328,6 +328,17 @@ export const SLIDES: Slide[] = [
       </div>
     ),
     notes: 'Giới thiệu luật trong 15 giây, rồi mở màn hình host (/host) để bắt đầu game.',
+  },
+  {
+    id: 'join', speaker: 2, kicker: 'Vào chợ',
+    label: 'QR vào chơi',
+    title: 'Quét để vào chơi',
+    body: () => (
+      <div className="join-big">
+        <JoinQR size={540} />
+      </div>
+    ),
+    notes: 'Để slide này lâu một chút cho cả lớp quét. Đếm số quán ở màn host, đủ người thì chuyển tab host và bấm Bắt đầu game.',
   },
 ];
 

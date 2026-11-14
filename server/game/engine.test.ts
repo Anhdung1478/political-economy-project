@@ -27,11 +27,11 @@ describe('GameRoom', () => {
     const { room } = mk();
     room.join('A');
     const seen: string[] = [];
-    for (let i = 0; i < 16; i++) { seen.push(`${room.phase}:${room.roundIndex}`); room.next(); }
+    for (let i = 0; i < 19; i++) { seen.push(`${room.phase}:${room.roundIndex}`); room.next(); }
     expect(seen).toEqual([
       'lobby:-1', 'event:0', 'pricing:0', 'reveal:0', 'event:1', 'pricing:1', 'reveal:1',
       'event:2', 'pricing:2', 'reveal:2', 'event:3', 'pricing:3', 'reveal:3',
-      'event:4', 'pricing:4', 'reveal:4',
+      'event:4', 'pricing:4', 'reveal:4', 'event:5', 'pricing:5', 'reveal:5',
     ]);
     expect(room.phase).toBe('awards');
     room.next();
@@ -98,7 +98,7 @@ describe('GameRoom', () => {
     const { room } = mk();
     const a = ok(room.join('A')).playerId, b = ok(room.join('B')).playerId;
     room.next();
-    for (let r = 0; r < 5; r++) {
+    for (let r = 0; r < 6; r++) {
       room.next();
       room.submitPrice(a, 12 + r);
       room.submitPrice(b, r === 2 ? 20 : 45);

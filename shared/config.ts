@@ -16,7 +16,7 @@ export const GAME = {
 export const EMOJIS = ['😂', '🔥', '💸', '🥤', '😭', '🤡'] as const;
 export type Emoji = (typeof EMOJIS)[number];
 
-export type RoundId = 'free' | 'free2' | 'ceiling' | 'tax' | 'rumor';
+export type RoundId = 'free' | 'free2' | 'ceiling' | 'tax' | 'rumor' | 'free3';
 export interface RoundRule {
   id: RoundId;
   emoji: string;
@@ -60,5 +60,11 @@ export const ROUNDS: readonly RoundRule[] = [
     description: 'Một nửa số khách sợ quá, bỏ về uống nước lọc.',
     lesson: 'Thông tin bất cân xứng làm thị trường "đơ" — cần nhà nước kiểm định và công bố thông tin.',
     maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 0.5,
+  },
+  {
+    id: 'free3', emoji: '👻', hand: 'invisible', title: 'Chợ tự do (vòng cuối)',
+    description: 'Tin đồn đã được kiểm chứng là sai, khách quay lại đông đủ. Chợ tự do lần cuối!',
+    lesson: 'Khi thông tin minh bạch trở lại, thị trường tự hồi phục — bàn tay vô hình làm tốt việc của nó khi luật chơi rõ ràng.',
+    maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1,
   },
 ];

@@ -210,6 +210,11 @@
 .game-qr .qr__url { font-size: 26px; }
 .game-joined { justify-self: start; font-size: 20px; padding: 10px 18px; }
 .game-joined b { font-family: var(--font-display); font-size: 26px; }
+/* ===== Big QR slide: QR only ===== */
+.slide--join .slide__head { display: none; }
+.join-big { display: grid; place-items: center; height: 100%; }
+.join-big .qr { gap: 18px; }
+.join-big .qr__url { font-family: var(--font-display); font-size: 44px; font-weight: 800; }
 .credits { position: absolute; left: 84px; bottom: 6px; font-size: 13px; color: var(--ink-faint); }
 
 /* ===== Bottom bar ===== */

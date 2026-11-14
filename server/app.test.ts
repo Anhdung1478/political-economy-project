@@ -73,11 +73,11 @@ describe('server', () => {
     const rev = await host.until(s => s.phase === 'reveal');
     expect(rev.lastResult!.shops.find(x => x.playerId === ja.playerId)!.price).toBe(22);
 
-    for (let r = 1; r < 5; r++) {
+    for (let r = 1; r < 6; r++) {
       step('reveal', r - 1); step('event', r); step('pricing', r);
       await host.until(s => s.phase === 'reveal' && s.roundIndex === r);
     }
-    step('reveal', 4);
+    step('reveal', 5);
     const end = await host.until(s => s.phase === 'awards');
     expect(end.awards.length).toBeGreaterThan(0);
 
