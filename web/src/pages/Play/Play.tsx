@@ -44,11 +44,11 @@ export default function Play() {
   } else if (state.phase === 'lobby') {
     screen = { key: 'lobby', node: <LobbyScreen me={me} /> };
   } else if (state.phase === 'event' && round) {
-    screen = { key: `event-${state.roundIndex}`, node: <EventScreen round={round} index={state.roundIndex} total={state.totalRounds} /> };
+    screen = { key: `event-${state.roundIndex}`, node: <EventScreen round={round} index={state.roundIndex} total={state.totalRounds} shops={state.players.length} /> };
   } else if (state.phase === 'pricing' && round) {
     screen = {
       key: `pricing-${state.roundIndex}`,
-      node: <PricingScreen round={round} index={state.roundIndex} me={me} deadline={state.deadline} serverOffset={serverOffset} />,
+      node: <PricingScreen round={round} index={state.roundIndex} me={me} shops={state.players.length} deadline={state.deadline} serverOffset={serverOffset} />,
     };
   } else if (state.phase === 'reveal' && round && state.lastResult) {
     screen = { key: `reveal-${state.roundIndex}`, node: <RevealScreen round={round} result={state.lastResult} me={me} total={state.players.length} /> };

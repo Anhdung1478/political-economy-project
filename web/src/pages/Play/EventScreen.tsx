@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import type { RoundRule } from '../../../../shared/config';
 import { HAND_LABEL, roundChips } from '../../game/format';
 
-export function EventScreen({ round, index, total }: { round: RoundRule; index: number; total: number }) {
+export function EventScreen({ round, index, total, shops }: { round: RoundRule; index: number; total: number; shops: number }) {
   return (
     <div className="event">
       <span className="chip">Vòng {index + 1}/{total} · {HAND_LABEL[round.hand]}</span>
@@ -13,7 +13,7 @@ export function EventScreen({ round, index, total }: { round: RoundRule; index: 
         <h1>{round.title}</h1>
         <p>{round.description}</p>
         <div className="event-card__chips">
-          {roundChips(round).map(c => <span key={c.text} className={c.tone ? `chip chip--${c.tone}` : 'chip'}>{c.text}</span>)}
+          {roundChips(round, shops).map(c => <span key={c.text} className={c.tone ? `chip chip--${c.tone}` : 'chip'}>{c.text}</span>)}
         </div>
       </motion.div>
       <p className="play__sub event__hint">Nhìn lên màn chiếu 👀 — sắp được chọn giá rồi.</p>

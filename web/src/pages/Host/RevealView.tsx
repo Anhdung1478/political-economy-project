@@ -8,6 +8,13 @@ import { Leaderboard } from './Leaderboard';
 
 const MAX_ROWS = 8;
 
+/** 🥄 skimped this round · 😬 capped by lost reputation · 💛 loyal fans bought. */
+const badges = (s: ShopResult, round: RoundRule) => [
+  s.cost < round.cost && '🥄',
+  s.capacity < GAME.capacity && '😬',
+  s.loyal > 0 && '💛',
+].filter(Boolean).join(' ');
+
 /** Up to `n` shops spread evenly over the price order, so cheap sell-outs and pricey flops both show. */
 function sample(shops: ShopResult[], n: number): ShopResult[] {
   const sorted = [...shops].sort((a, b) => a.price - b.price || b.sold - a.sold);
@@ -32,7 +39,7 @@ export function RevealView({ round, result, players }: { round: RoundRule; resul
             <motion.li key={s.playerId} className={cx('market__row', s.sold === 0 && 'is-flop')}
               initial={{ x: -30, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.08 }}>
               <span className="market__price">{fmtK(s.price)}</span>
-              <span className="market__name">{nameOf(s.playerId)}</span>
+              <span className="market__name">{nameOf(s.playerId)} {badges(s, round)}</span>
               <span className="market__cups" aria-label={`${s.sold} ly`}>
                 {Array.from({ length: GAME.capacity }, (_, c) => (
                   <motion.i key={c} className={c < s.sold ? 'is-sold' : undefined}
@@ -58,6 +65,7 @@ export function RevealView({ round, result, players }: { round: RoundRule; resul
           {result.pricedOut > 0 && <Stat label="Chê đắt, bỏ về" value={`💸 ${result.pricedOut}`} />}
           {result.taxCollected > 0 && <Stat tone="caramel" label="Nhà nước thu thuế" value={`🏛️ ${fmtK(result.taxCollected)}`} />}
         </div>
+        <p className="legend-host">🥄 ăn bớt nguyên liệu · 😬 mất uy tín, bán ít ly hơn · 💛 có khách quen</p>
         <motion.div className="lesson-host" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 1.6 }}>
           <span aria-hidden="true">💡</span><p>{round.lesson}</p>
         </motion.div>

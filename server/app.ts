@@ -86,7 +86,7 @@ export function createApp(opts: AppOptions) {
     });
     socket.on('player:price', (p, ack) => {
       if (!socket.data.playerId) return reply(ack, { ok: false, error: 'Bạn chưa vào chợ' });
-      const r = room.submitPrice(socket.data.playerId, Number(p?.price));
+      const r = room.submitPrice(socket.data.playerId, Number(p?.price), p?.cost === undefined ? undefined : Number(p.cost));
       reply(ack, r);
       if (r.ok) broadcast();
     });

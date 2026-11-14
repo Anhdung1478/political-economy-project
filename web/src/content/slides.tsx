@@ -312,9 +312,10 @@ export const SLIDES: Slide[] = [
     body: () => (
       <div className="split">
         <div className="stack">
-          <In i={1}><p className="lead">Mỗi bạn là chủ một quán trà sữa. Mỗi vòng chỉ làm một việc: <strong>chọn giá bán</strong>.</p></In>
+          <In i={1}><p className="lead">Mỗi bạn là chủ một quán trà sữa. Mỗi vòng: <strong>chọn giá bán</strong>, và quyết định có ăn bớt nguyên liệu không.</p></In>
           <In i={2}><ul className="points">
             <li>Vốn 15k/ly, mỗi quán pha tối đa 10 ly.</li>
+            <li>Được ăn bớt nguyên liệu xuống 8k: lãi hơn, nhưng vòng sau <strong>mất uy tín</strong>, bán ít ly hơn.</li>
             <li>Khách mua ở quán <strong>rẻ nhất trước</strong>, giá quá túi tiền thì bỏ đi.</li>
             <li>6 vòng, mỗi vòng một “bàn tay” khác nhau xuất hiện.</li>
             <li>Lãi nhiều nhất thì thắng. Ế nhất… cũng có giải.</li>

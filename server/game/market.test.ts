@@ -50,7 +50,7 @@ describe('runMarket', () => {
 
   it('profit = (price - cost) × sold, may be negative; unsold = capacity - sold', () => {
     const out = runMarket(base({ shops: [{ playerId: 'a', price: 10 }] }), mulberry32(1));
-    expect(out.shops[0]).toEqual({ playerId: 'a', price: 10, sold: 10, unsold: 0, profit: -50 });
+    expect(out.shops[0]).toEqual({ playerId: 'a', price: 10, sold: 10, unsold: 0, profit: -50, cost: 15, capacity: 10, loyal: 0 });
   });
 
   it('collects tax per cup served', () => {
@@ -78,6 +78,35 @@ describe('runMarket', () => {
   it('handles zero customers and zero shops', () => {
     expect(runMarket(base({ customers: 0, shops: [{ playerId: 'a', price: 20 }] })).served).toBe(0);
     expect(runMarket(base({ shops: [] })).pricedOut).toBe(10);
+  });
+});
+
+describe('runMarket: skimping and loyalty', () => {
+  it('charges each shop its own cost', () => {
+    const out = runMarket(base({ shops: [{ playerId: 'a', price: 20, cost: 8 }], customers: 10 }), mulberry32(1));
+    expect(out.shops[0].profit).toBe((20 - 8) * out.shops[0].sold);
+  });
+
+  it('caps a shop that lost reputation, sending customers elsewhere', () => {
+    const out = runMarket(base({
+      shops: [{ playerId: 'cheat', price: 16, capacity: 3 }, { playerId: 'b', price: 30 }], customers: 30,
+    }), mulberry32(1));
+    const [cheat, b] = out.shops;
+    expect(cheat).toMatchObject({ sold: 3, capacity: 3, unsold: 0 });
+    expect(b.sold).toBe(10);
+  });
+
+  it('guarantees loyal buyers even when a cheaper shop has room', () => {
+    const out = runMarket(base({
+      shops: [{ playerId: 'fan', price: 40, loyal: 2 }, { playerId: 'cheap', price: 15 }], customers: 5,
+    }), mulberry32(1));
+    expect(out.shops[0]).toMatchObject({ sold: 2, loyal: 2 });
+    expect(out.shops[1].sold).toBe(3);
+  });
+
+  it('keeps loyalty even when no customer can afford the price', () => {
+    const out = runMarket(base({ shops: [{ playerId: 'fan', price: 50, loyal: 2 }], customers: 2, wtpMax: 20 }), mulberry32(1));
+    expect(out.shops[0].sold).toBe(2);
   });
 });
 

@@ -46,7 +46,7 @@ export default function Host() {
   const viewKey = `${state.phase}-${state.roundIndex}`;
   let view: React.ReactNode;
   if (state.phase === 'lobby') view = <LobbyView players={state.players} />;
-  else if (state.phase === 'event' && round) view = <EventView round={round} index={state.roundIndex} total={state.totalRounds} />;
+  else if (state.phase === 'event' && round) view = <EventView round={round} index={state.roundIndex} total={state.totalRounds} shops={state.players.length} />;
   else if (state.phase === 'pricing' && round) view = <PricingView round={round} players={state.players} deadline={state.deadline} serverOffset={serverOffset} />;
   else if (state.phase === 'reveal' && round && state.lastResult) view = <RevealView round={round} result={state.lastResult} players={state.players} />;
   else view = <AwardsView awards={state.awards} players={state.players} />;

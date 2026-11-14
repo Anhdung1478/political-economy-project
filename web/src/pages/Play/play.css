@@ -75,6 +75,11 @@
 .pricing__margin.is-zero { background: var(--milk) !important; color: var(--ink); }
 .pricing__margin.is-loss { background: var(--strawberry-soft) !important; color: var(--strawberry-deep); }
 .pricing__tip { font-size: 14px; color: var(--ink-soft); font-weight: 500; }
+.pricing__tip.is-warn { color: var(--strawberry-deep); font-weight: 600; }
+.pricing__status { display: grid; gap: 8px; }
+.pricing__status p { padding: 10px 14px; border-radius: var(--r-md); background: var(--milk); font-size: 14px; line-height: 1.4; }
+.pricing__status p.is-bad { background: var(--strawberry-soft); }
+.pricing__status p.is-good { background: var(--matcha-soft); }
 .pricing__wait { text-align: center; }
 
 /* Reveal */

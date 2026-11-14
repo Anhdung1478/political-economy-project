@@ -27,7 +27,7 @@ export function JoinScreen({ onJoined }: { onJoined: (playerId: string, token: s
         <VisibleHand size={84} float />
       </div>
       <h1>Mở một quán trà sữa</h1>
-      <p className="play__sub">Nhập tên của bạn, hệ thống sẽ đặt cho quán một cái tên… rất có tâm.</p>
+      <p className="play__sub">Nhập tên của bạn. Tên này cũng là tên quán trên bảng xếp hạng.</p>
       <Input
         label="Tên của bạn"
         placeholder="VD: Dũng đẹp trai"

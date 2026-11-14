@@ -44,7 +44,7 @@ function call<R>(event: string, payload: unknown): Promise<R> {
 export const api = {
   join: (nickname: string) => call<Ack<{ playerId: string; token: string }>>('player:join', { nickname }),
   resume: (token: string) => call<Ack<{ playerId: string }>>('player:resume', { token }),
-  price: (price: number) => call<Ack>('player:price', { price }),
+  price: (price: number, cost: number) => call<Ack>('player:price', { price, cost }),
   hostAuth: (key: string) => call<Ack>('host:auth', { key }),
   vote: (choice: PollChoice) => { socket.emit('player:vote', { choice }); },
   emoji: (emoji: Emoji) => { socket.emit('player:emoji', { emoji }); },

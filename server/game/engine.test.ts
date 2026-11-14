@@ -124,4 +124,55 @@ describe('GameRoom', () => {
     expect(s.players[0].total).toBe(0);
     expect(s.poll.visible).toBe(1);
   });
+
+  it('validates ingredient cost and locks it in the last round', () => {
+    const { room } = mk();
+    const { playerId } = ok(room.join('A'));
+    room.next(); room.next();
+    expect(room.submitPrice(playerId, 30, 7).ok).toBe(false);
+    expect(room.submitPrice(playerId, 30, 16).ok).toBe(false);
+    expect(room.submitPrice(playerId, 30, 8).ok).toBe(true);
+    for (let r = 0; r < 5; r++) { room.next(); room.next(); room.next(); }   // to the last round's pricing
+    expect(room.roundIndex).toBe(5);
+    expect(room.submitPrice(playerId, 30, 14).ok).toBe(false);
+    expect(room.submitPrice(playerId, 30, 15).ok).toBe(true);
+  });
+
+  it('skimping cuts next round capacity by one cup per 1k, and profit uses the cheaper cost', () => {
+    const { room } = mk();
+    const { playerId } = ok(room.join('A'));
+    room.next(); room.next(); room.submitPrice(playerId, 30, 8); room.next();
+    expect(room.snapshot().lastResult!.shops[0]).toMatchObject({ sold: 10, profit: (30 - 8) * 10, capacity: 10 });
+    expect(room.snapshot().players[0].capacity).toBe(3);
+    room.next(); room.next(); room.submitPrice(playerId, 30); room.next();
+    expect(room.snapshot().lastResult!.shops[0]).toMatchObject({ sold: 3, capacity: 3 });
+    expect(room.snapshot().players[0].capacity).toBe(10);                  // honest round restores reputation
+  });
+
+  it('tax round: skimping lowers ingredients only, tax still applies', () => {
+    const { room } = mk();
+    const { playerId } = ok(room.join('A'));
+    room.next();
+    for (let r = 0; r < 3; r++) { room.next(); room.next(); room.next(); }  // rounds 0-2 at defaults
+    room.next(); room.submitPrice(playerId, 30, 10); room.next();           // round 3: tax 5k
+    expect(room.snapshot().lastResult!.shops[0].cost).toBe(15);
+  });
+
+  it('selling at a loss earns 2 loyal buyers next round if the price rises at most 20%', () => {
+    const { room } = mk();
+    const a = ok(room.join('A')).playerId;
+    for (let i = 0; i < 9; i++) ok(room.join(`B${i}`));
+    room.next(); room.next(); room.submitPrice(a, 10); room.next();       // sells at 10 < 15: a loss
+    expect(room.snapshot().players.find(p => p.id === a)!.loyalMaxPrice).toBe(12);
+    room.next(); room.next(); room.submitPrice(a, 50); room.next();       // round 2: 50 > 12, others default 25
+    expect(room.snapshot().lastResult!.shops.find(s => s.playerId === a)!.loyal).toBe(0);
+  });
+
+  it('loyal buyers buy even at a price others undercut', () => {
+    const { room } = mk();
+    const a = ok(room.join('A')).playerId;
+    room.next(); room.next(); room.submitPrice(a, 12); room.next();       // lone shop at a loss
+    room.next(); room.next(); room.submitPrice(a, 14); room.next();       // 14 <= 12 * 1.2
+    expect(room.snapshot().lastResult!.shops[0].loyal).toBe(2);
+  });
 });

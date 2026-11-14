@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
-import { EMOJIS, GAME, type Emoji, type RoundRule } from '../../../../shared/config';
+import { EMOJIS, GAME, ROUNDS, type Emoji, type RoundRule } from '../../../../shared/config';
 import type { PublicPlayer, RoundResult } from '../../../../shared/types';
 import { fmtK, fmtProfit } from '../../game/format';
 import { api } from '../../net/socket';
@@ -41,6 +41,14 @@ export function RevealScreen({ round, result, me, total }: Props) {
             ))}
           </div>
           <p className="cups__label"><b>{mine.sold}</b>/{GAME.capacity} ly đã bán · hạng <b>{me.rank}</b>/{total}</p>
+          {(mine.cost < round.cost || mine.capacity < GAME.capacity || mine.loyal > 0 || mine.profit < 0) && (
+            <div className="pricing__status">
+              {mine.capacity < GAME.capacity && <p className="is-bad">😬 Vòng này mất uy tín: chỉ bán được tối đa {mine.capacity} ly.</p>}
+              {mine.loyal > 0 && <p className="is-good">💛 {mine.loyal} khách quen đã quay lại mua.</p>}
+              {mine.cost < round.cost && round.fixedCost !== true && <p className="is-bad">🥄 Bạn ăn bớt nguyên liệu: vòng sau chỉ bán tối đa {me.capacity} ly.</p>}
+              {mine.profit < 0 && result.roundIndex < ROUNDS.length - 1 && <p className="is-good">😇 Bán lỗ vòng này: vòng sau {GAME.loyalBuyers} khách quen chắc chắn mua nếu giá ≤ {fmtK(me.loyalMaxPrice ?? 0)}.</p>}
+            </div>
+          )}
           <p className="cups__label">🎯 Giá tối ưu vòng này: <b>{fmtK(result.optimalPrice)}</b> · trung bình chợ {fmtK(result.avgPrice)}</p>
         </>
       ) : (

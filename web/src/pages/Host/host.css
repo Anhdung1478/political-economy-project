@@ -90,6 +90,7 @@
 .market__row { display: grid; grid-template-columns: 70px 1fr auto 92px; align-items: center; gap: 16px; padding: 8px 14px; border-radius: var(--r-md); background: var(--cream); }
 .market__row.is-flop { background: var(--strawberry-soft); }
 .market__price { display: grid; place-items: center; height: 40px; border-radius: 12px; background: var(--ink); color: var(--paper); font-family: var(--font-display); font-weight: 800; font-size: 20px; }
+.legend-host { font-size: 14px; color: var(--ink-soft); }
 .market__name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .market__cups { display: flex; gap: 4px; }
 .market__cups i { width: 18px; height: 24px; border-radius: 3px 3px 7px 7px; background: var(--milk-deep); }

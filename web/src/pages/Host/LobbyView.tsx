@@ -20,6 +20,8 @@ export function LobbyView({ players }: { players: PublicPlayer[] }) {
             <li>Mỗi vòng, kéo thanh trượt để <b>chọn giá bán</b>.</li>
             <li>Khách mua ở quán <b>rẻ nhất trước</b>, mỗi quán pha tối đa <b>10 ly</b>.</li>
             <li>Giá vượt túi tiền thì khách <b>bỏ đi</b>.</li>
+            <li>Được <b>ăn bớt nguyên liệu</b> (tối thiểu 8k): lãi hơn, nhưng vòng sau mất uy tín, bán ít ly hơn.</li>
+            <li>Bán lỗ thì vòng sau có <b>2 khách quen</b> nếu không tăng giá quá 20%.</li>
             <li><b>Lãi = (giá − vốn) × số ly bán.</b> {ROUNDS.length} vòng, lãi nhất thắng.</li>
           </ol>
         </div>

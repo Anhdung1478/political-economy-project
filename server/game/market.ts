@@ -1,8 +1,18 @@
 import type { ShopResult } from '../../shared/types';
 import { shuffle } from './random';
 
+export interface MarketShop {
+  playerId: string;
+  price: number;
+  /** Cost per cup paid by this shop; defaults to the round's cost. */
+  cost?: number;
+  /** Most cups customers buy here; defaults to the round's capacity. */
+  capacity?: number;
+  /** Customers who buy here first whatever the other prices (loyal fans). */
+  loyal?: number;
+}
 export interface MarketInput {
-  shops: { playerId: string; price: number }[];
+  shops: MarketShop[];
   customers: number;
   wtpMin: number;
   wtpMax: number;
@@ -23,24 +33,40 @@ export function customerBudgets(n: number, min: number, max: number): number[] {
 }
 
 /**
- * Customers queue by budget, richest first. Each buys one cup at the cheapest shop
+ * Loyal fans buy first: each takes the poorest remaining customer who can afford the
+ * shop's price (or the richest left if nobody can, since loyalty is guaranteed).
+ * Then the rest queue by budget, richest first. Each buys one cup at the cheapest shop
  * that still has capacity and whose price fits the budget; ties go to the shop that
  * has sold the fewest cups so far. A customer who cannot buy is a shortage
  * (`unserved`) only when every shop is sold out and they could afford the cheapest
  * price; otherwise they were priced out.
  */
 export function runMarket(input: MarketInput, random: () => number = Math.random): MarketOutput {
+  const cap = new Map(input.shops.map(s => [s.playerId, Math.max(0, s.capacity ?? input.capacity)]));
   const sold = new Map(input.shops.map(s => [s.playerId, 0]));
+  const loyalSold = new Map(input.shops.map(s => [s.playerId, 0]));
+  const room = (id: string) => sold.get(id)! < cap.get(id)!;
   // Shuffle first so the stable sort leaves equal-price shops in random order.
   const byPrice = shuffle(input.shops, random).sort((a, b) => a.price - b.price);
-  const budgets = customerBudgets(input.customers, input.wtpMin, input.wtpMax).reverse();
-  const minPrice = byPrice.length ? byPrice[0].price : Infinity;
+  const budgets = customerBudgets(input.customers, input.wtpMin, input.wtpMax).reverse(); // richest first
   let served = 0, unserved = 0, pricedOut = 0;
 
+  for (const s of byPrice) {
+    for (let k = 0; k < (s.loyal ?? 0) && room(s.playerId) && budgets.length > 0; k++) {
+      let at = -1;
+      for (let i = budgets.length - 1; i >= 0; i--) if (budgets[i] >= s.price) { at = i; break; }
+      budgets.splice(at >= 0 ? at : 0, 1);
+      sold.set(s.playerId, sold.get(s.playerId)! + 1);
+      loyalSold.set(s.playerId, loyalSold.get(s.playerId)! + 1);
+      served++;
+    }
+  }
+
+  const minPrice = byPrice.length ? byPrice[0].price : Infinity;
   for (const budget of budgets) {
-    const open = byPrice.filter(s => s.price <= budget && sold.get(s.playerId)! < input.capacity);
+    const open = byPrice.filter(s => s.price <= budget && room(s.playerId));
     if (open.length === 0) {
-      const allSoldOut = byPrice.every(s => sold.get(s.playerId)! >= input.capacity);
+      const allSoldOut = byPrice.every(s => !room(s.playerId));
       if (allSoldOut && budget >= minPrice) unserved++;
       else pricedOut++;
       continue;
@@ -55,8 +81,8 @@ export function runMarket(input: MarketInput, random: () => number = Math.random
   }
 
   const shops = input.shops.map(s => {
-    const n = sold.get(s.playerId)!;
-    return { playerId: s.playerId, price: s.price, sold: n, unsold: input.capacity - n, profit: (s.price - input.cost) * n };
+    const n = sold.get(s.playerId)!, c = cap.get(s.playerId)!, cost = s.cost ?? input.cost;
+    return { playerId: s.playerId, price: s.price, sold: n, unsold: c - n, profit: (s.price - cost) * n, cost, capacity: c, loyal: loyalSold.get(s.playerId)! };
   });
   return { shops, served, unserved, pricedOut, taxCollected: served * input.tax };
 }

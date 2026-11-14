@@ -1,5 +1,10 @@
 export const GAME = {
   baseCost: 15,
+  /** Cheapest ingredients a shop may skimp down to (k per cup). */
+  costMin: 8,
+  /** Guaranteed buyers next round after selling at a loss, if the price rises at most 20%. */
+  loyalBuyers: 2,
+  loyalPriceRatio: 1.2,
   capacity: 10,
   customersPerPlayer: 15,
   wtpMin: 15,
@@ -28,6 +33,8 @@ export interface RoundRule {
   cost: number;
   tax: number;
   customerMultiplier: number;
+  /** Ingredients locked at the base cost: no skimping this round. */
+  fixedCost?: boolean;
 }
 
 export const ROUNDS: readonly RoundRule[] = [
@@ -65,6 +72,15 @@ export const ROUNDS: readonly RoundRule[] = [
     id: 'free3', emoji: '👻', hand: 'invisible', title: 'Chợ tự do (vòng cuối)',
     description: 'Tin đồn đã được kiểm chứng là sai, khách quay lại đông đủ. Chợ tự do lần cuối!',
     lesson: 'Khi thông tin minh bạch trở lại, thị trường tự hồi phục — bàn tay vô hình làm tốt việc của nó khi luật chơi rõ ràng.',
-    maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1,
+    maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1, fixedCost: true,
   },
 ];
+
+/** Ingredient cost per cup before tax (what a shop may skimp on). */
+export const ingredientBase = (r: RoundRule) => r.cost - r.tax;
+
+/** Customers in a round: a fixed number per shop, scaled by the round's event. */
+export const roundCustomers = (r: RoundRule, shops: number) => Math.round(GAME.customersPerPlayer * shops * r.customerMultiplier);
+
+/** Cups a shop can still sell after skimping to `ingredient` last round: one cup fewer per 1k skimped. */
+export const capacityAfter = (ingredient: number) => GAME.capacity - Math.max(0, GAME.baseCost - ingredient);

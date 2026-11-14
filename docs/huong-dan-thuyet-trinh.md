@@ -64,6 +64,12 @@ Thứ tự 6 vòng và ý cần nhấn:
 5. 🤢 **Tin đồn**: một nửa khách bỏ về, cần nhà nước kiểm định thông tin.
 6. 👻 **Chợ tự do (vòng cuối)**: thông tin minh bạch lại, thị trường tự hồi phục.
 
+Luật phụ cần nhắc ở vòng 1:
+
+- **Ăn bớt nguyên liệu:** mỗi người chỉnh được chi phí nguyên liệu từ 15k xuống tối thiểu 8k. Khách vẫn mua bình thường. Vòng sau quán mất uy tín: cứ bớt 1k thì bán ít đi 1 ly (bớt xuống 8k thì tối đa 3 ly). Vòng thuế chỉ bớt được nguyên liệu, thuế 5k vẫn tính. Vòng cuối khoá 15k.
+- **Khách quen:** quán bán lỗ ở một vòng thì vòng sau chắc chắn có 2 khách mua, nếu giá không cao hơn 1.2 lần giá vòng lỗ.
+- Trên màn kết quả: 🥄 ăn bớt · 😬 mất uy tín · 💛 có khách quen.
+
 Sau vòng 6, nút xanh ghi **Trao giải 🏆**. Bấm để hiện 4 giải và bảng xếp hạng.
 
 ## 5. Kết thúc

@@ -5,7 +5,7 @@ Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
 > Nền kinh tế thị trường hoàn hảo nên được vận hành bởi **"bàn tay vô hình"** hay **"bàn tay hữu hình"**?
 
 - **10 phút thuyết trình** (3 người, 14 slide) với poll trực tiếp và biểu đồ cung – cầu động.
-- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 6 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn → chợ tự do.
+- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chọn giá bán và mức nguyên liệu (ăn bớt thì mất uy tín vòng sau). 6 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn → chợ tự do.
 
 ## Ba màn hình
 
