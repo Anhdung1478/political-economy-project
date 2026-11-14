@@ -1,0 +1,59 @@
+{
+ "note": "Credits for the photographs in this folder: photos.mjs credits prints the footer block for the ones the pages use.",
+ "photos": [
+  {
+   "file": "photo-f171493148-500.jpg",
+   "files": [
+    "photo-f171493148-500.jpg"
+   ],
+   "id": "f171493148",
+   "alt": "Adam Smith (Muir portrait)",
+   "by": "Unknown author Unknown author",
+   "licence": "Public domain",
+   "licenceUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
+   "page": "https://commons.wikimedia.org/wiki/File:Adam_Smith_(Muir_portrait).jpg",
+   "source": "Wikimedia Commons"
+  },
+  {
+   "file": "photo-f17057587-960.jpg",
+   "files": [
+    "photo-f17057587-500.jpg",
+    "photo-f17057587-960.jpg"
+   ],
+   "id": "f17057587",
+   "alt": "Unemployed men queued outside a depression soup kitchen opened in Chicago by Al Capone",
+   "by": "Unknown author Unknown author or not provided",
+   "licence": "Public domain",
+   "licenceUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
+   "page": "https://commons.wikimedia.org/wiki/File:Unemployed_men_queued_outside_a_depression_soup_kitchen_opened_in_Chicago_by_Al_Capone,_02-1931_-_NARA_-_541927.jpg",
+   "source": "Wikimedia Commons"
+  },
+  {
+   "file": "photo-f107020992-960.jpg",
+   "files": [
+    "photo-f107020992-500.jpg",
+    "photo-f107020992-960.jpg"
+   ],
+   "id": "f107020992",
+   "alt": "Crowds gathering outside New York Stock Exchange (3)",
+   "by": "Associated Press",
+   "licence": "Public domain",
+   "licenceUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
+   "page": "https://commons.wikimedia.org/wiki/File:Crowds_gathering_outside_New_York_Stock_Exchange_(3).jpg",
+   "source": "Wikimedia Commons"
+  },
+  {
+   "file": "photo-f36752324-500.jpg",
+   "files": [
+    "photo-f36752324-500.jpg"
+   ],
+   "id": "f36752324",
+   "alt": "Russel Keynes Strachey 2",
+   "by": "Lady Ottoline Morrell",
+   "licence": "Public domain",
+   "licenceUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
+   "page": "https://commons.wikimedia.org/wiki/File:Russel_Keynes_Strachey_2.jpg",
+   "source": "Wikimedia Commons"
+  }
+ ]
+}
