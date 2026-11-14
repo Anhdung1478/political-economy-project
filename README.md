@@ -4,7 +4,7 @@ Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
 
 > Nền kinh tế thị trường hoàn hảo nên được vận hành bởi **"bàn tay vô hình"** hay **"bàn tay hữu hình"**?
 
-- **10 phút thuyết trình** (3 người, 13 slide) với poll trực tiếp, biểu đồ cung – cầu động, đồng hồ cho từng người nói.
+- **10 phút thuyết trình** (3 người, 13 slide) với poll trực tiếp và biểu đồ cung – cầu động.
 - **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 4 vòng: chợ tự do → giá trần → thuế → tin đồn.
 
 ## Ba màn hình
@@ -15,7 +15,7 @@ Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
 | `/host?key=<HOST_KEY>` | Laptop chiếu | Điều khiển và chiếu game |
 | `/play` | Điện thoại khán giả | Bình chọn và chơi game (quét QR trên slide) |
 
-Phím tắt ở màn slide: `←` `→` chuyển slide · `N` ghi chú người nói · `S` bắt đầu tính giờ · `R` reset giờ · `F` toàn màn hình.
+Phím tắt ở màn slide: `←` `→` chuyển slide · `N` ghi chú người nói · `F` toàn màn hình.
 Ở màn host, `→` / PageDown (bút trình chiếu) cũng bấm được nút chính.
 
 ## Chạy trên máy

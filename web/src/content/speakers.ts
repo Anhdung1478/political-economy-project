@@ -7,6 +7,3 @@ export const SPEAKERS: [Speaker, Speaker, Speaker] = [
   { name: 'Người 3', role: 'Kết hợp hai bàn tay', color: 'var(--strawberry)', soft: 'var(--strawberry-soft)', initials: '3' },
 ];
 
-/** Target length of each speaker's part, in seconds (3 × 200 s = 10 min). */
-export const SECTION_SECONDS = 200;
-export const TOTAL_SECONDS = SECTION_SECONDS * SPEAKERS.length;

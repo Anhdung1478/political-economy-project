@@ -8,45 +8,25 @@ import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { Select } from '../../ui/Select';
 import { useStageScale } from '../../ui/useStageScale';
 import { NotesPanel } from './NotesPanel';
-import { SpeakerHud, type Clock } from './SpeakerHud';
+import { SpeakerHud } from './SpeakerHud';
 import './presentation.css';
 
 const clampIndex = (i: number) => Math.min(SLIDES.length - 1, Math.max(0, i));
-
-const emptyClock = (): Clock => ({ started: null, starts: SPEAKERS.map(() => null), ends: SPEAKERS.map(() => null) });
-
-/** Record that `speaker` is now talking: their section starts, earlier sections end. */
-function markSpeaker(clock: Clock, speaker: number, now: number): Clock {
-  if (clock.started === null) return clock;
-  const starts = clock.starts.map((t, s) => (s === speaker ? t ?? now : t));
-  const ends = clock.ends.map((t, s) => (s < speaker && starts[s] !== null ? t ?? now : t));
-  return { ...clock, starts, ends };
-}
 
 export default function Presentation() {
   const [index, setIndex] = useState(() => clampIndex(Number(location.hash.slice(1) || 1) - 1));
   const [dir, setDir] = useState(1);
   const [notes, setNotes] = useState(false);
-  const [clock, setClock] = useState<Clock>(emptyClock);
   const scale = useStageScale();
   const { connected } = useRoom();
   const slide = SLIDES[index];
   const speaker = SPEAKERS[slide.speaker];
-
-  const startClock = useCallback(() => {
-    setClock(c => (c.started !== null ? c : markSpeaker({ ...c, started: Date.now() }, SLIDES[index].speaker, Date.now())));
-  }, [index]);
 
   const go = useCallback((to: number) => {
     const next = clampIndex(to);
     if (next === index) return;
     setDir(next > index ? 1 : -1);
     setIndex(next);
-    setClock(c => {
-      const now = Date.now();
-      const started = c.started === null ? markSpeaker({ ...c, started: now }, SLIDES[index].speaker, now) : c;
-      return markSpeaker(started, SLIDES[next].speaker, now);
-    });
   }, [index]);
 
   useEffect(() => { history.replaceState(null, '', `#${index + 1}`); }, [index]);
@@ -62,13 +42,11 @@ export default function Presentation() {
       else if (e.key === 'Home') go(0);
       else if (e.key === 'End') go(SLIDES.length - 1);
       else if (e.key.toLowerCase() === 'n') setNotes(v => !v);
-      else if (e.key.toLowerCase() === 's') startClock();
-      else if (e.key.toLowerCase() === 'r') setClock(emptyClock());
       else if (e.key.toLowerCase() === 'f') toggleFullscreen();
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [go, index, startClock]);
+  }, [go, index]);
 
   return (
     <div className="deck">
@@ -103,7 +81,7 @@ export default function Presentation() {
         </div>
 
         <footer className="bar">
-          <SpeakerHud speakerIndex={slide.speaker} clock={clock} onStart={startClock} />
+          <SpeakerHud speakerIndex={slide.speaker} />
           <div className="bar__progress" aria-hidden="true">
             {SLIDES.map((s, i) => (
               <span key={s.id} className={i <= index ? 'is-done' : undefined}

@@ -15,7 +15,7 @@ export function NotesPanel({ open, onClose, slide, index }: { open: boolean; onC
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Đóng ghi chú">✕</Button>
           </div>
           <p>{slide.notes}</p>
-          <p className="notes__keys">← → chuyển slide · N ghi chú · S bắt đầu giờ · R reset giờ · F toàn màn hình</p>
+          <p className="notes__keys">← → chuyển slide · N ghi chú · F toàn màn hình</p>
         </motion.aside>
       )}
     </AnimatePresence>
