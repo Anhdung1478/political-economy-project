@@ -12,7 +12,8 @@ export function EmojiRain() {
   useEffect(() => {
     const on = ({ emoji, id }: { emoji: Emoji; id: number }) => {
       const drop = { id, emoji, x: 4 + Math.random() * 92, sway: (Math.random() - 0.5) * 120, dur: 2.4 + Math.random() * 1.4 };
-      setDrops(d => [...d.slice(-(MAX - 1)), drop]);
+      // When the sky is full, drop the newcomer rather than cutting short ones already flying.
+      setDrops(d => (d.length >= MAX ? d : [...d, drop]));
       setTimeout(() => setDrops(d => d.filter(x => x.id !== id)), drop.dur * 1000 + 100);
     };
     socket.on('emoji', on);

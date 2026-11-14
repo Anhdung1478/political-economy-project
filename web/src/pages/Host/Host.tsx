@@ -2,6 +2,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useState, type CSSProperties, type FormEvent } from 'react';
 import { ROUNDS } from '../../../../shared/config';
 import { api, useOnConnect, useRoom, usePlayUrl } from '../../net/socket';
+
+const HOST_KEY_STORE = 'hbt.hostKey';
+const sessionSet = (k: string) => { try { sessionStorage.setItem(HOST_KEY_STORE, k); } catch { /* private mode */ } };
+const sessionGet = () => { try { return sessionStorage.getItem(HOST_KEY_STORE); } catch { return null; } };
 import { Button } from '../../ui/Button';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { Input } from '../../ui/Input';
@@ -17,18 +21,25 @@ import './host.css';
 
 export default function Host() {
   const { state, connected, serverOffset } = useRoom();
-  const [key, setKey] = useState(() => new URLSearchParams(location.search).get('key') ?? '');
+  const [key, setKey] = useState(() => new URLSearchParams(location.search).get('key') ?? sessionGet() ?? '');
   const [authed, setAuthed] = useState<boolean | null>(null);
   const scale = useStageScale();
   const playUrl = usePlayUrl();
 
   const auth = useCallback(() => {
     if (!key) { setAuthed(false); return; }
-    void api.hostAuth(key).then(r => setAuthed(r.ok));
+    void api.hostAuth(key).then(r => {
+      setAuthed(r.ok);
+      if (r.ok) {
+        // Keep the key off the projected address bar.
+        sessionSet(key);
+        if (location.search) history.replaceState(null, '', '/host');
+      }
+    });
   }, [key]);
   useOnConnect(auth);
 
-  if (authed === false) return <KeyForm initial={key} onSubmit={k => { setKey(k); setAuthed(null); history.replaceState(null, '', `/host?key=${encodeURIComponent(k)}`); }} failed={key !== ''} />;
+  if (authed === false) return <KeyForm initial={key} onSubmit={k => { setKey(k); setAuthed(null); }} failed={key !== ''} />;
   if (!state || authed === null) return <div className="boot"><span /><span /><span /></div>;
 
   const round = state.roundIndex >= 0 ? ROUNDS[state.roundIndex] : null;

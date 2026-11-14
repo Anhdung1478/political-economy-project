@@ -47,7 +47,8 @@ export interface ClientToServer {
   'player:price': (p: { price: number }, ack: (r: Ack) => void) => void;
   'player:emoji': (p: { emoji: Emoji }) => void;
   'host:auth': (p: { key: string }, ack: (r: Ack) => void) => void;
-  'host:next': () => void;
+  /** Carries the phase the host is looking at, so double clicks cannot skip a step. */
+  'host:next': (p: { phase: Phase; roundIndex: number }) => void;
   'host:reset': () => void;
 }
 export interface ServerToClient {

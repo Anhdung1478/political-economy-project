@@ -46,7 +46,7 @@ describe('server', () => {
   it('rejects a wrong host key and ignores host commands from non-hosts', async () => {
     const c = client();
     expect(await c.emit('host:auth', { key: 'nope' })).toEqual({ ok: false, error: expect.any(String) });
-    c.s.emit('host:next');
+    c.s.emit('host:next', { phase: 'lobby', roundIndex: -1 });
     await new Promise(r => setTimeout(r, 150));
     expect(app.room.phase).toBe('lobby');
   });
@@ -59,21 +59,25 @@ describe('server', () => {
     a.s.emit('player:vote', { choice: 'visible' });
     await host.until(s => s.players.length >= 2 && s.poll.visible === 1);
 
-    host.s.emit('host:next');
+    const step = (phase: string, roundIndex: number) => host.s.emit('host:next', { phase, roundIndex } as never);
+    step('lobby', -1);
+    step('lobby', -1); // double click: must be ignored
     await host.until(s => s.phase === 'event');
-    host.s.emit('host:next');
+    await new Promise(r => setTimeout(r, 150));
+    expect(app.room.phase).toBe('event');
+    step('event', 0);
     await host.until(s => s.phase === 'pricing');
     expect((await a.emit<{ ok: boolean }>('player:price', { price: 22 })).ok).toBe(true);
     await host.until(s => s.players.some(p => p.submitted));
-    host.s.emit('host:next');
+    step('pricing', 0);
     const rev = await host.until(s => s.phase === 'reveal');
     expect(rev.lastResult!.shops.find(x => x.playerId === ja.playerId)!.price).toBe(22);
 
     for (let r = 1; r < 4; r++) {
-      host.s.emit('host:next'); host.s.emit('host:next'); host.s.emit('host:next');
+      step('reveal', r - 1); step('event', r); step('pricing', r);
       await host.until(s => s.phase === 'reveal' && s.roundIndex === r);
     }
-    host.s.emit('host:next');
+    step('reveal', 3);
     const end = await host.until(s => s.phase === 'awards');
     expect(end.awards.length).toBeGreaterThan(0);
 

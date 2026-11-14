@@ -42,8 +42,8 @@
 .crowd { display: grid; gap: 14px; }
 .crowd__count { font-size: 22px; color: var(--ink-soft); }
 .crowd__count b { font-family: var(--font-display); font-size: 44px; color: var(--ink); vertical-align: -4px; }
-.crowd__chips { display: flex; flex-wrap: wrap; gap: 8px; max-height: 236px; overflow: hidden; }
-.crowd__chip { padding: 8px 14px; border-radius: var(--r-pill); background: var(--paper); box-shadow: var(--shadow-sm); font-weight: 700; font-size: 17px; }
+.crowd__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.crowd__chip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 14px; border-radius: var(--r-pill); background: var(--paper); box-shadow: var(--shadow-sm); font-weight: 700; font-size: 17px; }
 .crowd__chip--more { background: var(--ink); color: var(--paper); }
 
 /* Event */
@@ -113,7 +113,7 @@
 .board__row { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; padding: 10px 16px; border-radius: var(--r-md); background: var(--paper); box-shadow: var(--shadow-sm); }
 .board__rank { font-family: var(--font-display); font-weight: 800; font-size: 24px; text-align: center; }
 .board__name { display: grid; min-width: 0; line-height: 1.2; }
-.board__name b { font-size: 19px; }
+.board__name b { font-size: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board__name small { font-size: 13px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board__total { font-family: var(--font-display); font-weight: 800; font-size: 24px; }
 .board__total.is-loss { color: var(--strawberry-deep); }
@@ -124,7 +124,7 @@
 /* Awards */
 .awards-host { display: grid; grid-template-rows: auto auto 1fr; gap: 24px; height: 100%; padding-top: 8px; justify-items: center; }
 .awards-host h1 { font-size: 46px; }
-.awards-host__grid { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.awards-host__grid { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .award-card {
   display: grid; gap: 6px; justify-items: center; text-align: center; padding: 24px 18px;
   border-radius: var(--r-xl); background: var(--paper); box-shadow: var(--shadow-lg); border-bottom: 8px solid var(--matcha);
@@ -134,10 +134,10 @@
 .award-card--hoarder { border-bottom-color: var(--caramel); }
 .award-card__emoji { font-size: 64px; line-height: 1.1; }
 .award-card h2 { font-size: 24px; }
-.award-card__who { font-family: var(--font-display); font-weight: 800; font-size: 30px; }
-.award-card__shop { font-size: 14px; color: var(--ink-faint); }
+.award-card__who { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-weight: 800; font-size: 28px; }
+.award-card__shop { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--ink-faint); }
 .award-card__detail { font-size: 16px; color: var(--ink-soft); }
-.awards-host__board { width: 760px; }
+.awards-host__board { width: 760px; min-height: 0; overflow: hidden; }
 
 /* Emoji rain */
 .rain { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 90; }

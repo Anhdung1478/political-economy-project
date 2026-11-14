@@ -1,3 +1,4 @@
+import compression from 'compression';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -23,9 +24,11 @@ export interface AppOptions {
 export function createApp(opts: AppOptions) {
   const app = express();
   const http = createServer(app);
-  const io = new Server<ClientToServer, ServerToClient, object, SocketData>(http);
+  // Short heartbeats so a phone that silently lost Wi-Fi notices within ~10 s.
+  const io = new Server<ClientToServer, ServerToClient, object, SocketData>(http, { pingInterval: 5000, pingTimeout: 5000 });
   const room = new GameRoom();
 
+  app.use(compression());
   app.get('/healthz', (_req, res) => { res.type('text').send('ok'); });
   app.get('/api/config', (_req, res) => { res.json({ publicUrl: opts.publicUrl ?? null }); });
   if (opts.staticDir && existsSync(opts.staticDir)) {
@@ -39,7 +42,8 @@ export function createApp(opts: AppOptions) {
   const broadcast = () => {
     if (queued) return;
     queued = true;
-    setTimeout(() => { queued = false; io.emit('state', room.snapshot()); }, 50);
+    // While 80 phones lock in prices, batch updates more aggressively.
+    setTimeout(() => { queued = false; io.emit('state', room.snapshot()); }, room.phase === 'pricing' ? 300 : 50);
   };
 
   let timer: NodeJS.Timeout | undefined;
@@ -105,8 +109,9 @@ export function createApp(opts: AppOptions) {
       socket.join('hosts');
       reply(ack, { ok: true });
     });
-    socket.on('host:next', () => {
+    socket.on('host:next', p => {
       if (!socket.data.isHost) return;
+      if (p?.phase !== room.phase || p?.roundIndex !== room.roundIndex) return; // stale or double click
       room.next();
       armTimer();
       broadcast();

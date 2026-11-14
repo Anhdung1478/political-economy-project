@@ -62,7 +62,9 @@
 .tile__icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 18px; background: var(--t-soft); font-size: 28px; }
 .tile h3 { font-size: 25px; letter-spacing: -0.02em; }
 .tile p { font-size: 19px; line-height: 1.45; color: var(--ink-soft); }
-.split .stack > .tile { grid-template-columns: 56px 1fr; column-gap: 18px; padding: 20px 24px; }
+.split .stack > .tile { grid-template-columns: 56px 1fr; column-gap: 18px; row-gap: 4px; padding: 14px 22px; }
+.split .stack:has(> .tile:nth-child(4)) { gap: 14px; }
+.split .stack:has(> .tile:nth-child(4)) .tile p { font-size: 18px; }
 .split .stack > .tile .tile__icon { grid-row: span 2; }
 
 /* ===== Callout / verdict ===== */
@@ -74,6 +76,7 @@
 }
 .callout > span { font-size: 30px; }
 .callout--matcha { background: var(--matcha-soft); border-color: var(--matcha); }
+.callout--compact { padding: 14px 22px; font-size: 18px; line-height: 1.45; background: var(--strawberry-soft); border-color: var(--strawberry); }
 .verdict {
   display: flex; align-items: center; justify-content: center; gap: 20px;
   padding: 26px; border-radius: var(--r-xl); background: var(--ink); color: var(--paper);
@@ -90,8 +93,8 @@
 .photo--portrait { height: 560px; }
 .photo--wide { height: 262px; }
 .photo--avatar { width: 108px; height: 108px; border-radius: 50%; flex: none; }
-.photo--avatar img { transform: scale(1.9); transform-origin: 50% 32%; }
-.photo--avatar:hover img { transform: scale(1.95); }
+.photo--avatar img { object-position: 46% 0; transform: scale(2.3); transform-origin: 46% 14%; }
+.photo--avatar:hover img { transform: scale(2.36); }
 .collage { display: grid; gap: 18px; }
 
 /* ===== Quote & flow (Smith) ===== */

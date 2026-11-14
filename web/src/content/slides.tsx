@@ -62,7 +62,7 @@ export const SLIDES: Slide[] = [
         </In>
       </div>
     ),
-    notes: 'Chào cô và các bạn. Nhóm mình sẽ trả lời một câu hỏi tưởng đơn giản: thị trường nên để "tự chạy" hay cần nhà nước "cầm lái"? Trước khi nghe, mời cả lớp quét QR và bình chọn — cuối buổi mình sẽ xem ý kiến có đổi không. Giữ luôn điện thoại, lát nữa có game.',
+    notes: 'Chào cô và các bạn. Nhóm mình sẽ trả lời một câu hỏi tưởng đơn giản: thị trường nên để "tự chạy" hay cần nhà nước "cầm lái"? Trước khi nghe, mời cả lớp quét QR và bình chọn — cuối buổi mình sẽ nhìn lại kết quả (ai đổi ý thì cứ bấm lại). Giữ luôn điện thoại, lát nữa có game.',
   },
   {
     id: 'perfect', speaker: 0, kicker: 'Khái niệm',
@@ -111,19 +111,20 @@ export const SLIDES: Slide[] = [
   },
   {
     id: 'mechanism', speaker: 0, kicker: 'Cơ chế vận hành',
-    label: 'Ba quy luật của thị trường',
+    label: 'Các quy luật của thị trường',
     title: <>Giá cả là tín hiệu, cạnh tranh là động cơ</>,
     body: () => (
       <div className="split">
         <div className="stack">
-          <Tile i={1} icon="⚖️" title="Quy luật giá trị" tone="matcha">Sản xuất và trao đổi dựa trên hao phí lao động xã hội cần thiết; giá cả xoay quanh giá trị.</Tile>
-          <Tile i={2} icon="📈" title="Quy luật cung – cầu" tone="matcha">Cầu vượt cung → giá tăng → người bán sản xuất thêm. Cung vượt cầu → giá giảm.</Tile>
-          <Tile i={3} icon="🏁" title="Quy luật cạnh tranh" tone="matcha">Buộc người sản xuất cải tiến kỹ thuật, hạ chi phí để không bị loại.</Tile>
+          <Tile i={1} icon="⚖️" title="Quy luật giá trị" tone="matcha">Giá cả xoay quanh giá trị (hao phí lao động xã hội cần thiết).</Tile>
+          <Tile i={2} icon="📈" title="Quy luật cung – cầu" tone="matcha">Cầu vượt cung → giá tăng; cung vượt cầu → giá giảm.</Tile>
+          <Tile i={3} icon="💵" title="Quy luật lưu thông tiền tệ" tone="matcha">Lượng tiền cần cho lưu thông tuỳ tổng giá cả hàng hoá và tốc độ quay vòng của tiền.</Tile>
+          <Tile i={4} icon="🏁" title="Quy luật cạnh tranh" tone="matcha">Buộc người sản xuất cải tiến kỹ thuật, hạ chi phí.</Tile>
         </div>
         <In i={2} className="card chart-card"><SupplyDemandChart mode="free" /></In>
       </div>
     ),
-    notes: 'Ba quy luật kinh tế chủ yếu của thị trường theo giáo trình. Bấm "Cầu tăng" trên biểu đồ: đường cầu dịch phải, điểm cân bằng mới có giá cao hơn và sản lượng lớn hơn — không ai ra lệnh, giá tự điều chỉnh.',
+    notes: 'Bốn quy luật kinh tế chủ yếu của thị trường theo giáo trình: giá trị, cung – cầu, lưu thông tiền tệ, cạnh tranh. Bấm "Cầu tăng" trên biểu đồ: đường cầu dịch phải, điểm cân bằng mới có giá cao hơn và sản lượng lớn hơn — không ai ra lệnh, giá tự điều chỉnh.',
   },
   {
     id: 'strengths', speaker: 0, kicker: 'Ưu thế',
@@ -158,7 +159,7 @@ export const SLIDES: Slide[] = [
         <Tile i={6} icon="⚖️" title="Phân hoá giàu nghèo" tone="caramel">Thị trường thưởng cho hiệu quả, không tự lo công bằng.</Tile>
       </div>
     ),
-    notes: 'Giáo trình gọi đây là các khuyết tật của nền kinh tế thị trường. Mỗi khuyết tật là một chỗ mà một trong 4 điều kiện "hoàn hảo" bị vi phạm — ví dụ độc quyền vi phạm điều kiện "rất nhiều người bán", thông tin bất cân xứng vi phạm "thông tin đầy đủ".',
+    notes: 'Giáo trình gọi đây là các khuyết tật của nền kinh tế thị trường. Một số khuyết tật đến từ việc điều kiện "hoàn hảo" bị vi phạm — độc quyền phá điều kiện "rất nhiều người bán", thông tin bất cân xứng phá "thông tin đầy đủ". Số khác như khủng hoảng, ngoại ứng, hàng hoá công cộng, phân hoá giàu nghèo thì vẫn xảy ra ngay cả khi cạnh tranh rất mạnh.',
   },
   {
     id: 'keynes', speaker: 1, kicker: '1929 – 1933',
@@ -274,6 +275,10 @@ export const SLIDES: Slide[] = [
           <Tile i={3} icon="🧾" title="Giảm thuế VAT 10% → 8%" tone="strawberry">Kích cầu tiêu dùng sau dịch, áp dụng từ năm 2022.</Tile>
           <Tile i={4} icon="🤝" title="Gói hỗ trợ COVID-19" tone="strawberry">Nghị quyết 68/NQ-CP (2021): khoảng 26.000 tỷ đồng cho người lao động.</Tile>
         </div>
+        <In i={5} className="callout callout--compact">
+          <span aria-hidden="true">📌</span>
+          <p><strong>Đặc trưng:</strong> nhiều hình thức sở hữu, kinh tế nhà nước giữ vai trò chủ đạo · Nhà nước pháp quyền XHCN quản lý · phân phối chủ yếu theo lao động và hiệu quả kinh tế · tăng trưởng gắn với tiến bộ, công bằng xã hội.</p>
+        </In>
       </div>
     ),
     notes: 'Việt Nam chọn đúng con đường kết hợp: thị trường quyết định giá cả và phân bổ nguồn lực, nhà nước định hướng và điều tiết, bảo đảm tiến bộ và công bằng xã hội. Ba ví dụ gần gũi: quỹ bình ổn xăng dầu, giảm VAT 2%, gói hỗ trợ COVID.',
@@ -292,13 +297,13 @@ export const SLIDES: Slide[] = [
           </ul></In>
         </div>
         <In i={2} className="card poll-card">
-          <h3>Đầu giờ cả lớp đã chọn…</h3>
+          <h3>Cả lớp đã chọn…</h3>
           <PollBars />
           <p className="poll-card__verdict">Đáp án của nhóm: <strong>cả hai</strong> 🤝</p>
         </In>
       </div>
     ),
-    notes: 'Tóm lại ba ý. Nhìn kết quả bình chọn đầu giờ: phe nào đông hơn? Dù chọn bên nào, các bạn đều đúng một nửa. Chuyển sang game: giờ chính các bạn sẽ làm chủ quán trà sữa dưới cả hai bàn tay.',
+    notes: 'Tóm lại ba ý. Nhìn kết quả bình chọn: phe nào đông hơn? Dù chọn bên nào, các bạn đều đúng một nửa. Chuyển sang game: giờ chính các bạn sẽ làm chủ quán trà sữa dưới cả hai bàn tay.',
   },
   {
     id: 'game', speaker: 2, kicker: 'Hết phần nghe — tới phần chơi',

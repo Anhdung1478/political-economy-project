@@ -30,6 +30,11 @@ export default function Presentation() {
   }, [index]);
 
   useEffect(() => { history.replaceState(null, '', `#${index + 1}`); }, [index]);
+  useEffect(() => {
+    const onHash = () => go(Number(location.hash.slice(1) || 1) - 1);
+    addEventListener('hashchange', onHash);
+    return () => removeEventListener('hashchange', onHash);
+  }, [go]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

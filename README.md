@@ -51,6 +51,16 @@ docker run -d -p 3000:3000 -e HOST_KEY=mat-khau-host -e PUBLIC_URL=https://ten-m
 Nếu đặt sau nginx, nhớ bật WebSocket (`proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`).
 Trạng thái game nằm trong RAM, restart server là ván mới.
 
+## Kịch bản ngày thuyết trình
+
+1. Trước giờ: deploy với `HOST_KEY` và `PUBLIC_URL` đúng tên miền; mở thử `/` trên laptop chiếu.
+2. Mở sẵn 2 tab: tab 1 là `/` (slide), tab 2 là `/host?key=<HOST_KEY>` (mã tự biến khỏi thanh địa chỉ sau khi vào).
+3. Slide 1: cả lớp quét QR, nhập tên, bình chọn. Giữ điện thoại lại cho phần game.
+4. Hết slide 13: chuyển sang tab host, bấm nút xanh (hoặc `→` trên bút trình chiếu) để đi qua từng bước. Nút tự khoá ~1 giây sau mỗi bước nên bấm đúp không bị trôi vòng.
+5. Muốn chơi lại: **Reset**. Quán của người đã thoát sẽ bị dọn.
+
+Khi `NODE_ENV=production` (mặc định trong Docker), server từ chối khởi động nếu thiếu `HOST_KEY`.
+
 ## Sửa nội dung
 
 - Tên 3 người nói: `web/src/content/speakers.ts`

@@ -119,7 +119,8 @@ export class GameRoom {
     this.deadline = null;
     this.lastResult = null;
     this.awards = [];
-    for (const p of this.players.values()) {
+    for (const p of [...this.players.values()]) {
+      if (!p.connected) { this.players.delete(p.id); this.byToken.delete(p.token); continue; }
       p.total = 0;
       p.history = [];
       p.pendingPrice = null;
@@ -130,9 +131,10 @@ export class GameRoom {
   private closePricing(): void {
     const round = ROUNDS[this.roundIndex];
     const list = [...this.players.values()];
+    const chosen = new Map(list.map(p => [p.id, p.pendingPrice ?? p.lastPrice ?? GAME.defaultPrice]));
     const shops = list.map(p => ({
       playerId: p.id,
-      price: Math.min(round.maxPrice, Math.max(GAME.priceMin, p.pendingPrice ?? p.lastPrice ?? GAME.defaultPrice)),
+      price: Math.min(round.maxPrice, Math.max(GAME.priceMin, chosen.get(p.id)!)),
     }));
     const customers = Math.round(GAME.customersPerPlayer * list.length * round.customerMultiplier);
     const out = runMarket(
@@ -142,7 +144,8 @@ export class GameRoom {
     for (const s of out.shops) {
       const p = this.players.get(s.playerId)!;
       p.total += s.profit;
-      p.lastPrice = s.price;
+      // Remember what the player chose, so a price ceiling does not stick into later rounds.
+      p.lastPrice = chosen.get(s.playerId)!;
       p.pendingPrice = null;
       p.history.push({ price: s.price, sold: s.sold, unsold: s.unsold });
     }

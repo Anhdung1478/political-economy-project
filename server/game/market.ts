@@ -23,22 +23,28 @@ export function customerBudgets(n: number, min: number, max: number): number[] {
 }
 
 /**
- * Customers arrive in random order. Each buys one cup at the cheapest shop that
- * still has capacity and whose price fits the budget; ties go to the shop that
- * has sold the fewest cups so far.
+ * Customers queue by budget, richest first. Each buys one cup at the cheapest shop
+ * that still has capacity and whose price fits the budget; ties go to the shop that
+ * has sold the fewest cups so far. A customer who cannot buy is a shortage
+ * (`unserved`) only when every shop is sold out and they could afford the cheapest
+ * price; otherwise they were priced out.
  */
 export function runMarket(input: MarketInput, random: () => number = Math.random): MarketOutput {
   const sold = new Map(input.shops.map(s => [s.playerId, 0]));
   // Shuffle first so the stable sort leaves equal-price shops in random order.
   const byPrice = shuffle(input.shops, random).sort((a, b) => a.price - b.price);
-  const budgets = shuffle(customerBudgets(input.customers, input.wtpMin, input.wtpMax), random);
+  const budgets = customerBudgets(input.customers, input.wtpMin, input.wtpMax).reverse();
+  const minPrice = byPrice.length ? byPrice[0].price : Infinity;
   let served = 0, unserved = 0, pricedOut = 0;
 
   for (const budget of budgets) {
-    const affordable = byPrice.filter(s => s.price <= budget);
-    if (affordable.length === 0) { pricedOut++; continue; }
-    const open = affordable.filter(s => sold.get(s.playerId)! < input.capacity);
-    if (open.length === 0) { unserved++; continue; }
+    const open = byPrice.filter(s => s.price <= budget && sold.get(s.playerId)! < input.capacity);
+    if (open.length === 0) {
+      const allSoldOut = byPrice.every(s => sold.get(s.playerId)! >= input.capacity);
+      if (allSoldOut && budget >= minPrice) unserved++;
+      else pricedOut++;
+      continue;
+    }
     let pick = open[0];
     for (const s of open) {
       if (s.price !== open[0].price) break;

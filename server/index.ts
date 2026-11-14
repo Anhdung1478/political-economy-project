@@ -4,8 +4,12 @@ import { createApp } from './app';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 3000);
+if (!process.env.HOST_KEY && process.env.NODE_ENV === 'production') {
+  console.error('❌ Thiếu HOST_KEY. Chạy lại với HOST_KEY=<mã riêng>.');
+  process.exit(1);
+}
 const hostKey = process.env.HOST_KEY ?? 'hai-ban-tay';
-if (!process.env.HOST_KEY) console.warn('⚠️  HOST_KEY chưa được đặt — đang dùng mặc định "hai-ban-tay".');
+if (!process.env.HOST_KEY) console.warn('⚠️  HOST_KEY chưa được đặt — đang dùng mặc định "hai-ban-tay" (chỉ nên dùng khi chạy thử).');
 
 const { http } = createApp({
   hostKey,
@@ -15,5 +19,5 @@ const { http } = createApp({
 
 http.listen(port, () => {
   console.log(`🥤 Hai Bàn Tay đang chạy ở http://localhost:${port}`);
-  console.log(`   Màn host: http://localhost:${port}/host?key=${hostKey}`);
+  console.log(`   Màn host: http://localhost:${port}/host`);
 });

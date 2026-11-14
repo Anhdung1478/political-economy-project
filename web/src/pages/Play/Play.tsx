@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useState } from 'react';
 import { ROUNDS } from '../../../../shared/config';
-import { api, storage, useOnConnect, useRoom } from '../../net/socket';
+import { api, NET_TIMEOUT, storage, useOnConnect, useRoom } from '../../net/socket';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { AwardsScreen } from './AwardsScreen';
 import { EventScreen } from './EventScreen';
@@ -19,13 +19,13 @@ export default function Play() {
   const [checking, setChecking] = useState(() => storage.get(TOKEN) !== null);
 
   // Re-attach this phone to its shop on every (re)connect.
-  const resume = useCallback(() => {
+  const resume = useCallback(function resume() {
     const token = storage.get(TOKEN);
     if (!token) { setChecking(false); return; }
     void api.resume(token).then(r => {
-      if (r.ok) setPlayerId(r.playerId);
-      else { storage.set(TOKEN, null); setPlayerId(null); }
-      setChecking(false);
+      if (r.ok) { setPlayerId(r.playerId); setChecking(false); }
+      else if (r.error === NET_TIMEOUT) setTimeout(resume, 1500); // keep the shop; try again
+      else { storage.set(TOKEN, null); setPlayerId(null); setChecking(false); }
     });
   }, []);
   useOnConnect(resume);

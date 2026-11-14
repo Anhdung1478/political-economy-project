@@ -76,8 +76,9 @@ describe('GameRoom', () => {
     expect(room.snapshot().lastResult!.shops[0].price).toBe(25);
     room.next(); room.next(); room.next();
     expect(room.snapshot().lastResult!.shops[0].price).toBe(20);
+    room.next(); room.next(); room.next();                            // round 2 tax, no submit → back to 25, not stuck at 20
+    expect(room.snapshot().lastResult!.shops[0].price).toBe(25);
     room.next(); room.next(); room.submitPrice(playerId, 40); room.next();
-    room.next(); room.next(); room.next();
     expect(room.snapshot().lastResult!.shops[0].price).toBe(40);
     expect(room.snapshot().lastResult!.customers).toBe(8);
   });

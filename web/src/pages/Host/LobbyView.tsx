@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { PublicPlayer } from '../../../../shared/types';
 import { JoinQR } from '../../ui/JoinQR';
 
-const MAX_CHIPS = 48;
+const MAX_CHIPS = 30;
 
 export function LobbyView({ players }: { players: PublicPlayer[] }) {
   const shown = [...players].sort((a, b) => Number(b.id.slice(1)) - Number(a.id.slice(1))).slice(0, MAX_CHIPS);

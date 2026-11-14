@@ -60,6 +60,21 @@ describe('runMarket', () => {
     expect(out.shops[0].profit).toBe(70);
   });
 
+  it('free market: richer customers fill the cheap shop first, an overpriced shop sells nothing, no fake shortage', () => {
+    const out = runMarket(base({ customers: 15, shops: [{ playerId: 'fair', price: 30 }, { playerId: 'greedy', price: 45 }] }), mulberry32(2));
+    const [fair, greedy] = out.shops;
+    expect(fair.sold).toBe(10);
+    expect(greedy.sold).toBe(0);
+    expect(out.unserved).toBe(0);
+    expect(out.pricedOut).toBe(5);
+  });
+
+  it('a cheap sold-out shop does not count pricier-shop refusals as shortage', () => {
+    const out = runMarket(base({ capacity: 2, shops: [{ playerId: 'a', price: 10 }, { playerId: 'b', price: 50 }] }), mulberry32(4));
+    expect(out.unserved).toBe(0);
+    expect(out.served + out.pricedOut).toBe(10);
+  });
+
   it('handles zero customers and zero shops', () => {
     expect(runMarket(base({ customers: 0, shops: [{ playerId: 'a', price: 20 }] })).served).toBe(0);
     expect(runMarket(base({ shops: [] })).pricedOut).toBe(10);

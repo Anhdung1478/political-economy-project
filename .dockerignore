@@ -3,3 +3,6 @@ dist
 .git
 .claude
 docs
+.taste-skill
+.shots
+.bots.json

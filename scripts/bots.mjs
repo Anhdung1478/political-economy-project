@@ -62,9 +62,10 @@ async function price() {
 
 async function host(cmd) {
   const s = await connect();
+  const st = await latest(s);
   const r = await call(s, 'host:auth', { key: KEY });
   if (!r.ok) { console.error('wrong HOST_KEY'); process.exit(1); }
-  s.emit(cmd);
+  s.emit(cmd, { phase: st.phase, roundIndex: st.roundIndex });
   await sleep(200);
   s.close();
 }

@@ -17,7 +17,16 @@ export function Modal({ open, title, onClose, children, actions }: Props) {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
     box.current?.querySelector<HTMLElement>('button')?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+      if (e.key !== 'Tab' || !box.current) return;
+      // Keep focus inside the dialog.
+      const items = [...box.current.querySelectorAll<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')];
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', onKey, true);
     return () => { window.removeEventListener('keydown', onKey, true); prev?.focus(); };
   }, [open, onClose]);

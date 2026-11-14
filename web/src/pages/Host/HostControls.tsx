@@ -26,24 +26,36 @@ const HINT: Record<Phase, string> = {
 
 export function HostControls({ phase, roundIndex, totalRounds, playerCount }: Props) {
   const [confirm, setConfirm] = useState(false);
+  const [locked, setLocked] = useState(false);
   const label = primaryLabel(phase, roundIndex, totalRounds);
+
+  // Briefly lock the main button after every phase change so a double click cannot skip a step.
+  useEffect(() => {
+    setLocked(true);
+    const t = setTimeout(() => setLocked(false), 900);
+    return () => clearTimeout(t);
+  }, [phase, roundIndex]);
+  const advance = () => { if (!locked) { setLocked(true); api.next(phase, roundIndex); } };
 
   // A presentation clicker sends PageDown / → : let it drive the game too.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input, [role="dialog"]')) return;
-      if ((e.key === 'ArrowRight' || e.key === 'PageDown') && label) { e.preventDefault(); api.next(); }
+      if ((e.key === 'ArrowRight' || e.key === 'PageDown') && label) {
+        e.preventDefault();
+        if (!e.repeat) advance();
+      }
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [label]);
+  });
 
   return (
     <footer className="controls">
       <p className="controls__hint">{phase === 'lobby' && playerCount === 0 ? 'Chưa có ai trong chợ — chờ chút nhé.' : HINT[phase]}</p>
       <div className="controls__buttons">
         <Button variant="ghost" onClick={() => setConfirm(true)} icon="↺">{phase === 'awards' ? 'Chơi lại' : 'Reset'}</Button>
-        {label && <Button size="lg" variant={phase === 'pricing' ? 'caramel' : 'primary'} onClick={api.next} icon="→">{label}</Button>}
+        {label && <Button size="lg" variant={phase === 'pricing' ? 'caramel' : 'primary'} onClick={advance} disabled={locked} icon="→">{label}</Button>}
       </div>
       <Modal open={confirm} title="Làm lại từ đầu?" onClose={() => setConfirm(false)}
         actions={<>

@@ -28,7 +28,11 @@ export function PricingScreen({ round, index, me, deadline, serverOffset }: Prop
     setBusy(true);
     const r = await api.price(price);
     setBusy(false);
-    if (r.ok) { setSent(price); setError(null); storage.set(LAST_PRICE, String(price)); }
+    if (r.ok) {
+      setSent(price); setError(null);
+      // A price forced down by a ceiling should not become next round's default.
+      if (round.maxPrice === GAME.priceMax) storage.set(LAST_PRICE, String(price));
+    }
     else setError(r.error);
   };
 
