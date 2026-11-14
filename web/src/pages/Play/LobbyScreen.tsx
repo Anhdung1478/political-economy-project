@@ -16,7 +16,7 @@ export function LobbyScreen({ me }: { me: PublicPlayer }) {
       <motion.div className="shop-card" initial={{ scale: 0.8, rotate: -4 }} animate={{ scale: 1, rotate: -1.5 }}
         transition={{ type: 'spring', stiffness: 300, damping: 14 }}>
         <small>Quán của bạn</small>
-        <b>{me.shopName}</b>
+        <b>{me.nickname}</b>
       </motion.div>
 
       <section className="vote" aria-labelledby="vote-q">

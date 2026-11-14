@@ -15,7 +15,7 @@ export function AwardsScreen({ me, awards, players }: { me: PublicPlayer; awards
         <small>/ {players.length}</small>
       </motion.div>
       <h1>{me.rank === 1 ? 'Vua trà sữa là bạn! 👑' : me.rank <= 3 ? 'Lên podium rồi! 🎉' : 'Game over — cảm ơn đã chơi!'}</h1>
-      <p className="play__sub">Tổng lãi của <b>{me.shopName}</b>: <b>{me.total}k</b></p>
+      <p className="play__sub">Tổng lãi của <b>{me.nickname}</b>: <b>{me.total}k</b></p>
 
       <div className="award-list">
         {awards.map((a, i) => (

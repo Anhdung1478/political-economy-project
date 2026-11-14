@@ -16,7 +16,7 @@ export const GAME = {
 export const EMOJIS = ['😂', '🔥', '💸', '🥤', '😭', '🤡'] as const;
 export type Emoji = (typeof EMOJIS)[number];
 
-export type RoundId = 'free' | 'ceiling' | 'tax' | 'rumor';
+export type RoundId = 'free' | 'free2' | 'ceiling' | 'tax' | 'rumor';
 export interface RoundRule {
   id: RoundId;
   emoji: string;
@@ -35,6 +35,12 @@ export const ROUNDS: readonly RoundRule[] = [
     id: 'free', emoji: '👻', hand: 'invisible', title: 'Chợ tự do',
     description: 'Bàn tay vô hình lo hết. Muốn bán giá nào thì bán.',
     lesson: 'Không ai ra lệnh, nhưng cạnh tranh tự kéo giá về một mức mà người mua lẫn người bán đều chịu được.',
+    maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1,
+  },
+  {
+    id: 'free2', emoji: '👻', hand: 'invisible', title: 'Chợ tự do (lần 2)',
+    description: 'Vẫn chợ tự do, nhưng giờ ai cũng đã thấy giá vòng trước. Chỉnh giá đi!',
+    lesson: 'Nhìn giá của nhau rồi tự điều chỉnh — giá hội tụ dần về mức cân bằng mà không cần ai ra lệnh.',
     maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1,
   },
   {

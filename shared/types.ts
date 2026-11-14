@@ -12,12 +12,13 @@ export interface RoundResult {
   pricedOut: number;
   taxCollected: number;
   avgPrice: number;
+  /** Market-clearing price for this round's rules: where cups demanded equal cups on offer. */
+  optimalPrice: number;
   shops: ShopResult[];
 }
 export interface PublicPlayer {
   id: string;
   nickname: string;
-  shopName: string;
   total: number;
   rank: number;
   connected: boolean;

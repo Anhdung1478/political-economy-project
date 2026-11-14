@@ -5,7 +5,7 @@ Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
 > Nền kinh tế thị trường hoàn hảo nên được vận hành bởi **"bàn tay vô hình"** hay **"bàn tay hữu hình"**?
 
 - **10 phút thuyết trình** (3 người, 13 slide) với poll trực tiếp và biểu đồ cung – cầu động.
-- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 4 vòng: chợ tự do → giá trần → thuế → tin đồn.
+- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chỉ chọn giá bán. 5 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn.
 
 ## Ba màn hình
 
@@ -65,7 +65,7 @@ Khi `NODE_ENV=production` (mặc định trong Docker), server từ chối khở
 
 - Tên 3 người nói: `web/src/content/speakers.ts`
 - Nội dung slide và ghi chú: `web/src/content/slides.tsx`
-- Luật game và 4 vòng: `shared/config.ts`
+- Luật game và các vòng: `shared/config.ts`
 
 ## Tổng duyệt với bot
 

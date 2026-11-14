@@ -316,7 +316,7 @@ export const SLIDES: Slide[] = [
           <In i={2}><ul className="points">
             <li>Vốn 15k/ly, mỗi quán pha tối đa 10 ly.</li>
             <li>Khách mua ở quán <strong>rẻ nhất trước</strong>, giá quá túi tiền thì bỏ đi.</li>
-            <li>4 vòng, mỗi vòng một “bàn tay” khác nhau xuất hiện.</li>
+            <li>5 vòng, mỗi vòng một “bàn tay” khác nhau xuất hiện.</li>
             <li>Lãi nhiều nhất thì thắng. Ế nhất… cũng có giải.</li>
           </ul></In>
           <In i={3} className="chip chip--matcha game-joined"><PlayerCount /> chủ quán đã vào chợ</In>

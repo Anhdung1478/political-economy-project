@@ -18,7 +18,7 @@ const URL = process.env.BOT_URL ?? 'http://localhost:3000';
 const KEY = process.env.HOST_KEY ?? 'hai-ban-tay';
 const FILE = '.bots.json';
 const NAMES = ['Tuấn', 'Linh', 'Huy', 'Trang', 'Minh', 'Ngọc', 'Phúc', 'Hà', 'Khoa', 'Vy', 'Bảo', 'My', 'Nam', 'Thảo', 'Đạt', 'Quỳnh', 'Long', 'Chi', 'Sơn', 'An'];
-const ROUND_MAX = [50, 20, 50, 50];
+const ROUND_MAX = [50, 50, 20, 50, 50];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const connect = () => new Promise(res => { const s = io(URL, { transports: ['websocket'], forceNew: true }); s.once('connect', () => res(s)); });
@@ -74,7 +74,7 @@ async function auto(n) {
   writeFileSync(FILE, '[]');
   await join(n);
   await host('host:next');                               // event 1
-  for (let r = 0; r < 4; r++) {
+  for (let r = 0; r < ROUND_MAX.length; r++) {
     await sleep(3000); await host('host:next');          // pricing
     await sleep(1500); await price();
     await sleep(1500); await host('host:next');          // reveal

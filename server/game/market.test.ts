@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { customerBudgets, runMarket, type MarketInput } from './market';
+import { clearingPrice, customerBudgets, runMarket, type MarketInput } from './market';
 import { mulberry32 } from './random';
 
 const base = (over: Partial<MarketInput>): MarketInput => ({
@@ -78,5 +78,19 @@ describe('runMarket', () => {
   it('handles zero customers and zero shops', () => {
     expect(runMarket(base({ customers: 0, shops: [{ playerId: 'a', price: 20 }] })).served).toBe(0);
     expect(runMarket(base({ shops: [] })).pricedOut).toBe(10);
+  });
+});
+
+describe('clearingPrice', () => {
+  const o = { customersPerShop: 15, wtpMin: 15, wtpMax: 60, capacity: 10, cost: 15, maxPrice: 50 };
+  it('is where demand fills capacity', () => expect(clearingPrice(o)).toBe(30));
+  it('is capped by a price ceiling', () => expect(clearingPrice({ ...o, maxPrice: 20 })).toBe(20));
+  it('never drops below cost + 1k', () => expect(clearingPrice({ ...o, customersPerShop: 7.5 })).toBe(16));
+  it('is the best price for one shop when the others charge it', () => {
+    const mine = (p: number) => runMarket(base({
+      shops: [{ playerId: 'me', price: p }, ...Array.from({ length: 9 }, (_, i) => ({ playerId: `s${i}`, price: 30 }))], customers: 150,
+    }), mulberry32(1)).shops[0].profit;
+    expect(mine(30)).toBeGreaterThan(mine(28));
+    expect(mine(30)).toBeGreaterThan(mine(32));
   });
 });

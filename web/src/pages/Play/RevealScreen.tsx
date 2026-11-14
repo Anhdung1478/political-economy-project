@@ -41,6 +41,7 @@ export function RevealScreen({ round, result, me, total }: Props) {
             ))}
           </div>
           <p className="cups__label"><b>{mine.sold}</b>/{GAME.capacity} ly đã bán · hạng <b>{me.rank}</b>/{total}</p>
+          <p className="cups__label">🎯 Giá tối ưu vòng này: <b>{fmtK(result.optimalPrice)}</b> · trung bình chợ {fmtK(result.avgPrice)}</p>
         </>
       ) : (
         <div className="reveal__head"><h1>Bạn vào muộn 😅</h1><p className="play__sub">Vòng sau mới tính quán của bạn.</p></div>

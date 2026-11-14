@@ -3,7 +3,7 @@ import type { PublicPlayer, RoundResult } from '../../../../shared/types';
 
 /** Two or three football-commentator lines about a round's result. */
 export function commentary(result: RoundResult, players: PublicPlayer[], round: RoundRule): string[] {
-  const name = (id: string) => players.find(p => p.id === id)?.shopName ?? 'Một quán bí ẩn';
+  const name = (id: string) => players.find(p => p.id === id)?.nickname ?? 'Một quán bí ẩn';
   const lines: string[] = [];
   const shops = [...result.shops];
 

@@ -2,14 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { GAME, ROUNDS } from '../../shared/config';
 import type { Ack, Award, Phase, PollChoice, RoomSnapshot, RoundResult } from '../../shared/types';
 import { computeAwards } from './awards';
-import { runMarket } from './market';
-import { makeShopName } from './names';
+import { clearingPrice, runMarket } from './market';
 
 interface Player {
   id: string;
   token: string;
   nickname: string;
-  shopName: string;
   joinOrder: number;
   total: number;
   connected: boolean;
@@ -49,7 +47,7 @@ export class GameRoom {
     const id = `p${++this.seq}`;
     const token = randomUUID();
     this.players.set(id, {
-      id, token, nickname, shopName: makeShopName(nickname, this.random), joinOrder: this.seq,
+      id, token, nickname, joinOrder: this.seq,
       total: 0, connected: true, vote: null, pendingPrice: null, lastPrice: null, history: [],
     });
     this.byToken.set(token, id);
@@ -157,6 +155,10 @@ export class GameRoom {
       pricedOut: out.pricedOut,
       taxCollected: out.taxCollected,
       shops: out.shops,
+      optimalPrice: clearingPrice({
+        customersPerShop: shops.length ? customers / shops.length : 0,
+        wtpMin: GAME.wtpMin, wtpMax: GAME.wtpMax, capacity: GAME.capacity, cost: round.cost, maxPrice: round.maxPrice,
+      }),
       avgPrice: shops.length ? Math.round((shops.reduce((s, x) => s + x.price, 0) / shops.length) * 10) / 10 : 0,
     };
     this.phase = 'reveal';
@@ -177,7 +179,7 @@ export class GameRoom {
       deadline: this.deadline,
       serverNow: this.now(),
       players: this.ranked().map((p, i) => ({
-        id: p.id, nickname: p.nickname, shopName: p.shopName, total: p.total, rank: i + 1,
+        id: p.id, nickname: p.nickname, total: p.total, rank: i + 1,
         connected: p.connected, submitted: p.pendingPrice !== null,
       })),
       poll,

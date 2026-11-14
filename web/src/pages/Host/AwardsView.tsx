@@ -17,7 +17,6 @@ export function AwardsView({ awards, players }: { awards: Award[]; players: Publ
             <span className="award-card__emoji" aria-hidden="true">{a.emoji}</span>
             <h2>{a.title}</h2>
             <p className="award-card__who">{who(a.playerId)?.nickname ?? '???'}</p>
-            <p className="award-card__shop">{who(a.playerId)?.shopName}</p>
             <p className="award-card__detail">{a.detail}</p>
           </motion.div>
         ))}

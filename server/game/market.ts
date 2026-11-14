@@ -60,3 +60,13 @@ export function runMarket(input: MarketInput, random: () => number = Math.random
   });
   return { shops, served, unserved, pricedOut, taxCollected: served * input.tax };
 }
+
+/**
+ * Market-clearing price: the price at which the customers who can afford it exactly fill
+ * every shop's capacity. Shops at or below it sell out; above it they lose customers.
+ * Never below cost + 1k (nobody should sell at a loss) and never above the round's cap.
+ */
+export function clearingPrice(o: { customersPerShop: number; wtpMin: number; wtpMax: number; capacity: number; cost: number; maxPrice: number }): number {
+  const p = o.customersPerShop > 0 ? Math.floor(o.wtpMax - ((o.wtpMax - o.wtpMin) * o.capacity) / o.customersPerShop) : 0;
+  return Math.min(o.maxPrice, Math.max(o.cost + 1, p));
+}

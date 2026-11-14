@@ -17,7 +17,7 @@ function sample(shops: ShopResult[], n: number): ShopResult[] {
 
 export function RevealView({ round, result, players }: { round: RoundRule; result: RoundResult; players: PublicPlayer[] }) {
   const rows = sample(result.shops, MAX_ROWS);
-  const nameOf = (id: string) => players.find(p => p.id === id)?.shopName ?? '…';
+  const nameOf = (id: string) => players.find(p => p.id === id)?.nickname ?? '…';
   const lines = commentary(result, players, round);
 
   return (
@@ -51,6 +51,7 @@ export function RevealView({ round, result, players }: { round: RoundRule; resul
 
       <div className="reveal-host__side">
         <div className="stats">
+          <Stat tone="matcha" label="Giá tối ưu vòng này" value={`🎯 ${fmtK(result.optimalPrice)}`} />
           <Stat label="Giá trung bình" value={fmtK(result.avgPrice)} />
           <Stat label="Khách mua được" value={`${result.served}/${result.customers}`} />
           {result.unserved > 0 && <Stat tone="strawberry" label="Xếp hàng mà không mua được" value={`😤 ${result.unserved}`} />}
@@ -71,7 +72,7 @@ export function RevealView({ round, result, players }: { round: RoundRule; resul
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'strawberry' | 'caramel' }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'strawberry' | 'caramel' | 'matcha' }) {
   return (
     <div className={cx('stat-host', tone && `stat-host--${tone}`)}>
       <b>{value}</b><small>{label}</small>

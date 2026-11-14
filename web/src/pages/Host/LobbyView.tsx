@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { ROUNDS } from '../../../../shared/config';
 import type { PublicPlayer } from '../../../../shared/types';
 import { JoinQR } from '../../ui/JoinQR';
 
@@ -19,7 +20,7 @@ export function LobbyView({ players }: { players: PublicPlayer[] }) {
             <li>Mỗi vòng, kéo thanh trượt để <b>chọn giá bán</b>.</li>
             <li>Khách mua ở quán <b>rẻ nhất trước</b>, mỗi quán pha tối đa <b>10 ly</b>.</li>
             <li>Giá vượt túi tiền thì khách <b>bỏ đi</b>.</li>
-            <li><b>Lãi = (giá − vốn) × số ly bán.</b> 4 vòng, lãi nhất thắng.</li>
+            <li><b>Lãi = (giá − vốn) × số ly bán.</b> {ROUNDS.length} vòng, lãi nhất thắng.</li>
           </ol>
         </div>
         <div className="crowd" aria-live="polite">
