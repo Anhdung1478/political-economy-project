@@ -14,6 +14,6 @@ const { http } = createApp({
 });
 
 http.listen(port, () => {
-  console.log(`🧋 Hai Bàn Tay đang chạy ở http://localhost:${port}`);
+  console.log(`🥤 Hai Bàn Tay đang chạy ở http://localhost:${port}`);
   console.log(`   Màn host: http://localhost:${port}/host?key=${hostKey}`);
 });

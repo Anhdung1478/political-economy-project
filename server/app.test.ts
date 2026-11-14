@@ -89,7 +89,7 @@ describe('server', () => {
     await host.emit('host:auth', { key: 'secret' });
     await p.emit('player:join', { nickname: 'Emo' });
     const got = new Promise(res => host.s.once('emoji', res));
-    p.s.emit('player:emoji', { emoji: '🧋' });
-    expect(await got).toMatchObject({ emoji: '🧋' });
+    p.s.emit('player:emoji', { emoji: '🥤' });
+    expect(await got).toMatchObject({ emoji: '🥤' });
   });
 });

@@ -13,7 +13,7 @@ export const GAME = {
   emojiPerSecond: 5,
 } as const;
 
-export const EMOJIS = ['😂', '🔥', '💸', '🧋', '😭', '🤡'] as const;
+export const EMOJIS = ['😂', '🔥', '💸', '🥤', '😭', '🤡'] as const;
 export type Emoji = (typeof EMOJIS)[number];
 
 export type RoundId = 'free' | 'ceiling' | 'tax' | 'rumor';
@@ -32,7 +32,7 @@ export interface RoundRule {
 
 export const ROUNDS: readonly RoundRule[] = [
   {
-    id: 'free', emoji: '🫥', hand: 'invisible', title: 'Chợ tự do',
+    id: 'free', emoji: '👻', hand: 'invisible', title: 'Chợ tự do',
     description: 'Bàn tay vô hình lo hết. Muốn bán giá nào thì bán.',
     lesson: 'Không ai ra lệnh, nhưng cạnh tranh tự kéo giá về một mức mà người mua lẫn người bán đều chịu được.',
     maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 1,
@@ -50,7 +50,7 @@ export const ROUNDS: readonly RoundRule[] = [
     maxPrice: 50, cost: 20, tax: 5, customerMultiplier: 1,
   },
   {
-    id: 'rumor', emoji: '🪱', hand: 'chaos', title: 'Tin đồn: trà sữa nấu từ nước rửa chén',
+    id: 'rumor', emoji: '🤢', hand: 'chaos', title: 'Tin đồn: trà sữa nấu từ nước rửa chén',
     description: 'Một nửa số khách sợ quá, bỏ về uống nước lọc.',
     lesson: 'Thông tin bất cân xứng làm thị trường "đơ" — cần nhà nước kiểm định và công bố thông tin.',
     maxPrice: 50, cost: 15, tax: 0, customerMultiplier: 0.5,

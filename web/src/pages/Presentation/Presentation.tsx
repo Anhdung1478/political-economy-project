@@ -1,28 +1,17 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { PHOTO_CREDITS, SLIDES } from '../../content/slides';
 import { SPEAKERS } from '../../content/speakers';
 import { useRoom } from '../../net/socket';
 import { Button } from '../../ui/Button';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { Select } from '../../ui/Select';
+import { useStageScale } from '../../ui/useStageScale';
 import { NotesPanel } from './NotesPanel';
 import { SpeakerHud, type Clock } from './SpeakerHud';
 import './presentation.css';
 
-const STAGE_W = 1600, STAGE_H = 900;
 const clampIndex = (i: number) => Math.min(SLIDES.length - 1, Math.max(0, i));
-
-function useStageScale(): number {
-  const [scale, setScale] = useState(1);
-  useLayoutEffect(() => {
-    const fit = () => setScale(Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H));
-    fit();
-    addEventListener('resize', fit);
-    return () => removeEventListener('resize', fit);
-  }, []);
-  return scale;
-}
 
 const emptyClock = (): Clock => ({ started: null, starts: SPEAKERS.map(() => null), ends: SPEAKERS.map(() => null) });
 
@@ -65,7 +54,8 @@ export default function Presentation() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('input, textarea, .select, [role="dialog"]')) return;
+      // The dropdown's own trigger handles ↑ ↓ Enter Space; ← → still change slides from it.
+      if (t.closest('input, textarea, [role="listbox"], [role="dialog"]')) return;
       const onButton = t.tagName === 'BUTTON';
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && !onButton)) { e.preventDefault(); go(index + 1); }
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(index - 1); }

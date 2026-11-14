@@ -1,12 +1,5 @@
 /* ===== Deck & stage: a 1600×900 canvas scaled to fit any screen ===== */
-.deck { position: fixed; inset: 0; overflow: hidden; }
-.stage {
-  position: absolute; left: 50%; top: 50%;
-  width: 1600px; height: 900px;
-  transform: translate(-50%, -50%) scale(var(--scale, 1));
-  display: grid; grid-template-rows: 1fr auto;
-  font-size: 22px;
-}
+.stage { grid-template-rows: 1fr auto; font-size: 22px; }
 .stage__slides { position: relative; overflow: hidden; }
 .slide {
   position: absolute; inset: 0;
@@ -23,7 +16,7 @@
   font-weight: 700; font-size: 17px; letter-spacing: 0.01em;
 }
 .kicker::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-.slide__head h1 { font-size: 62px; max-width: 1300px; text-wrap: balance; }
+.slide__head h1 { font-size: 62px; max-width: 1432px; text-wrap: balance; }
 .hl { font-style: normal; position: relative; white-space: nowrap; z-index: 0; }
 .hl::after {
   content: ''; position: absolute; left: -4px; right: -4px; bottom: 4px; height: 0.36em; z-index: -1;
@@ -95,7 +88,7 @@
 .photo img { width: 100%; height: 100%; object-fit: cover; filter: sepia(0.18) contrast(1.02); transition: transform 0.5s var(--ease-out); }
 .photo:hover img { transform: scale(1.03); }
 .photo--portrait { height: 560px; }
-.photo--wide { height: 300px; }
+.photo--wide { height: 262px; }
 .photo--avatar { width: 108px; height: 108px; border-radius: 50%; flex: none; }
 .photo--avatar img { transform: scale(1.9); transform-origin: 50% 32%; }
 .photo--avatar:hover img { transform: scale(1.95); }

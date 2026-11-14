@@ -72,7 +72,7 @@ export const SLIDES: Slide[] = [
       <div className="stack">
         <div className="grid grid--4">
           <Tile i={1} icon="👥" title="Rất đông người mua, người bán">Không ai đủ lớn để một mình quyết định giá.</Tile>
-          <Tile i={2} icon="🧋" title="Hàng hoá đồng nhất">Ly trà sữa quán nào cũng như quán nào.</Tile>
+          <Tile i={2} icon="🥤" title="Hàng hoá đồng nhất">Ly trà sữa quán nào cũng như quán nào.</Tile>
           <Tile i={3} icon="🔎" title="Thông tin đầy đủ">Ai cũng biết giá, biết chất lượng, không ai bị lừa.</Tile>
           <Tile i={4} icon="🚪" title="Tự do ra – vào thị trường">Muốn mở quán thì mở, lỗ thì đóng cửa.</Tile>
         </div>
@@ -303,7 +303,7 @@ export const SLIDES: Slide[] = [
   {
     id: 'game', speaker: 2, kicker: 'Hết phần nghe — tới phần chơi',
     label: 'Game: Chợ Trà Sữa Hỗn Loạn',
-    title: <>Chợ Trà Sữa <em className="hl hl--strawberry">Hỗn Loạn</em> 🧋</>,
+    title: <>Chợ Trà Sữa <em className="hl hl--strawberry">Hỗn Loạn</em> 🥤</>,
     body: () => (
       <div className="split">
         <div className="stack">
