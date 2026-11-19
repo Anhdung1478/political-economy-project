@@ -107,6 +107,8 @@ export type PlanIssue = 'price' | 'ceiling' | 'teaStep' | 'credit' | 'upgradeOwn
 export interface ShopDayResult {
   id: ShopId; status: ShopStatus; openPrice: K | null; closePrice: K | null;
   trail: [Tick, K][]; sold: number; capacity: number; soldOut: boolean; profit: K | null;
+  /** Sum of the price at the moment of each sale (plan: AI revenue). */
+  revenue: K;
 }
 export interface RushResult {
   player: RushPlayer['tally'] & {
