@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, type SimConfig } from './config';
 import { customerCount } from './customers';
-import type { AiShopId, Day, Size } from './types';
+import { restsToday } from './shops';
+import type { AiShopId, Day, DayRules, Size } from './types';
 
 const SIZES: Size[] = ['S', 'M', 'L'];
 const AI_IDS = Object.keys(CONFIG.aiShops) as AiShopId[];
@@ -9,11 +10,12 @@ const AI_IDS = Object.keys(CONFIG.aiShops) as AiShopId[];
 /** Player cups in one rush without upgrades, per spec section 4 ("khoảng 18 ly"). */
 const playerCups = (cfg: SimConfig) => Math.floor(cfg.rush.ticks / cfg.craft.cupTicksEstimate);
 
-/** Whether an AI shop sits the day out because its highest allowed price is below cost + rest margin. */
+/** Whether an AI shop sits the day out under that day's schedule (no cartel). */
 const rests = (id: AiShopId, day: Day, cfg: SimConfig) => {
-  const ceiling = cfg.days[day].ceiling;
-  const highest = ceiling === null ? cfg.aiPricing.maxPrice : Math.min(cfg.aiPricing.maxPrice, ceiling);
-  return highest < cfg.aiShops[id].cost + cfg.aiPricing.restMargin;
+  const d = cfg.days[day];
+  const rules: DayRules = { day, ceiling: d.ceiling, taxPerCup: d.taxPerCup, rumor: d.rumor, cartel: false,
+    customerFactor: d.customerFactor };
+  return restsToday(id, rules, cfg);
 };
 
 const streetCapacity = (day: Day, cfg: SimConfig) =>
