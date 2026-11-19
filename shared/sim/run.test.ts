@@ -175,6 +175,16 @@ describe('chooseCard', () => {
     expect(done.flags.cartel).toBe('agreed');
   });
 
+  it("records the cash each choice moved on today's record, for the report (not recomputed in the evening)", () => {
+    const first = chooseCard(a, 'A');
+    const side = a.cards[0];
+    expect(first.today!.cardCash).toBe(first.cash - a.cash);
+    const done = chooseCard(first, 'B');
+    expect(done.reports[0].cardCash).toBe(first.cash - a.cash);
+    expect(applyChoice(a, side, 'A').today!.cardCash).toBe(applyChoice(a, side, 'A').cash - a.cash);
+    expect(applyChoice(newRun(42, 'run-1'), 'kol', 'A').today).toBeNull();
+  });
+
   it('closes the day after the last card and moves to the report', () => {
     const done = chooseCard(chooseCard(a, 'A'), 'B');
     const chosen = applyChoice(applyChoice(a, a.cards[0], 'A'), 'cartel', 'B');

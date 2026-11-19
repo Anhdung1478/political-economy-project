@@ -1,7 +1,6 @@
 // The player's day around the rush (spec §5, §8): today's rules, the cost and checks of a plan, the quick-fill
 // buttons and the capacity line, the morning brief, `openDay`, which pays and starts the rush, and `closeDay`, the
 // evening that settles the day and writes its report.
-import { choiceCash } from './cards';
 import { CONFIG, type SimConfig } from './config';
 import { customerCount } from './customers';
 import { createRush, type RushInput } from './rush';
@@ -163,20 +162,16 @@ function briefRow(id: ShopId, run: RunState, last: DayReport, cfg: SimConfig): B
   const closePrice = r?.closePrice ?? null;
   const sold = r?.sold ?? 0;
   const soldOut = r?.soldOut ?? false;
-  if (id === 'player') {
-    return { id, status: 'open', closePrice, sold, soldOut, unsold: null, opensToday: false, closedOn: null };
-  }
+  if (id === 'player') return { id, status: 'open', closePrice, sold, soldOut, unsold: null, closedOn: null };
   const shop = run.shops.find(s => s.id === id);
   if (shop === undefined) throw new Error(`no shop ${id} in the run`);
-  const opensToday = shop.status === 'notYet' && cfg.aiShops[id as AiShopId].firstDay <= run.day;
   let status: BriefShopRow['status'] = r?.status === 'resting' ? 'rested' : 'open';
   if (shop.status === 'closed') status = 'closed';
-  else if (opensToday) status = 'new';
-  else if (shop.status === 'notYet') status = 'notYet';
+  else if (shop.status === 'notYet') status = cfg.aiShops[id as AiShopId].firstDay <= run.day ? 'new' : 'notYet';
   return {
     id, status, closePrice, sold, soldOut,
     unsold: r === undefined || closePrice === null ? 0 : r.capacity - r.sold,
-    opensToday, closedOn: shop.closedOn,
+    closedOn: shop.closedOn,
   };
 }
 
@@ -239,8 +234,9 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
   const rep = clampRep(run.rep + morningNews.reduce((sum, i) => sum + i.delta, 0), cfg);
   const tempStaff = due.some(p => p.tempStaff === true);
   const adCustomers = due.reduce((sum, p) => sum + (p.adCustomers ?? 0), 0);
-  const spent = planCost(run, plan, cfg).total;
-  const cash = cashAtOpening(run) - spent;
+  const own = plainPlan(plan);
+  const paid = planCost(run, own, cfg);
+  const cash = cashAtOpening(run) - paid.total;
   const upgrades = plan.upgrade === null ? run.upgrades : [...run.upgrades, plan.upgrade];
   const skimpDays = run.skimpDays + (skimpToday(run, plan, cfg) ? 1 : 0);
 
@@ -248,7 +244,6 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
   const playerHistory = run.reports.map(r =>
     ({ day: r.summary.day, closePrice: r.summary.closePrice, sold: r.summary.cups }));
   const shops = morningPrices(run.shops, playerHistory, rules, run.flags, cfg);
-  const own = plainPlan(plan);
   const input: RushInput = {
     seed: run.seed, rules, ai: shops, adCustomers,
     player: {
@@ -262,7 +257,11 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
     run: {
       ...run, phase: 'rush', cash, rep, upgrades, skimpDays, shops,
       pending: run.pending.filter(p => p.day !== run.day),
-      plan: own, morningNews, today: { plan: own, spent, tempStaff, applied: due }, rushResult: null,
+      plan: own, morningNews, today: {
+        plan: own, cost: { tea: paid.tea, toppings: paid.toppings, upgrade: paid.upgrade }, tempStaff, applied: due,
+        cardCash: 0,
+      },
+      rushResult: null,
     },
     rush: state,
     events,
@@ -382,8 +381,7 @@ export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
   const p = result.player;
   const rules = dayRules(run, cfg);
 
-  const costs = planCost(run, plan, cfg);
-  const cost = costs.tea + costs.toppings;
+  const cost = today.cost.tea + today.cost.toppings;
   const fines = rules.cartel ? cfg.cards.cartel.fine : 0;
   const profit = p.revenue - cost - p.tax - fines;
   const cash = run.cash - fines;
@@ -430,8 +428,8 @@ export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
     repItems: [...run.morningNews, ...items],
     repBefore: before === undefined ? cfg.run.startRep : before.summary.rep,
     street, emptyHanded: result.emptyHanded, eligible: result.eligible, taxFund: result.taxFund,
-    upgradeCost: costs.upgrade,
-    cardCash: run.choices.reduce((sum, c) => sum + choiceCash(run, c.id, c.choice, cfg), 0),
+    missedNoStock: p.missedNoStock, teaCost: today.cost.tea, toppingCost: today.cost.toppings,
+    upgradeCost: today.cost.upgrade, cardCash: today.cardCash,
     delayedCash: today.applied.reduce((sum, e) => sum + (e.cash ?? 0), 0),
     lesson: lessonOf(run, result, fines, rules, cfg),
   };

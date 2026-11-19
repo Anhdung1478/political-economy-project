@@ -297,23 +297,25 @@ describe('morningBrief', () => {
     const brief = morningBrief({ ...r, shops, reports: [r.reports[0], { ...yesterday, street }] });
     expect(brief.street.map(s => s.id)).toEqual(STREET);
     expect(brief.street.find(s => s.id === 'giare')).toStrictEqual({
-      id: 'giare', status: 'open', closePrice: 22, sold: 12, soldOut: true, unsold: 0, opensToday: false,
-      closedOn: null });
+      id: 'giare', status: 'open', closePrice: 22, sold: 12, soldOut: true, unsold: 0, closedOn: null });
     expect(brief.street.find(s => s.id === 'batu')).toStrictEqual({
-      id: 'batu', status: 'open', closePrice: 27, sold: AI_SOLD, soldOut: false, unsold: 2, opensToday: false,
-      closedOn: null });
+      id: 'batu', status: 'open', closePrice: 27, sold: AI_SOLD, soldOut: false, unsold: 2, closedOn: null });
     expect(brief.street.find(s => s.id === 'luotsong')).toMatchObject({ status: 'closed', closePrice: 29, closedOn: 2 });
     expect(brief.street.find(s => s.id === 'tapdoan')).toMatchObject({ closePrice: 26.5, sold: AI_SOLD, unsold: 8 });
     expect(brief.street.find(s => s.id === 'player')).toStrictEqual({
-      id: 'player', status: 'open', closePrice: 30, sold: PLAYER_SOLD, soldOut: false, unsold: null, opensToday: false,
-      closedOn: null });
+      id: 'player', status: 'open', closePrice: 30, sold: PLAYER_SOLD, soldOut: false, unsold: null, closedOn: null });
   });
 
   it('marks Chuỗi Tập Đoàn as opening on day 2, with no price yesterday', () => {
     expect(morningBrief(seasoned(2)).street.find(s => s.id === 'tapdoan')).toStrictEqual({
-      id: 'tapdoan', status: 'new', closePrice: null, sold: 0, soldOut: false, unsold: 0, opensToday: true,
-      closedOn: null });
-    expect(morningBrief(seasoned(3)).street.find(s => s.id === 'tapdoan')!.opensToday).toBe(false);
+      id: 'tapdoan', status: 'new', closePrice: null, sold: 0, soldOut: false, unsold: 0, closedOn: null });
+    expect(morningBrief(seasoned(3)).street.find(s => s.id === 'tapdoan')!.status).toBe('open');
+  });
+
+  it('marks a shop whose first day is still to come as not yet open (a later first day in the config)', () => {
+    const later: SimConfig = { ...CONFIG, aiShops: { ...CONFIG.aiShops, tapdoan: { ...CONFIG.aiShops.tapdoan, firstDay: 3 } } };
+    expect(morningBrief(seasoned(2), later).street.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'notYet' });
+    expect(morningBrief(seasoned(2), CONFIG).street.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'new' });
   });
 
   it('shows a shop that rested yesterday without a price', () => {
@@ -362,7 +364,9 @@ describe('openDay', () => {
     expect(next.cash).toBe(81);
     expect(next.phase).toBe('rush');
     expect(next.plan).toStrictEqual(r.plan);
-    expect(next.today).toStrictEqual({ plan: r.plan, spent: 219, tempStaff: false, applied: [] });
+    expect(next.today).toStrictEqual({
+      plan: r.plan, cost: { tea: 165, toppings: 54, upgrade: 0 }, tempStaff: false, applied: [], cardCash: 0,
+    });
     expect(next.rep).toBe(50);
     expect(next.morningNews).toEqual([]);
     expect(events).toEqual([]);
@@ -635,6 +639,8 @@ describe('closeDay: phase and report', () => {
     expect(rep.emptyHanded).toBe(a.rushResult!.emptyHanded);
     expect(rep.eligible).toBe(a.rushResult!.eligible);
     expect(rep.taxFund).toBe(a.rushResult!.taxFund);
+    expect(rep.missedNoStock).toBe(a.rushResult!.player.missedNoStock);
+    expect(last(quiet(run(), run().plan, { missedNoStock: 7 })).missedNoStock).toBe(7);
   });
 
   it("fills the street's profit: AI shops from their books, the player's day profit, null for shops not trading", () => {
@@ -676,7 +682,22 @@ describe('closeDay: money (R27, §16 row 13)', () => {
     const s = last(evening(a)).summary;
     expect(s).toMatchObject({ cost: 219, upgrade: 'staff', profit: a.rushResult!.player.revenue - 219 });
     expect(last(evening(a)).upgradeCost).toBe(150);
+    expect(last(evening(a))).toMatchObject({ teaCost: 165, toppingCost: 54 });
     expect(last(quiet(r)).upgradeCost).toBe(0);
+  });
+
+  it("reports what was paid this morning and at each card, as stored on today's record (not recomputed)", () => {
+    const a = afternoon(run());
+    const paid = { ...a.today!, cost: { tea: 100, toppings: 10.5, upgrade: 80 }, cardCash: -12.5 };
+    const rep = last(closeDay({ ...a, cardIndex: 2, today: paid }));
+    expect(rep.summary.cost).toBe(110.5);
+    expect(rep.summary.profit).toBe(a.rushResult!.player.revenue - 110.5 - a.rushResult!.player.tax);
+    expect(rep).toMatchObject({ teaCost: 100, toppingCost: 10.5, upgradeCost: 80, cardCash: -12.5 });
+  });
+
+  it('pays the shock price for toppings on days 3–4, as reported', () => {
+    const r = seasoned(3, 20, { flags: shock() });
+    expect(last(quiet(r, at20(r)))).toMatchObject({ teaCost: 165, toppingCost: 13.5 });
   });
 
   it('does not refund the evaded tax again: it is already in cash, as card money', () => {
@@ -892,12 +913,13 @@ describe('closeDay: the cartel on the evening of day 2 (§7)', () => {
 });
 
 describe('closeDay: the AI books (§4 Rút lui)', () => {
-  it('books every AI shop that sold or rested today at aiProfit; shops not trading are left alone', () => {
-    const r = seasoned(3, 20);
+  it.each([3, 4] as Day[])('books every AI shop that sold or rested on day %i at aiProfit; shops not trading are left alone', day => {
+    const r = seasoned(day, 20);
     const shops = r.shops.map(s => (s.id === 'luotsong' ? { ...s, status: 'closed' as const, closedOn: 2 as Day } : s));
     const a = afternoon({ ...r, shops }, at20(r), QUIET);
     const e = evening(a);
     const rules = dayRules(a);
+    expect(rules.taxPerCup).toBe(CONFIG.days[day].taxPerCup);
     for (const s of e.shops) {
       const before = a.shops.find(x => x.id === s.id)!;
       if (s.id === 'luotsong') {
@@ -906,10 +928,18 @@ describe('closeDay: the AI books (§4 Rút lui)', () => {
       }
       const row = a.rushResult!.shops.find(x => x.id === s.id)!;
       expect(s.history).toStrictEqual([...before.history,
-        { day: 3, closePrice: row.closePrice, sold: row.sold, profit: aiProfit(s.id, row, rules), rested: before.resting }]);
+        { day, closePrice: row.closePrice, sold: row.sold, profit: aiProfit(s.id, row, rules), rested: before.resting }]);
     }
-    expect(lastEntry(e.shops.find(s => s.id === 'cochap')!.history))
-      .toStrictEqual({ day: 3, closePrice: null, sold: 0, profit: -100, rested: true });
+    if (day === 3) {
+      expect(lastEntry(e.shops.find(s => s.id === 'cochap')!.history))
+        .toStrictEqual({ day: 3, closePrice: null, sold: 0, profit: -100, rested: true });
+    } else {
+      // On the tax day every cup sold pays 5k: the books are below the tax-free figure by 5k a cup.
+      const batu = a.rushResult!.shops.find(x => x.id === 'batu')!;
+      expect(batu.sold).toBeGreaterThan(0);
+      expect(lastEntry(e.shops.find(s => s.id === 'batu')!.history).profit)
+        .toBe(aiProfit('batu', batu, { ...rules, taxPerCup: 0 }) - 5 * batu.sold);
+    }
   });
 
   it('opens the books of Chuỗi Tập Đoàn on its first day', () => {
@@ -1016,6 +1046,7 @@ describe('closeDay: the lesson card (§3, §8)', () => {
     const a = afternoon(seasoned(4, 30, { upgrades: ['staff'] }));
     const data = (c: Choice) => last(evening(a, [['tax', c], ['inspection', 'B']])).lesson;
     const base = { taxFund: a.rushResult!.taxFund, tax: a.rushResult!.player.tax };
+    expect(last(evening(a, [['tax', 'A'], ['inspection', 'B']])).taxFund).toBe(base.taxFund);
     expect(data('A')).toStrictEqual({ id: 'tax', data: { ...base, evaded: 0 } });
     expect(data('B')).toStrictEqual({ id: 'tax', data: { ...base, evaded: 1 } });
     expect(base.taxFund).toBeGreaterThan(base.tax);

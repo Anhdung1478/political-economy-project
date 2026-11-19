@@ -34,7 +34,7 @@ export function report(day: Day, playerClose: K, street: ShopDayResult[], over: 
     score: 0, upgrade: null, cards: [], labels: [], lost: false, ...over,
   };
   return { summary, repItems: [], repBefore: 50, street, emptyHanded: 0, eligible: 0, taxFund: 0,
-    upgradeCost: 0, cardCash: 0, delayedCash: 0, lesson: { id: 'freeMarket', data: {} } };
+    missedNoStock: 0, teaCost: 0, toppingCost: 0, upgradeCost: 0, cardCash: 0, delayedCash: 0, lesson: { id: 'freeMarket', data: {} } };
 }
 
 /**

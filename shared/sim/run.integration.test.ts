@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from './config';
 import { morningBrief, openDay, quickFill, validatePlan } from './day';
-import { finishRush } from './rush';
+import { finishRush, step } from './rush';
 import { chooseCard, endRush, ending, newRun, nextDay, score } from './run';
 import type { CardId, Choice, Day, DayReport, LessonId, MorningPlan, Phase, RunState, TeaGrade } from './types';
 
@@ -11,6 +11,8 @@ interface Script {
   /** Price on days other than 2 and 3 (day 3 sells at the 20k ceiling). */
   price: number; day2Price: number; tea: TeaGrade;
   card: (id: CardId) => Choice;
+  /** Mid-rush price change at tick `at` (the player's one change of the day), by `delta` from the morning price. */
+  reprice?: { at: number; delta: number };
 }
 
 const roundTrip = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -38,7 +40,12 @@ function play(seed: number, s: Script, seen: (before: RunState, after: RunState)
     const opened = openDay(run, planOf(run, s));
     at(opened.run);
     expect(opened.run.rep).toBe(brief.rep);   // no banner in the script
-    run = endRush(opened.run, finishRush(opened.rush).state);
+    let rush = opened.rush;
+    if (s.reprice !== undefined) {
+      while (rush.tick < s.reprice.at) rush = step(rush, []).state;
+      rush = step(rush, [{ type: 'setPrice', price: opened.run.plan.price + s.reprice.delta }]).state;
+    }
+    run = endRush(opened.run, finishRush(rush).state);
     while (run.phase === 'cards') {
       at(run);
       const before = run;
@@ -70,6 +77,9 @@ function checkReports(run: RunState) {
     expect(s.rep).toBe(clamp(morning + sum(r.repItems.filter(x => x.when === 'evening'))));
     expect(s.lost).toBe(s.rep === 0);
     expect(s.score).toBe(s.cash - CONFIG.run.startCash + s.rep * CONFIG.run.brandPerRep);
+    const own = r.street.find(x => x.id === 'player')!;
+    expect([s.openPrice, s.closePrice]).toEqual([own.openPrice, own.closePrice]);
+    expect(r.teaCost + r.toppingCost).toBe(s.cost);
     for (const x of [s.revenue, s.cost, s.tax, s.fines, s.profit, s.cash, s.wasteValue, r.cardCash]) {
       expect(Number.isInteger(x * 2)).toBe(true);
     }
@@ -91,8 +101,25 @@ function checkReports(run: RunState) {
     }
     for (const h of shop.history) {
       const row = run.reports[h.day - 1].street.find(x => x.id === shop.id)!;
-      expect(row.profit).toBe(h.profit);
+      expect(h).toStrictEqual({ day: h.day, closePrice: row.closePrice, sold: row.sold, profit: row.profit,
+        rested: row.status === 'resting' });
     }
+  }
+
+  // The lessons of days 1 and 2, recomputed from the street rows.
+  const pricesOf = (r: DayReport, key: 'openPrice' | 'closePrice') =>
+    r.street.flatMap(x => (x[key] === null ? [] : [x[key] as number]));
+  const mean = (xs: number[]) => Math.round((xs.reduce((a, b) => a + b, 0) * 2) / xs.length) / 2;
+  const [d1, d2] = run.reports;
+  if (d1 !== undefined) {
+    const open = pricesOf(d1, 'openPrice');
+    const close = pricesOf(d1, 'closePrice');
+    expect(d1.lesson.data).toStrictEqual({ openMin: Math.min(...open), openMax: Math.max(...open),
+      closeMin: Math.min(...close), closeMax: Math.max(...close) });
+  }
+  if (d2 !== undefined) {
+    expect(d2.lesson.data).toMatchObject({ avgClose1: mean(pricesOf(d1, 'closePrice')),
+      avgClose2: mean(pricesOf(d2, 'closePrice')) });
   }
   const end = ending(run);
   expect(end.profitByDay).toEqual(run.reports.map(r => r.summary.profit));
@@ -151,6 +178,29 @@ describe('a whole run, five days', () => {
     expect(run.reports.flatMap(r => r.summary.cards.map(c => c.id)).filter(id => story.has(id)))
       .toEqual(['cartel', 'shockTopping', 'blackMarket', 'tax', 'inspection', 'reporter']);
   });
+});
+
+describe('a run with a mid-rush price change every day', () => {
+  for (const seed of [11, 12]) {
+    it(`keeps seed ${seed}'s opening and closing prices apart, for the player and the AI shops`, () => {
+      // Day 1 at 40k: the player's open tops the street's range, its close (38k) does not.
+      const run = play(seed, { price: 40, day2Price: 30, tea: 'standard', card: honest('B'),
+        reprice: { at: 300, delta: -2 } });
+      expect(run.outcome).toBe('finished');
+      checkReports(run);
+      for (const r of run.reports) {
+        expect(r.summary.closePrice).toBe(r.summary.openPrice - 2);
+        const own = r.street.find(x => x.id === 'player')!;
+        expect(own.trail).toEqual([[0, r.summary.openPrice], [300, r.summary.openPrice - 2]]);
+      }
+      // AI shops move at the checkpoints too: their books keep the close, not the open.
+      const moved = run.reports.flatMap(r => r.street.filter(x => x.id !== 'player' && x.closePrice !== x.openPrice));
+      expect(moved.length).toBeGreaterThan(0);
+      expect(run.reports[0].street.some(x => x.id !== 'player' && x.closePrice !== x.openPrice)).toBe(true);
+      const l = run.reports[0].lesson.data;
+      expect([l.openMin, l.openMax]).not.toEqual([l.closeMin, l.closeMax]);
+    });
+  }
 });
 
 describe('evading the day-4 tax', () => {

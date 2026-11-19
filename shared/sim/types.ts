@@ -206,8 +206,12 @@ export interface DayReport {
   /** Every shop's day; `profit` filled in the evening: AI shops from their books, the player's day profit, null for
    *  shops not trading. */
   street: ShopDayResult[]; emptyHanded: number; eligible: number; taxFund: K;
-  /** Money lines outside the day profit (§16 row 13): the upgrade bought this morning, the cash of this afternoon's
-   *  card choices (a tax-evade refund included), the delayed card cash that landed this morning. */
+  /** Customers who would have bought from the player had it been in stock (§8 "không ghé vì hết món"). */
+  missedNoStock: number;
+  /** What the morning's tea and toppings cost, as paid (`summary.cost` is their sum). */
+  teaCost: K; toppingCost: K;
+  /** Money lines outside the day profit (§16 row 13), as paid: the upgrade bought this morning, the cash of this
+   *  afternoon's card choices (a tax-evade refund included), the delayed card cash that landed this morning. */
   upgradeCost: K; cardCash: K; delayedCash: K;
   lesson: { id: LessonId; data: Record<string, number> };
 }
@@ -228,8 +232,6 @@ export interface BriefShopRow {
   /** AI shops: cups left at close (capacity − sold), 0 when it did not sell; null for the player, whose leftovers
    *  are in the hint line. */
   unsold: number | null;
-  /** On the street for the first time today (Chuỗi Tập Đoàn on day 2). */
-  opensToday: boolean;
   /** The evening it closed for good; `day − 1` means it closed last night. Null while trading. */
   closedOn: Day | null;
 }
@@ -269,9 +271,14 @@ export interface RunState {
   sideDeck: SideCardId[]; sideDrawn: SideCardId[];
   shops: AiShopState[]; plan: MorningPlan; morningNews: RepItem[];
   today: null | {
-    plan: MorningPlan; spent: K; tempStaff: boolean;
+    plan: MorningPlan;
+    /** What `openDay` paid for the plan. */
+    cost: { tea: K; toppings: K; upgrade: K };
+    tempStaff: boolean;
     /** The delayed effects `openDay` applied this morning (R29); their rep is also in `morningNews`. */
     applied: PendingEffect[];
+    /** Cash moved by this afternoon's card choices so far, as `applyChoice` applied it. */
+    cardCash: K;
   };
   rushResult: RushResult | null;
   cards: CardId[]; cardIndex: number; choices: { id: CardId; choice: Choice }[]; cardRep: RepItem[];

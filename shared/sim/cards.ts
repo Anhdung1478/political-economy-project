@@ -2,7 +2,7 @@
 import { CONFIG, type SimConfig } from './config';
 import { shuffle, stream } from './rng';
 import type {
-  CardId, Choice, Day, K, PendingEffect, RepItem, RunFlags, RunState, SideCardId,
+  CardId, Choice, Day, PendingEffect, RepItem, RunFlags, RunState, SideCardId,
 } from './types';
 
 /** Indicators a card option shows (💰 tiền, ⭐ uy tín, 🧋 hàng, 🏛️ pháp luật) — never the numbers (§7). */
@@ -205,17 +205,10 @@ function effectOf(run: RunState, card: CardId, choice: Choice, cfg: SimConfig): 
 }
 
 /**
- * Cash the choice moved when it was made (delayed cash not included): the report's card-money line (§16 row 13).
- * `run` is the afternoon the choice was made in, or that evening.
- */
-export function choiceCash(run: RunState, card: CardId, choice: Choice, cfg: SimConfig = CONFIG): K {
-  return effectOf(run, card, choice, cfg).cash ?? 0;
-}
-
-/**
  * The player picks `choice` on `card` (R23). Cash moves now, even below the credit floor (§16 row 14); rep of the
- * day goes to `cardRep` for the evening; later effects go to `pending` for that morning. Records the choice and,
- * for a side card, the draw. Does not move `cardIndex` (chooseCard does).
+ * day goes to `cardRep` for the evening; later effects go to `pending` for that morning. Records the choice, its
+ * cash on `today.cardCash` (the report's card-money line) and, for a side card, the draw. Does not move `cardIndex`
+ * (chooseCard does).
  */
 export function applyChoice(run: RunState, card: CardId, choice: Choice, cfg: SimConfig = CONFIG): RunState {
   const e = effectOf(run, card, choice, cfg);
@@ -229,9 +222,12 @@ export function applyChoice(run: RunState, card: CardId, choice: Choice, cfg: Si
     if (day > cfg.run.dayCount) throw new Error(`${card} lands after the last day`);
     pending = [...pending, { day: day as Day, source: card, ...rest }];
   }
+  const cash = e.cash ?? 0;
   return {
     ...run,
-    cash: run.cash + (e.cash ?? 0),
+    cash: run.cash + cash,
+    // The report's card-money line (§16 row 13) reads what was applied here.
+    today: run.today === null ? null : { ...run.today, cardCash: run.today.cardCash + cash },
     flags: e.flags === undefined ? run.flags : { ...run.flags, ...e.flags },
     cardRep,
     pending,
