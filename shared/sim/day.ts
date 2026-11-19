@@ -22,7 +22,16 @@ export function dayRules(run: RunState, cfg: SimConfig = CONFIG): DayRules {
 const shockDay = (run: RunState, cfg: SimConfig) =>
   run.flags.shockTopping && cfg.cards.shockTopping.days.includes(run.day);
 
-/** What the plan costs this morning (§4 Giá và chi phí, Nâng cấp) and the cash left after paying it. */
+/** Delayed card effects that land on the morning of `run.day`. */
+const dueToday = (run: RunState): PendingEffect[] => run.pending.filter(p => p.day === run.day);
+
+/** Cash when the shop opens, before paying for the plan: this morning's delayed cash has landed (R28). */
+const cashAtOpening = (run: RunState): K => run.cash + dueToday(run).reduce((sum, p) => sum + (p.cash ?? 0), 0);
+
+/**
+ * What the plan costs this morning (§4 Giá và chi phí, Nâng cấp) and the cash left after paying it, counted from
+ * the cash at opening (R28).
+ */
 export function planCost(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFIG):
   { tea: K; toppings: K; upgrade: K; total: K; cashAfter: K } {
   const s = cfg.supplies;
@@ -31,7 +40,7 @@ export function planCost(run: RunState, plan: MorningPlan, cfg: SimConfig = CONF
   const toppings = cfg.customers.toppingOrder.reduce((sum, t) => sum + plan.toppings[t] * each, 0);
   const upgrade = plan.upgrade === null ? 0 : cfg.upgrades[plan.upgrade].cost;
   const total = tea + toppings + upgrade;
-  return { tea, toppings, upgrade, total, cashAfter: run.cash - total };
+  return { tea, toppings, upgrade, total, cashAfter: cashAtOpening(run) - total };
 }
 
 /**
@@ -48,6 +57,7 @@ export function validatePlan(run: RunState, plan: MorningPlan, cfg: SimConfig = 
   const ceiling = dayRules(run, cfg).ceiling;
   if (ceiling !== null && plan.price > ceiling) issues.push('ceiling');
   if (plan.teaMl % cfg.supplies.teaStepMl !== 0) issues.push('teaStep');
+  if (!cfg.customers.toppingOrder.every(t => Number.isInteger(plan.toppings[t]))) issues.push('toppingStep');
   const amounts = [plan.teaMl, ...cfg.customers.toppingOrder.map(t => plan.toppings[t])];
   if (amounts.some(x => x < 0)) issues.push('negative');
   if (plan.upgrade !== null && run.upgrades.includes(plan.upgrade)) issues.push('upgradeOwned');
@@ -122,9 +132,6 @@ export function quickFill(run: RunState, level: 'low' | 'mid' | 'high', plan: Mo
   return { teaMl, toppings };
 }
 
-/** Delayed card effects that land on the morning of `run.day`. */
-const dueToday = (run: RunState): PendingEffect[] => run.pending.filter(p => p.day === run.day);
-
 function briefRow(id: ShopId, run: RunState, last: DayReport, cfg: SimConfig): BriefShopRow {
   const r = last.street.find(s => s.id === id);
   const closePrice = r?.closePrice ?? null;
@@ -143,7 +150,8 @@ function briefRow(id: ShopId, run: RunState, last: DayReport, cfg: SimConfig): B
 
 /**
  * The morning screen's data (§5): today's theme and rules, the delayed effects landing this morning, yesterday's
- * street and hint line from yesterday's report, the capacity line for `run.plan`, the day-5 bus line, cash and rep.
+ * street and hint line from yesterday's report, the capacity line for `run.plan`, the day-5 bus line, rep, and the
+ * cash at opening (R28).
  */
 export function morningBrief(run: RunState, cfg: SimConfig = CONFIG): MorningBrief {
   const sched = cfg.days[run.day];
@@ -162,14 +170,15 @@ export function morningBrief(run: RunState, cfg: SimConfig = CONFIG): MorningBri
       used: { teaMl: last.summary.used.teaMl, toppings: { ...last.summary.used.toppings } },
     },
     capacity: capacityEstimate(run, run.plan, cfg),
-    bus, cash: run.cash, rep: run.rep,
+    bus, cash: cashAtOpening(run), rep: run.rep,
   };
 }
 
 /**
  * "Mở cửa" (§5): checks the plan, then applies this morning's delayed effects (cash, rep, the student's helper, ad
- * customers) and removes them; pays for the stock and the upgrade (R27); the banner's +10 lands now; the morning's
- * rep items are summed and clamped once and never end the run (§16 row 10). Counts a skimp day (skimp tea, or the
+ * customers), records them in `today.applied` (R29) and removes them; pays for the stock and the upgrade (R27);
+ * the banner's +10 lands now; the morning's rep items are summed and clamped once and never end the run (§16 row
+ * 10). Counts a skimp day (skimp tea, or the
  * shock toppings on days 3–4; §16 row 9), prices the AI shops from their books and the player's reports (Chuỗi Tập
  * Đoàn opens on its first day) and starts the rush. `events` is empty: the first step emits `rushStart`.
  */
@@ -194,7 +203,7 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
   const tempStaff = due.some(p => p.tempStaff === true);
   const adCustomers = due.reduce((sum, p) => sum + (p.adCustomers ?? 0), 0);
   const spent = planCost(run, plan, cfg).total;
-  const cash = run.cash + due.reduce((sum, p) => sum + (p.cash ?? 0), 0) - spent;
+  const cash = cashAtOpening(run) - spent;
   const upgrades = plan.upgrade === null ? run.upgrades : [...run.upgrades, plan.upgrade];
   const skimpDays = run.skimpDays + (plan.tea === 'skimp' || shockDay(run, cfg) ? 1 : 0);
 
@@ -216,7 +225,7 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
     run: {
       ...run, phase: 'rush', cash, rep, upgrades, skimpDays, shops,
       pending: run.pending.filter(p => p.day !== run.day),
-      plan: own, morningNews, today: { plan: own, spent, tempStaff }, rushResult: null,
+      plan: own, morningNews, today: { plan: own, spent, tempStaff, applied: due }, rushResult: null,
     },
     rush: state,
     events,

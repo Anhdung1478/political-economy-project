@@ -182,7 +182,15 @@ describe('validatePlan', () => {
   it('wants tea in 250 ml steps', () => {
     const r = run();
     expect(validatePlan(r, { ...r.plan, teaMl: 5600 })).toEqual(['teaStep']);
+    expect(validatePlan(r, { ...r.plan, teaMl: 250.5 })).toEqual(['teaStep']);
     expect(validatePlan(r, { ...r.plan, teaMl: 0 })).toEqual([]);
+  });
+
+  it('wants whole topping portions', () => {
+    const r = run();
+    expect(validatePlan(r, { ...r.plan, toppings: { pearl: 1.5, jelly: 0, pudding: 0 } })).toEqual(['toppingStep']);
+    expect(validatePlan(r, { ...r.plan, toppings: { pearl: 2, jelly: 1, pudding: 0.5 } })).toEqual(['toppingStep']);
+    expect(validatePlan(r, { ...r.plan, toppings: { pearl: 2, jelly: 1, pudding: NaN } })).toEqual(['toppingStep']);
   });
 
   it('refuses negative amounts', () => {
@@ -219,9 +227,22 @@ describe('validatePlan', () => {
 
   it('lists every issue at once, in a fixed order', () => {
     const r = run({ day: 3, cash: -150, upgrades: ['banner'] });
-    const bad: MorningPlan = { price: 25.5, tea: 'standard', teaMl: 100, toppings: { pearl: -1, jelly: 0, pudding: 0 },
-      upgrade: 'banner' };
-    expect(validatePlan(r, bad)).toEqual(['price', 'ceiling', 'teaStep', 'negative', 'upgradeOwned', 'credit']);
+    const bad: MorningPlan = { price: 25.5, tea: 'standard', teaMl: 100,
+      toppings: { pearl: -1.5, jelly: 0, pudding: 0 }, upgrade: 'banner' };
+    expect(validatePlan(r, bad))
+      .toEqual(['price', 'ceiling', 'teaStep', 'toppingStep', 'negative', 'upgradeOwned', 'credit']);
+  });
+
+  it("judges credit on the cash at opening: this morning's pending cash included (R28)", () => {
+    const tab: PendingEffect = { day: 1, source: 'tab', cash: 30, rep: 3 };
+    const r = run({ cash: 39, pending: [tab] });
+    expect(planCost(r, r.plan).cashAfter).toBe(-150);                   // 39 + 30 − 219
+    expect(validatePlan(r, r.plan)).toEqual([]);
+    expect(validatePlan({ ...r, pending: [] }, r.plan)).toEqual(['credit']);
+    expect(validatePlan({ ...r, pending: [{ ...tab, day: 2 }] }, r.plan)).toEqual(['credit']);
+    const opened = openDay(r, r.plan).run;
+    expect(opened.cash).toBe(-150);
+    expect(opened.cash).toBe(planCost(r, r.plan).cashAfter);
   });
 });
 
@@ -232,6 +253,13 @@ describe('morningBrief', () => {
       day: 1, theme: 'opening', rules: dayRules(r), busStop: false, news: [], street: [], yesterday: null,
       capacity: 18, bus: null, cash: 300, rep: 50,
     });
+  });
+
+  it("shows the cash the shop will have at opening, this morning's pending cash included (R28)", () => {
+    const r = seasoned(3, 20, { cash: 39, pending: [{ day: 3, source: 'tab', cash: 30, rep: 3 },
+      { day: 4, source: 'tab', cash: 30, rep: 3 }] });
+    expect(morningBrief(r).cash).toBe(69);
+    expect(morningBrief(r).rep).toBe(50);
   });
 
   it('lists the delayed effects that land this morning, not later ones', () => {
@@ -309,7 +337,7 @@ describe('openDay', () => {
     expect(next.cash).toBe(81);
     expect(next.phase).toBe('rush');
     expect(next.plan).toStrictEqual(r.plan);
-    expect(next.today).toStrictEqual({ plan: r.plan, spent: 219, tempStaff: false });
+    expect(next.today).toStrictEqual({ plan: r.plan, spent: 219, tempStaff: false, applied: [] });
     expect(next.rep).toBe(50);
     expect(next.morningNews).toEqual([]);
     expect(events).toEqual([]);
@@ -362,6 +390,7 @@ describe('openDay', () => {
       { reason: 'tab', delta: 3, when: 'morning' },
     ]);
     expect(next.today!.tempStaff).toBe(true);
+    expect(next.today!.applied).toStrictEqual(due);                     // R29: what landed this morning
     expect(rush.player.staff).toEqual({ progress: 0 });
     expect(rush.customers).toHaveLength(customerCount(3) + 6);
     expect(rush.customers.slice(-6)).toEqual(generateAdCustomers(r.seed, 3, customerCount(3), 6));
@@ -374,6 +403,7 @@ describe('openDay', () => {
     expect(rush.player.staff).toBeNull();
     expect(rush.customers).toHaveLength(customerCount(3));
     expect(next.pending).toEqual(r.pending);
+    expect(next.today!.applied).toEqual([]);
   });
 
   it("names the cartel break's morning gossip after the cartel card", () => {

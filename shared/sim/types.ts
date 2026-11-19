@@ -165,7 +165,7 @@ export type SimEvent = { t: Tick } & (
   | { type: 'rushEnd'; early: boolean });
 
 export interface MorningPlan { price: K; tea: TeaGrade; teaMl: Ml; toppings: Record<ToppingId, number>; upgrade: UpgradeId | null }
-export type PlanIssue = 'price' | 'ceiling' | 'teaStep' | 'credit' | 'upgradeOwned' | 'negative';
+export type PlanIssue = 'price' | 'ceiling' | 'teaStep' | 'toppingStep' | 'credit' | 'upgradeOwned' | 'negative';
 export interface ShopDayResult {
   id: ShopId; status: ShopStatus; openPrice: K | null; closePrice: K | null;
   trail: readonly (readonly [Tick, K])[]; sold: number; capacity: number; soldOut: boolean; profit: K | null;
@@ -218,7 +218,7 @@ export interface BriefShopRow {
 /** What the morning screen shows (§5), as data; the UI writes the sentences. */
 export interface MorningBrief {
   day: Day; theme: ThemeId; rules: DayRules; busStop: boolean;
-  /** Delayed card effects landing this morning; `openDay` applies them. */
+  /** Delayed card effects landing this morning; `openDay` applies them. `cash` already counts their cash (R28). */
   news: PendingEffect[];
   /** Yesterday's street in street order, the player included; empty on day 1. */
   street: BriefShopRow[];
@@ -245,7 +245,11 @@ export interface RunState {
   flags: RunFlags; pending: PendingEffect[];
   sideDeck: SideCardId[]; sideDrawn: SideCardId[];
   shops: AiShopState[]; plan: MorningPlan; morningNews: RepItem[];
-  today: null | { plan: MorningPlan; spent: K; tempStaff: boolean };
+  today: null | {
+    plan: MorningPlan; spent: K; tempStaff: boolean;
+    /** The delayed effects `openDay` applied this morning (R29); their rep is also in `morningNews`. */
+    applied: PendingEffect[];
+  };
   rushResult: RushResult | null;
   cards: CardId[]; cardIndex: number; choices: { id: CardId; choice: Choice }[]; cardRep: RepItem[];
   reports: DayReport[]; outcome: null | 'finished' | 'lostTrust';
