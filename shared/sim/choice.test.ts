@@ -55,9 +55,17 @@ describe('passesSkeptic (§6: leave if skeptic > 1 − (drop − 20%) × 2.5)', 
     expect(passesSkeptic(cust({ skeptic: 501 }), 400)).toBe(false);
   });
 
-  it('at a 60% drop or more nobody with any skepticism stays', () => {
-    expect(passesSkeptic(cust({ skeptic: 1 }), 600)).toBe(false);
-    expect(passesSkeptic(cust({ skeptic: 0 }), 700)).toBe(false);
+  it('a 60% cut makes the whole queue leave, and so does anything deeper', () => {
+    for (const skeptic of [0, 1, 500, 1000]) {
+      expect(passesSkeptic(cust({ skeptic }), 600)).toBe(false);
+      expect(passesSkeptic(cust({ skeptic }), 700)).toBe(false);
+    }
+  });
+
+  it('just under a 60% cut only the least skeptical stay', () => {
+    // 59.9%: limit = 10000 − 399 × 25 = 25 → skeptic ≤ 2
+    expect(passesSkeptic(cust({ skeptic: 2 }), 599)).toBe(true);
+    expect(passesSkeptic(cust({ skeptic: 3 }), 599)).toBe(false);
   });
 });
 

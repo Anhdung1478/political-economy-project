@@ -22,11 +22,15 @@ export function score10(c: Customer, o: ShopOffer, queueAhead: number = o.queue,
     + (o.rep - s.repPivot) * s.repWeight10 - s.queueWeight10 * queueAhead;
 }
 
-/** Skeptic test of a steep cut (§6): leaves if skeptic > 1 − (drop − 20%) × 2.5, on the 0..1000 / permille scale. */
+/**
+ * Skeptic test of a steep cut (§6): leaves if skeptic > 1 − (drop − 20%) × 2.5, on the 0..1000 / permille scale.
+ * A limit of 0 or less (a cut of 60% or more) makes everyone leave (ruling R6).
+ */
 export function passesSkeptic(c: Customer, dropPermille: number, cfg: SimConfig = CONFIG): boolean {
   const p = cfg.priceChange;
   if (dropPermille <= p.discountPermille) return true;
-  return c.skeptic * 10 <= 10000 - (dropPermille - p.discountPermille) * p.skepticSlopeTenths;
+  const limit = 10000 - (dropPermille - p.discountPermille) * p.skepticSlopeTenths;
+  return limit > 0 && c.skeptic * 10 <= limit;
 }
 
 /** Why the customer cannot pick this shop, before comparing scores; null if it is a candidate. */
