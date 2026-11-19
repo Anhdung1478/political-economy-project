@@ -1,8 +1,8 @@
-// Bots that play the game through its public API (Task 11, ruling R37): a rush policy taken one tick at a time
+// Bots that play the game through its public API (Task 11, rulings R37–R39): a rush policy taken one tick at a time
 // (`botStep`), whole rushes (`playRush`, optionally recording the events tick by tick for the scene preview), whole runs
 // (`playRun`), the play styles of spec §14 (`STRATEGIES`) and the 48 story-card combinations (`storyCombos`). The
 // balance simulator, the scene preview and the class-session bots build on these. Pure and deterministic: the bot's
-// randomness is an integer PRNG state in `BotState`, seeded from the stream `bot/{strategy}/{day}` (plan).
+// randomness is an integer PRNG state in `BotState`, seeded from the stream `bot/{day}`, shared by every strategy (R39).
 import { CONFIG, type SimConfig } from './config';
 import { morningBrief, openDay, quickFill, validatePlan } from './day';
 import { hashSeed, nextState } from './rng';
@@ -213,19 +213,23 @@ export function playRush(rush: RushState, policy: RushPolicy, botSeed: number, c
   return { rush: d, frames };
 }
 
-/** The bot's PRNG seed for a day: the seed of the stream `bot/{strategy}/{day}` (walking it gives that stream). */
-const botSeed = (seed: number, id: string, day: number) => hashSeed(seed, `bot/${id}/${day}`);
+/**
+ * The bot's PRNG seed for a day: the seed of the stream `bot/{day}` (walking it gives that stream). Every strategy
+ * shares it (R39, common random numbers), so two strategies on a seed differ only by their choices.
+ */
+const botSeed = (seed: number, day: number) => hashSeed(seed, `bot/${day}`);
 
 /**
  * A whole run (R37): each morning the strategy's plan, the shop opens, the bot plays the rush, the strategy answers
- * each card, the next day, until the end. The run id is `{strategy}-{seed}`. `total` is the final score.
+ * each card, the next day, until the end. The run id is `bot-{seed}`, the same for every strategy, so two strategies
+ * that choose alike play the same run (R39). `total` is the final score.
  */
 export function playRun(seed: number, strategy: Strategy, cfg: SimConfig = CONFIG):
   { run: RunState; reports: DayReport[]; total: K } {
-  let run = newRun(seed, `${strategy.id}-${seed}`, cfg);
+  let run = newRun(seed, `bot-${seed}`, cfg);
   while (run.phase !== 'end') {
     const opened = openDay(run, strategy.plan(run, morningBrief(run, cfg), cfg), cfg);
-    const { rush } = playRush(opened.rush, strategy.rush, botSeed(seed, strategy.id, run.day), cfg);
+    const { rush } = playRush(opened.rush, strategy.rush, botSeed(seed, run.day), cfg);
     run = endRush(opened.run, rush, cfg);
     while (run.phase === 'cards') run = chooseCard(run, strategy.card(run.cards[run.cardIndex], run), cfg);
     run = nextDay(run, cfg);
@@ -239,23 +243,34 @@ type Stocking = Pick<MorningPlan, 'teaMl' | 'toppings'>;
 
 /** How a style differs from `reasonable`. */
 interface Style {
-  price?: (brief: MorningBrief, cfg: SimConfig) => K;
+  price?: (run: RunState, cfg: SimConfig) => K;
   tea?: (run: RunState) => TeaGrade;
   stock?: (run: RunState, draft: MorningPlan, cfg: SimConfig) => Stocking;
   cards?: Partial<Record<CardId, Choice>>;
   rush?: Partial<RushPolicy>;
 }
 
-/** The average of yesterday's closing prices on the street, the player's included, to the 1k; day 1: the default. */
-function streetPrice(brief: MorningBrief, cfg: SimConfig): K {
-  let sum = 0;
-  let n = 0;
-  for (const r of brief.street) {
-    if (r.closePrice === null) continue;
-    sum += r.closePrice;
-    n++;
+/**
+ * The street's price (R38): the average of every shop's close, the player's included, on the latest free day before
+ * today, to the 1k; day 1 (no free day yet): the default 30k. A free day, as for the AI pricing rules (§16 row 12),
+ * has no ceiling and no cartel; on a tax day the AI shops' 3k pass-through is taken back off their closes.
+ */
+function streetPrice(run: RunState, cfg: SimConfig): K {
+  for (let i = run.reports.length - 1; i >= 0; i--) {
+    const r = run.reports[i];
+    const sched = cfg.days[r.summary.day];
+    if (sched.ceiling !== null || (sched.cartelPossible && run.flags.cartel === 'agreed')) continue;
+    const back = sched.taxPerCup > 0 ? cfg.aiPricing.taxPassThrough : 0;
+    let sum = 0;
+    let n = 0;
+    for (const row of r.street) {
+      if (row.closePrice === null) continue;
+      sum += row.id === 'player' ? row.closePrice : row.closePrice - back;
+      n++;
+    }
+    if (n > 0) return Math.round(sum / n);
   }
-  return n === 0 ? cfg.morning.defaultPrice : Math.round(sum / n);
+  return cfg.morning.defaultPrice;
 }
 
 /** The upgrade `reasonable` reaches for: the machine on day 1, the staff from day 3; one a morning, each once. */
@@ -285,7 +300,7 @@ const scaled = (s: Stocking, num: number, den: number, cfg: SimConfig): Stocking
  * "low"; no stock at all (always allowed).
  */
 function planOf(run: RunState, brief: MorningBrief, style: Style, cfg: SimConfig): MorningPlan {
-  const price = dayPrice((style.price ?? streetPrice)(brief, cfg), brief.rules, cfg);
+  const price = dayPrice((style.price ?? streetPrice)(run, cfg), brief.rules, cfg);
   const tea = style.tea === undefined ? 'standard' : style.tea(run);
   const stockOf = style.stock ?? highStock;
   const base: MorningPlan = { ...run.plan, price, tea, upgrade: null };

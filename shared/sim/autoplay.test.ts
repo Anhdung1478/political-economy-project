@@ -6,12 +6,14 @@ import {
 } from './autoplay';
 import { CONFIG } from './config';
 import { customerCount } from './customers';
-import { morningBrief, openDay, quickFill } from './day';
+import { dayRules, morningBrief, openDay, quickFill } from './day';
 import { hashSeed } from './rng';
 import { step } from './rush';
 import { cust, deepFreeze, order, playerShop, runTo, stock, street } from './rush.fixtures';
 import { chooseCard, endRush, newRun, nextDay } from './run';
-import type { Action, BriefShopRow, CardId, Customer, MorningPlan, RunState, RushState, SimEvent } from './types';
+import type {
+  Action, CardId, Customer, DayReport, MorningPlan, RunState, RushState, ShopDayResult, SimEvent,
+} from './types';
 
 const POLICY: RushPolicy = {
   delayTicks: 3, mistakeRate: 0, serve: 'urgent', cup: 'asOrdered', reprice: null, closeWhenEmpty: false,
@@ -193,7 +195,7 @@ describe('playRush', () => {
   for (const seed of [1, 2]) {
     it(`records frames that replay the events of a stepped rush (seed ${seed})`, () => {
       const rush = day1(seed);
-      const botSeed = hashSeed(seed, 'bot/reasonable/1');
+      const botSeed = hashSeed(seed, 'bot/1');
       const policy = STRATEGIES.reasonable.rush;
       const recorded = playRush(deepFreeze(rush), policy, botSeed, CONFIG, true);
       const plain = playRush(rush, policy, botSeed);
@@ -210,12 +212,12 @@ describe('playRush', () => {
 
 /** playRun's loop written out, keeping each day's customers. */
 function customersByDay(seed: number, s: Strategy): Customer[][] {
-  let run: RunState = newRun(seed, `${s.id}-${seed}`);
+  let run: RunState = newRun(seed, `bot-${seed}`);
   const out: Customer[][] = [];
   while (run.phase !== 'end') {
     const opened = openDay(run, s.plan(run, morningBrief(run), CONFIG));
     out.push(opened.rush.customers.slice(0, customerCount(run.day)));
-    const { rush } = playRush(opened.rush, s.rush, hashSeed(seed, `bot/${s.id}/${run.day}`));
+    const { rush } = playRush(opened.rush, s.rush, hashSeed(seed, `bot/${run.day}`));
     run = endRush(opened.run, rush);
     while (run.phase === 'cards') run = chooseCard(run, s.card(run.cards[run.cardIndex], run));
     run = nextDay(run);
@@ -268,6 +270,23 @@ describe('playRun with every play style (spec §14)', () => {
     }
   });
 
+  it('reasonable (R38): prices day 4 from the street of day 2, not from the 20k ceiling day', () => {
+    for (const seed of SEEDS) {
+      const { run } = playRun(seed, STRATEGIES.reasonable);
+      const closes = run.reports[1].street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
+      const want = Math.round(closes.reduce((a, b) => a + b, 0) / closes.length);
+      expect(run.reports[3].summary.openPrice).toBe(want);
+      expect(want).toBeGreaterThan(20);
+    }
+  });
+
+  it("shares the bot stream across strategies (R39): reasonable's choices as a story combo play the same run", () => {
+    const same = storyCombos(STRATEGIES.reasonable)
+      .find(c => c.id.endsWith('+cartel-refuse+shock-B+black-B+tax-A+inspect-B'));
+    expect(same).toBeDefined();
+    for (const seed of [11, 12]) expect(playRun(seed, same!)).toStrictEqual(playRun(seed, STRATEGIES.reasonable));
+  });
+
   it('prices, teas and cards of each style as named', () => {
     const seed = 11;
     const days = (name: string) => playRun(seed, STRATEGIES[name]).run.reports.map(r => r.summary);
@@ -312,13 +331,31 @@ describe('the morning plans', () => {
       ...high(run, 'machine') });
   });
 
-  it("reasonable: the average of yesterday's closes, rounded, clamped to the day", () => {
-    const row = (closePrice: number | null): BriefShopRow =>
-      ({ id: 'batu', status: 'open', closePrice, sold: 0, soldOut: false, unsold: 0, closedOn: null });
-    const street = [row(28), row(31), row(null), row(33)];
-    expect(STRATEGIES.reasonable.plan(run, { ...brief, street }, CONFIG).price).toBe(31);
-    const day3: RunState = { ...run, day: 3 };
-    expect(STRATEGIES.reasonable.plan(day3, { ...morningBrief(day3), street }, CONFIG).price).toBe(20);
+  /** A run on the morning of `day` whose past days closed at these prices (`[id, close]`, null for not selling). */
+  function after(day: 2 | 3 | 4 | 5, closes: Record<number, [ShopDayResult['id'], number | null][]>,
+    cartel: 'refused' | 'agreed' = 'refused'): RunState {
+    const reports = Object.entries(closes).map(([d, rows]) => ({
+      summary: { day: Number(d) },
+      street: rows.map(([id, closePrice]) => ({ id, closePrice })),
+    }) as unknown as DayReport);
+    return { ...rich, day, reports, flags: { ...rich.flags, cartel } };
+  }
+  const price = (r: RunState) => STRATEGIES.reasonable.plan(r, { ...brief, rules: dayRules(r) }, CONFIG).price;
+
+  it("reasonable (R38): the average of the latest free day's closes, rounded, clamped to the day", () => {
+    expect(price(after(2, { 1: [['batu', 28], ['giare', 31], ['cochap', null], ['player', 33]] }))).toBe(31);
+    // Day 3 has a 20k ceiling.
+    expect(price(after(3, { 2: [['batu', 28], ['player', 33]] }))).toBe(20);
+  });
+
+  it('reasonable (R38): skips the ceiling day and the cartel day, and takes the AI tax pass-through off day 4', () => {
+    const d1: [ShopDayResult['id'], number | null][] = [['batu', 24], ['player', 26]];
+    const d2: [ShopDayResult['id'], number | null][] = [['batu', 30], ['player', 32]];
+    const d3: [ShopDayResult['id'], number | null][] = [['batu', 20], ['player', 20]];
+    expect(price(after(4, { 1: d1, 2: d2, 3: d3 }))).toBe(31);
+    expect(price(after(4, { 1: d1, 2: d2, 3: d3 }, 'agreed'))).toBe(25);
+    // Day 4 closes: AI 36 → 33 once the 3k pass-through is taken back; the player's 31 as is.
+    expect(price(after(5, { 1: d1, 2: d2, 3: d3, 4: [['batu', 36], ['tapdoan', 35], ['player', 31]] }))).toBe(32);
   });
 
   it('reasonable: staff when it can pay from day 3, nothing on day 2', () => {
