@@ -48,16 +48,41 @@ describe('CARDS', () => {
     }
   });
 
-  it('flags cash and rep on every option that changes them, and nothing on options that change nothing', () => {
-    expect(CARDS.kol.a.affects).toEqual(['cash', 'rep']);
-    expect(CARDS.kol.b.affects).toEqual(['rep']);
+  it('shows the cash icon on every option that moves cash and the rep icon on every option that moves rep', () => {
+    for (const id of [...STORY, ...SIDE]) {
+      for (const choice of ['A', 'B'] as Choice[]) {
+        // Inspection A passes at 0 skimp days and fails at 2; check both outcomes.
+        for (const skimpDays of [0, 2]) {
+          const before = run({ day: 3, skimpDays, rushResult: rushResult(65) });
+          const after = applyChoice(before, id, choice);
+          const added = after.pending.slice(before.pending.length);
+          const cash = after.cash !== before.cash || added.some(p => p.cash !== undefined);
+          const rep = after.cardRep.length > before.cardRep.length || added.some(p => p.rep !== undefined);
+          const icons = CARDS[id][choice === 'A' ? 'a' : 'b'].affects;
+          if (cash) expect(icons, `${id} ${choice}`).toContain('cash');
+          if (rep) expect(icons, `${id} ${choice}`).toContain('rep');
+        }
+      }
+    }
+  });
+
+  it('shows no icon on options that change nothing', () => {
     expect(CARDS.shockTopping.b.affects).toEqual([]);
     expect(CARDS.tax.a.affects).toEqual([]);
-    expect(CARDS.tax.b.affects).toEqual(['cash', 'rep', 'law']);
+    expect(CARDS.student.b.affects).toEqual([]);
+    expect(CARDS.deliveryAd.b.affects).toEqual([]);
     expect(CARDS.scholarship.b.affects).toEqual([]);
   });
 
-  it('puts the cartel price in the cartel line from the config', () => {
+  it('puts no number in any line or label except the cartel price, which comes from the config (R25)', () => {
+    for (const card of Object.values(CARDS)) {
+      for (const label of [card.a.label, card.b.label]) expect(label, card.id).not.toMatch(/\d/);
+      for (const line of card.lines) {
+        const numbers = line.match(/\d+/g) ?? [];
+        if (card.id === 'cartel' && numbers.length > 0) expect(numbers).toEqual([`${CONFIG.cards.cartel.price}`]);
+        else expect(numbers, `${card.id}: ${line}`).toEqual([]);
+      }
+    }
     expect(CARDS.cartel.lines.join(' ')).toContain(`${CONFIG.cards.cartel.price}k`);
   });
 });

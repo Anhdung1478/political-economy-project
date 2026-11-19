@@ -38,7 +38,7 @@ export const CARDS: Record<CardId, CardDef> = {
   blackMarket: {
     id: 'blackMarket', kind: 'story', speaker: 'Khách đứng cuối hàng',
     lines: [
-      'Xếp hàng mỏi chân quá. Bán cho em 40k cũng được, ai mà biết!',
+      'Xếp hàng mỏi chân quá. Bán cho em giá gấp đôi cũng được, ai mà biết!',
       'Tiền đây, nhét túi lẹ đi chủ quán.',
     ],
     a: opt('Nhận tiền, bán cửa sau', 'cash', 'rep', 'law'),
@@ -57,7 +57,7 @@ export const CARDS: Record<CardId, CardDef> = {
     id: 'inspection', kind: 'story', speaker: 'Nhân viên trung tâm kiểm định',
     lines: [
       'Trên mạng đang đồn trà sữa phố này pha bằng nước rửa chén. Ghê chưa!',
-      'Quán mình kiểm định luôn cho yên tâm không? Có giấy chứng nhận treo tường hẳn hoi.',
+      'Quán mình kiểm định luôn cho yên tâm không? Làm ăn sạch thì sợ gì, đúng không?',
     ],
     a: opt('Tự trả tiền kiểm định', 'cash', 'rep', 'law'),
     b: opt('Chờ nhà nước kiểm định', 'rep', 'law'),
@@ -67,8 +67,8 @@ export const CARDS: Record<CardId, CardDef> = {
     lines: [
       'Một tuần sóng gió trên phố trà sữa. Theo bạn, bàn tay nào cứu phố này?',
     ],
-    a: opt('Bàn tay vô hình'),
-    b: opt('Bàn tay hữu hình'),
+    a: opt('Bàn tay vô hình (thị trường)'),
+    b: opt('Bàn tay hữu hình (nhà nước)'),
   },
   kol: {
     id: 'kol', kind: 'side', speaker: 'KOL ẩm thực',
@@ -84,12 +84,12 @@ export const CARDS: Record<CardId, CardDef> = {
       'Chết, chị quên ví ở nhà rồi. Ghi sổ giùm chị nha, mai mốt chị trả, có khi còn dắt bạn tới.',
     ],
     a: opt('Ghi sổ cho chị', 'cash', 'rep'),
-    b: opt('Quán không bán nợ đâu chị', 'rep'),
+    b: opt('Quán không bán chịu đâu chị', 'rep'),
   },
   student: {
     id: 'student', kind: 'side', speaker: 'Bạn sinh viên',
     lines: [
-      'Mai cho em phụ quán một hôm nhé? Em pha nhanh lắm, chỉ hơi hay uống thử thôi.',
+      'Mai cho em phụ quán một hôm nhé, công xá sinh viên thôi. Em pha nhanh lắm, chỉ hơi hay uống thử.',
     ],
     a: opt('Nhận em, mai đi làm sớm', 'cash', 'stock'),
     b: opt('Thôi, quán tự lo được'),
@@ -108,12 +108,12 @@ export const CARDS: Record<CardId, CardDef> = {
       'Chạy quảng cáo bên em đi anh chị. Mai khách sang lướt app là thấy quán mình đầu tiên!',
     ],
     a: opt('Chạy quảng cáo', 'cash', 'stock'),
-    b: opt('Thôi, quán quen là đủ'),
+    b: opt('Thôi, khách quen là đủ'),
   },
   scholarship: {
     id: 'scholarship', kind: 'side', speaker: 'Bác tổ trưởng dân phố',
     lines: [
-      'Phường đang góp quỹ khuyến học cho các cháu. Quán làm ăn được thì góp chút lấy tiếng thơm nhé!',
+      'Phường đang vận động góp quỹ khuyến học cho các cháu. Quán làm ăn được thì góp chút lấy tiếng thơm nhé!',
     ],
     a: opt('Góp quỹ, vì các cháu', 'cash', 'rep'),
     b: opt('Để dịp khác bác ạ'),
