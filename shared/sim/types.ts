@@ -39,10 +39,12 @@ export interface CustomerRt {
   shop: ShopId | null;
   /** Tick they joined their current queue; −1 before the first join. */
   joinedTick: Tick;
-  /** Shops whose queue they joined, in order (at most 2). Replaced on change, never pushed. */
-  visited: ShopId[]; outcome: CustomerOutcome | null;
+  /** Shops whose queue they joined, in order (at most 2). Replaced on change, never pushed (clones share it). */
+  visited: readonly ShopId[]; outcome: CustomerOutcome | null;
   /** Budget ≥ the lowest price on the street at arrival, not scared (plan "khách về tay không"). */
   eligible: boolean;
+  /** Found the player's shop out of stock for their order, or was sent away from it for stock (R15); counted once. */
+  missedNoStock: boolean;
 }
 
 export type ShopStatus = 'open' | 'soldOut' | 'resting' | 'closed' | 'notYet' | 'closedEarly';
@@ -50,8 +52,9 @@ export interface RushShop {
   id: ShopId; slot: number; status: ShopStatus; grandOpening: boolean;
   /** 0 for a shop that does not sell today (resting, closed, not yet open). */
   price: K; openPrice: K;
-  /** Price changes as [tick, new price], starting with [0, open price]; empty when not selling. Replaced, never pushed. */
-  trail: [Tick, K][];
+  /** Price changes as [tick, new price], starting with [0, open price]; empty when not selling. Replaced, never pushed
+   *  (clones and the day result share it). */
+  trail: readonly (readonly [Tick, K])[];
   rep: number; rumorPenalty: number; certified: boolean; named: boolean;
   queue: number[]; sold: number;
   /** AI shops: Σ price at the moment of each sale. The player's takings are in RushPlayer.tally.revenue. */
@@ -69,9 +72,11 @@ export interface RushShop {
 export type CraftInput = { k: 'size'; size: Size } | { k: 'ice' } | { k: 'tea' } | { k: 'topping'; id: ToppingId };
 export interface Cup { size: Size; iced: boolean; teaMl: Ml; toppings: ToppingId[] }
 export interface CraftState {
+  /** The cup on the counter, including the step now running (its stock is already taken); null while empty. */
   cup: Cup | null;
+  /** The step running until `endsAt` (it completes in the production phase of that tick); null when idle. */
   anim: { step: CraftInput['k'] | 'deliver'; endsAt: Tick } | null;
-  /** At most CONFIG.craft.bufferMax inputs queued behind the running animation. */
+  /** At most CONFIG.craft.bufferMax inputs queued behind the running animation; empty whenever `anim` is null. */
   buffer: CraftInput[];
 }
 
@@ -80,8 +85,14 @@ export interface RushPlayer {
   tea: TeaGrade; machine: boolean; stock: Stock; bought: Stock; craft: CraftState;
   staff: null | { progress: Tick };
   tally: {
-    revenue: K; tax: K; cups: number; wrong: number; staffCups: number;
-    walkouts: number; missedNoStock: number; trashed: number;
+    /** Paid by customers, before tax. */
+    revenue: K; tax: K;
+    /** Every cup sold, the staff's included. */
+    cups: number; wrong: number; staffCups: number; walkouts: number;
+    /** Customers who found the shop out of stock for their order or were sent away for stock (R15). */
+    missedNoStock: number;
+    /** Cups the player threw in the bin (not the cup dropped on closing early or at 900). */
+    trashed: number;
   };
 }
 export interface DayRules { day: Day; ceiling: K | null; taxPerCup: K; rumor: boolean; cartel: boolean; customerFactor: number }
@@ -101,8 +112,9 @@ export type RejectReason = 'tooExpensive' | 'tooCrowded' | 'lowTrust' | 'outOfSt
   | 'steepDiscount' | 'otherBetter' | 'closed' | 'visited' | 'rumor';
 export interface ShopVerdict { shop: ShopId; score10: number | null; reason: RejectReason | 'chosen' }
 export type LeaveCause = 'patience' | 'priceUp' | 'steepDiscount' | 'stockOut' | 'shopClosed';
+/** `closed`: the player closed early, every later action is refused. */
 export type InputReject = 'order' | 'bufferFull' | 'noTea' | 'noTopping' | 'duplicate' | 'busy'
-  | 'noCup' | 'notInFirstFour' | 'priceUsed' | 'priceRange' | 'ceiling';
+  | 'noCup' | 'notInFirstFour' | 'priceUsed' | 'priceRange' | 'ceiling' | 'closed';
 
 export type SimEvent = { t: Tick } & (
   | { type: 'rushStart'; day: Day; rules: DayRules }
@@ -125,7 +137,7 @@ export interface MorningPlan { price: K; tea: TeaGrade; teaMl: Ml; toppings: Rec
 export type PlanIssue = 'price' | 'ceiling' | 'teaStep' | 'credit' | 'upgradeOwned' | 'negative';
 export interface ShopDayResult {
   id: ShopId; status: ShopStatus; openPrice: K | null; closePrice: K | null;
-  trail: [Tick, K][]; sold: number; capacity: number; soldOut: boolean; profit: K | null;
+  trail: readonly (readonly [Tick, K])[]; sold: number; capacity: number; soldOut: boolean; profit: K | null;
   /** Sum of the price at the moment of each sale (plan: AI revenue). */
   revenue: K;
 }
