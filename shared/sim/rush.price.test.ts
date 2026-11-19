@@ -230,7 +230,7 @@ describe('summarizeRush: the full day result', () => {
         { id: 'player', status: 'open', openPrice: 36, closePrice: 30, trail: [[0, 36], [50, 30]], sold: 2, capacity: 0,
           soldOut: false, profit: null, revenue: 71 },
       ],
-      customers: 2, eligible: 2, emptyHanded: 0, taxFund: 0,
+      customers: 2, eligible: 2, emptyHanded: 0, taxFund: 0, scared: 0, certified: [], named: [],
     });
   });
 });

@@ -197,7 +197,8 @@ function dayResult(s: RushShop, p: RushPlayer): ShopDayResult {
 
 /**
  * The day's result for the evening report and the AI books: the player's tally, closing price, stock used and left,
- * gouging and cartel flags; every shop's row (AI profit is left to the evening, `aiProfit`); the street counts.
+ * gouging and cartel flags; every shop's row (AI profit is left to the evening, `aiProfit`); the street counts and the
+ * day-5 rumor's scared, certified and named.
  */
 export function summarizeRush(state: RushState, cfg: SimConfig = CONFIG): RushResult {
   const p = state.player;
@@ -210,6 +211,9 @@ export function summarizeRush(state: RushState, cfg: SimConfig = CONFIG): RushRe
     shops: state.shops.map(s => dayResult(s, p)),
     customers: state.customers.length,
     eligible: state.street.eligible, emptyHanded: state.street.emptyHanded, taxFund: state.street.taxFund,
+    scared: state.rt.filter(r => r.outcome === 'scared').length,
+    certified: state.shops.filter(s => s.certified).map(s => s.id),
+    named: state.shops.filter(s => s.named).map(s => s.id),
   };
 }
 

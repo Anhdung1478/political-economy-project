@@ -179,6 +179,9 @@ export interface RushResult {
   };
   shops: ShopDayResult[]; customers: number;
   eligible: number; emptyHanded: number; taxFund: K;
+  /** Day 5: customers the rumor scared off; shops certified (from the start or at the inspection) and named at the
+   *  end of the rush, in slot order. 0 and empty on other days. */
+  scared: number; certified: ShopId[]; named: ShopId[];
 }
 
 export type ChoiceLabel = 'skimp' | 'cartelKept' | 'cartelBroke' | 'shockTopping' | 'blackMarket'
@@ -189,12 +192,24 @@ export interface DaySummary {
   revenue: K; cost: K; tax: K; fines: K; profit: K; cash: K; rep: number; score: K;
   upgrade: UpgradeId | null; cards: { id: CardId; choice: Choice }[]; labels: ChoiceLabel[]; lost: boolean;
 }
-export type RepReason = 'tea' | 'wrong' | 'walkout' | 'gouge' | 'clean' | 'banner' | 'delayed' | CardId;
+/** A delayed card effect is named after its card (the cartel break after `cartel`); `when: 'morning'` marks it. */
+export type RepReason = 'tea' | 'wrong' | 'walkout' | 'gouge' | 'clean' | 'banner' | CardId;
 export interface RepItem { reason: RepReason; delta: number; count?: number; when: 'morning' | 'evening' }
+/** The evening lesson card (§3, §8): one id per day, a variant by the player's choices, the day's real numbers. */
+export type LessonId = 'freeMarket' | 'entryRefused' | 'cartelKept' | 'cartelBroke' | 'ceiling' | 'tax' | 'rumor';
 export interface DayReport {
-  summary: DaySummary; repItems: RepItem[]; repBefore: number;
+  summary: DaySummary;
+  /** This morning's items (already applied at opening), then the evening's, in their fixed order. */
+  repItems: RepItem[];
+  /** Rep at the end of the previous evening; the starting rep on day 1. */
+  repBefore: number;
+  /** Every shop's day; `profit` filled in the evening: AI shops from their books, the player's day profit, null for
+   *  shops not trading. */
   street: ShopDayResult[]; emptyHanded: number; eligible: number; taxFund: K;
-  lesson: { id: string; data: Record<string, number> };
+  /** Money lines outside the day profit (§16 row 13): the upgrade bought this morning, the cash of this afternoon's
+   *  card choices (a tax-evade refund included), the delayed card cash that landed this morning. */
+  upgradeCost: K; cardCash: K; delayedCash: K;
+  lesson: { id: LessonId; data: Record<string, number> };
 }
 
 export interface PendingEffect {
@@ -205,6 +220,9 @@ export interface PendingEffect {
 /** One shop in the morning's table of yesterday's street (§5 Bản tin). */
 export interface BriefShopRow {
   id: ShopId;
+  /** `closed`: gone for good; `new`: on the street for the first time today; `rested`: sat yesterday out;
+   *  `open`: sold yesterday (the player always). */
+  status: 'open' | 'rested' | 'closed' | 'new' | 'notYet';
   /** Yesterday's closing price; null when it did not sell yesterday (resting, not open yet, closed before). */
   closePrice: K | null; sold: number; soldOut: boolean;
   /** AI shops: cups left at close (capacity − sold), 0 when it did not sell; null for the player, whose leftovers
@@ -228,7 +246,12 @@ export interface MorningBrief {
   capacity: number;
   /** Bus-stop days: the street's customers without and with the stop (§4 Chính sách). */
   bus: null | { without: number; with: number };
-  cash: K; rep: number;
+  /** Cash at opening (R28). */
+  cash: K;
+  /** Rep after this morning's delayed rep, clamped: what customers see if no banner is bought. */
+  rep: number;
+  /** Today's price of a topping portion (the shock price on its days). */
+  toppingCost: K;
 }
 export interface AiShopState {
   id: AiShopId; status: 'notYet' | 'active' | 'closed'; closedOn: Day | null;

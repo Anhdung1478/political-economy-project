@@ -20,7 +20,7 @@ const rushResult = (tax: number): RushResult => ({
     closePrice: 30, used: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } },
     left: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } }, gouged: false, brokeCartel: false,
   },
-  shops: [], customers: 130, eligible: 100, emptyHanded: 0, taxFund: tax,
+  shops: [], customers: 130, eligible: 100, emptyHanded: 0, taxFund: tax, scared: 0, certified: [], named: [],
 });
 
 const ev = (reason: CardId, delta: number): RepItem => ({ reason, delta, when: 'evening' });

@@ -1,10 +1,14 @@
-// The run across five days (spec §3): the starting state and the day transitions (Task 10 adds the evening).
-import { cardsForDay, shuffleSideDeck } from './cards';
+// The run across five days (spec §3): the starting state, the day transitions, the score and the ending.
+import { applyChoice, cardsForDay, shuffleSideDeck } from './cards';
 import { CONFIG, type SimConfig } from './config';
-import { quickFill } from './day';
+import { closeDay, quickFill } from './day';
 import { summarizeRush } from './rush';
 import { STREET } from './shops';
-import type { AiShopId, AiShopState, RunState, RushState, ShopId } from './types';
+import type {
+  AiShopId, AiShopState, Choice, ChoiceLabel, Day, K, RepItem, RunState, RushState, ShopId,
+} from './types';
+
+export { score } from './day';
 
 const isAi = (id: ShopId): id is AiShopId => id !== 'player';
 
@@ -57,4 +61,63 @@ export function endRush(run: RunState, rush: RushState, cfg: SimConfig = CONFIG)
     cardIndex: 0, choices: [], cardRep: [],
   };
   return { ...afternoon, cards: cardsForDay(afternoon, cfg) };
+}
+
+/**
+ * The player answers the card in hand (§7): the choice applies (`applyChoice`) and the next card comes up. The cards
+ * are the ones dealt at `endRush`, never dealt again (the side deck moves on as cards are drawn). After the last
+ * card the evening closes the day (`closeDay`) and the report follows.
+ */
+export function chooseCard(run: RunState, choice: Choice, cfg: SimConfig = CONFIG): RunState {
+  if (run.phase !== 'cards') throw new Error(`cannot choose a card in phase ${run.phase}`);
+  if (run.cardIndex >= run.cards.length) throw new Error('no card left to choose');
+  const next = { ...applyChoice(run, run.cards[run.cardIndex], choice, cfg), cardIndex: run.cardIndex + 1 };
+  return next.cardIndex === next.cards.length ? closeDay(next, cfg) : next;
+}
+
+/**
+ * After the evening report: the end of the run after day 5 or an evening that lost all trust (`outcome` becomes
+ * `finished` unless lost), otherwise the next morning. The morning keeps yesterday's plan with no upgrade, its price
+ * brought into the new day's range and ceiling, and starts with no day result, cards or rep items.
+ */
+export function nextDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
+  if (run.phase !== 'report') throw new Error(`cannot move on in phase ${run.phase}`);
+  if (run.outcome === 'lostTrust' || run.day >= cfg.run.dayCount) {
+    return { ...run, phase: 'end', outcome: run.outcome ?? 'finished' };
+  }
+  const day = (run.day + 1) as Day;
+  const ceiling = cfg.days[day].ceiling;
+  const highest = ceiling === null ? cfg.pricing.max : Math.min(cfg.pricing.max, ceiling);
+  const price = Math.min(highest, Math.max(cfg.pricing.min, run.plan.price));
+  return {
+    ...run, day, phase: 'morning',
+    plan: { ...run.plan, toppings: { ...run.plan.toppings }, price, upgrade: null },
+    today: null, rushResult: null, cards: [], cardIndex: 0, choices: [], cardRep: [], morningNews: [],
+  };
+}
+
+/** What the end screen tells (§8). */
+export interface Ending {
+  outcome: 'finished' | 'lostTrust';
+  /** AI shops that closed for good, the exits after day 5 included, in street order. */
+  closedShops: AiShopId[];
+  /** Every item that cost rep, morning and evening, in day order: "những việc đã làm mất uy tín". */
+  repLosses: (RepItem & { day: Day })[];
+  /** The choice labels earned over the run, each once, in the order first earned. */
+  labels: ChoiceLabel[];
+  profitByDay: K[];
+}
+
+/** The end screen's data (§8), from the run at its end. */
+export function ending(run: RunState, cfg: SimConfig = CONFIG): Ending {
+  if (run.phase !== 'end') throw new Error(`the run has not ended (phase ${run.phase})`);
+  const closed = new Set(run.shops.filter(s => s.status === 'closed').map(s => s.id));
+  return {
+    outcome: run.outcome === 'lostTrust' ? 'lostTrust' : 'finished',
+    closedShops: STREET.filter(isAi).filter(id => closed.has(id)),
+    repLosses: run.reports.flatMap(r =>
+      r.repItems.filter(i => i.delta < 0).map(i => ({ day: r.summary.day, ...i }))),
+    labels: [...new Set(run.reports.flatMap(r => r.summary.labels))],
+    profitByDay: run.reports.map(r => r.summary.profit),
+  };
 }

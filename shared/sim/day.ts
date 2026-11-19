@@ -1,12 +1,15 @@
-// The player's morning (spec §5) and the opening of the shop: today's rules, the cost and checks of a plan, the
-// quick-fill buttons and the capacity line, the morning brief, and `openDay`, which pays and starts the rush.
+// The player's day around the rush (spec §5, §8): today's rules, the cost and checks of a plan, the quick-fill
+// buttons and the capacity line, the morning brief, `openDay`, which pays and starts the rush, and `closeDay`, the
+// evening that settles the day and writes its report.
+import { choiceCash } from './cards';
 import { CONFIG, type SimConfig } from './config';
 import { customerCount } from './customers';
 import { createRush, type RushInput } from './rush';
-import { STREET, morningPrices } from './shops';
+import { STREET, aiProfit, applyExits, morningPrices } from './shops';
 import type {
-  AiShopId, BriefShopRow, DayReport, DayRules, K, MorningBrief, MorningPlan, PendingEffect, PlanIssue, RepItem,
-  RunState, RushState, ShopId, SimEvent, Size, ToppingId,
+  AiShopId, AiShopState, BriefShopRow, ChoiceLabel, Day, DayReport, DayRules, DaySummary, K, MorningBrief, MorningPlan,
+  PendingEffect, PlanIssue, RepItem, RepReason, RunState, RushResult, RushState, ShopDayResult, ShopId, SimEvent, Size,
+  ToppingId,
 } from './types';
 
 /** Today's rules (§3): ceiling, tax, rumor and crowd from the schedule; the cartel holds only on its day, if agreed. */
@@ -22,6 +25,27 @@ export function dayRules(run: RunState, cfg: SimConfig = CONFIG): DayRules {
 const shockDay = (run: RunState, cfg: SimConfig) =>
   run.flags.shockTopping && cfg.cards.shockTopping.days.includes(run.day);
 
+/** Price of a topping portion today. */
+const toppingUnit = (run: RunState, cfg: SimConfig): K =>
+  (shockDay(run, cfg) ? cfg.cards.shockTopping.toppingCost : cfg.supplies.toppingCost);
+
+/**
+ * A skimp day (§4 Uy tín, §16 row 9): skimp tea bought, or shock toppings bought on their days. A grade or a topping
+ * the shop did not buy does not count (R31).
+ */
+function skimpToday(run: RunState, plan: MorningPlan, cfg: SimConfig): boolean {
+  const toppings = cfg.customers.toppingOrder.some(t => plan.toppings[t] > 0);
+  return (plan.tea === 'skimp' && plan.teaMl > 0) || (shockDay(run, cfg) && toppings);
+}
+
+const clampRep = (rep: number, cfg: SimConfig) => Math.min(cfg.run.maxRep, Math.max(cfg.run.minRep, rep));
+
+/** A copy of the plan with −0 written as 0, so the stored plan survives a JSON round trip exactly. */
+const plainPlan = (p: MorningPlan): MorningPlan => ({
+  price: p.price + 0, tea: p.tea, teaMl: p.teaMl + 0, upgrade: p.upgrade,
+  toppings: { pearl: p.toppings.pearl + 0, jelly: p.toppings.jelly + 0, pudding: p.toppings.pudding + 0 },
+});
+
 /** Delayed card effects that land on the morning of `run.day`. */
 const dueToday = (run: RunState): PendingEffect[] => run.pending.filter(p => p.day === run.day);
 
@@ -36,7 +60,7 @@ export function planCost(run: RunState, plan: MorningPlan, cfg: SimConfig = CONF
   { tea: K; toppings: K; upgrade: K; total: K; cashAfter: K } {
   const s = cfg.supplies;
   const tea = (plan.teaMl * s.teaGrades[plan.tea].costPer100Ml) / 100;
-  const each = shockDay(run, cfg) ? cfg.cards.shockTopping.toppingCost : s.toppingCost;
+  const each = toppingUnit(run, cfg);
   const toppings = cfg.customers.toppingOrder.reduce((sum, t) => sum + plan.toppings[t] * each, 0);
   const upgrade = plan.upgrade === null ? 0 : cfg.upgrades[plan.upgrade].cost;
   const total = tea + toppings + upgrade;
@@ -100,7 +124,7 @@ function toppingsPerOrder(cfg: SimConfig): Record<ToppingId, number> {
 }
 
 /** Smallest whole number ≥ x, ignoring floating-point dust from the fractional shares. */
-const ceilWhole = (x: number) => -Math.floor(-Math.round(x * 1e6) / 1e6);
+const ceilWhole = (x: number) => -Math.floor(-Math.round(x * 1e6) / 1e6) + 0;
 
 /**
  * "Sức pha hôm nay: khoảng N ly" (§5, §4 Nâng cấp): rush ticks over the whole-cup estimate (≈ 18), the machine
@@ -137,40 +161,52 @@ function briefRow(id: ShopId, run: RunState, last: DayReport, cfg: SimConfig): B
   const closePrice = r?.closePrice ?? null;
   const sold = r?.sold ?? 0;
   const soldOut = r?.soldOut ?? false;
-  if (id === 'player') return { id, closePrice, sold, soldOut, unsold: null, opensToday: false, closedOn: null };
+  if (id === 'player') {
+    return { id, status: 'open', closePrice, sold, soldOut, unsold: null, opensToday: false, closedOn: null };
+  }
   const shop = run.shops.find(s => s.id === id);
   if (shop === undefined) throw new Error(`no shop ${id} in the run`);
+  const opensToday = shop.status === 'notYet' && cfg.aiShops[id as AiShopId].firstDay <= run.day;
+  let status: BriefShopRow['status'] = r?.status === 'resting' ? 'rested' : 'open';
+  if (shop.status === 'closed') status = 'closed';
+  else if (opensToday) status = 'new';
+  else if (shop.status === 'notYet') status = 'notYet';
   return {
-    id, closePrice, sold, soldOut,
+    id, status, closePrice, sold, soldOut,
     unsold: r === undefined || closePrice === null ? 0 : r.capacity - r.sold,
-    opensToday: shop.status === 'notYet' && cfg.aiShops[id as AiShopId].firstDay <= run.day,
-    closedOn: shop.closedOn,
+    opensToday, closedOn: shop.closedOn,
   };
+}
+
+/** The street's customers without and with the day's bus stop (§4 Chính sách). */
+function busLine(day: Day, cfg: SimConfig): { without: number; with: number } {
+  const noStop: SimConfig = { ...cfg, days: { ...cfg.days, [day]: { ...cfg.days[day], customerFactor: 1 } } };
+  return { without: customerCount(day, noStop), with: customerCount(day, cfg) };
 }
 
 /**
  * The morning screen's data (§5): today's theme and rules, the delayed effects landing this morning, yesterday's
- * street and hint line from yesterday's report, the capacity line for `run.plan`, the day-5 bus line, rep, and the
- * cash at opening (R28).
+ * street and hint line from yesterday's report, the capacity line for `run.plan`, the day-5 bus line, today's
+ * topping price, the cash at opening (R28), and the rep after this morning's delayed rep, clamped (a banner bought
+ * this morning adds its +10 at opening on top).
  */
 export function morningBrief(run: RunState, cfg: SimConfig = CONFIG): MorningBrief {
   const sched = cfg.days[run.day];
   const last = run.reports.find(r => r.summary.day === run.day - 1);
-  let bus: MorningBrief['bus'] = null;
-  if (sched.busStop) {
-    const noStop: SimConfig = { ...cfg, days: { ...cfg.days, [run.day]: { ...sched, customerFactor: 1 } } };
-    bus = { without: customerCount(run.day, noStop), with: customerCount(run.day, cfg) };
-  }
+  const due = dueToday(run);
   return {
     day: run.day, theme: sched.theme, rules: dayRules(run, cfg), busStop: sched.busStop,
-    news: dueToday(run),
+    news: due,
     street: last === undefined ? [] : STREET.map(id => briefRow(id, run, last, cfg)),
     yesterday: last === undefined ? null : {
       cups: last.summary.cups,
       used: { teaMl: last.summary.used.teaMl, toppings: { ...last.summary.used.toppings } },
     },
     capacity: capacityEstimate(run, run.plan, cfg),
-    bus, cash: cashAtOpening(run), rep: run.rep,
+    bus: sched.busStop ? busLine(run.day, cfg) : null,
+    cash: cashAtOpening(run),
+    rep: clampRep(run.rep + due.reduce((sum, p) => sum + (p.rep ?? 0), 0), cfg),
+    toppingCost: toppingUnit(run, cfg),
   };
 }
 
@@ -178,9 +214,9 @@ export function morningBrief(run: RunState, cfg: SimConfig = CONFIG): MorningBri
  * "Mở cửa" (§5): checks the plan, then applies this morning's delayed effects (cash, rep, the student's helper, ad
  * customers), records them in `today.applied` (R29) and removes them; pays for the stock and the upgrade (R27);
  * the banner's +10 lands now; the morning's rep items are summed and clamped once and never end the run (§16 row
- * 10). Counts a skimp day (skimp tea, or the
- * shock toppings on days 3–4; §16 row 9), prices the AI shops from their books and the player's reports (Chuỗi Tập
- * Đoàn opens on its first day) and starts the rush. `events` is empty: the first step emits `rushStart`.
+ * 10). Counts a skimp day (skimp tea, or the shock toppings on days 3–4, when bought; §16 row 9, R31), prices the
+ * AI shops from their books and the player's reports (Chuỗi Tập Đoàn opens on its first day) and starts the rush.
+ * `events` is empty: the first step emits `rushStart`.
  */
 export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFIG):
   { run: RunState; rush: RushState; events: SimEvent[] } {
@@ -198,24 +234,23 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
   if (plan.upgrade === 'banner') {
     morningNews.push({ reason: 'banner', delta: cfg.upgrades.banner.rep, when: 'morning' });
   }
-  const rep = Math.min(cfg.run.maxRep,
-    Math.max(cfg.run.minRep, run.rep + morningNews.reduce((sum, i) => sum + i.delta, 0)));
+  const rep = clampRep(run.rep + morningNews.reduce((sum, i) => sum + i.delta, 0), cfg);
   const tempStaff = due.some(p => p.tempStaff === true);
   const adCustomers = due.reduce((sum, p) => sum + (p.adCustomers ?? 0), 0);
   const spent = planCost(run, plan, cfg).total;
   const cash = cashAtOpening(run) - spent;
   const upgrades = plan.upgrade === null ? run.upgrades : [...run.upgrades, plan.upgrade];
-  const skimpDays = run.skimpDays + (plan.tea === 'skimp' || shockDay(run, cfg) ? 1 : 0);
+  const skimpDays = run.skimpDays + (skimpToday(run, plan, cfg) ? 1 : 0);
 
   const rules = dayRules(run, cfg);
   const playerHistory = run.reports.map(r =>
     ({ day: r.summary.day, closePrice: r.summary.closePrice, sold: r.summary.cups }));
   const shops = morningPrices(run.shops, playerHistory, rules, run.flags, cfg);
-  const own: MorningPlan = { ...plan, toppings: { ...plan.toppings } };
+  const own = plainPlan(plan);
   const input: RushInput = {
     seed: run.seed, rules, ai: shops, adCustomers,
     player: {
-      price: plan.price, tea: plan.tea, stock: { teaMl: plan.teaMl, toppings: { ...plan.toppings } }, rep,
+      price: own.price, tea: own.tea, stock: { teaMl: own.teaMl, toppings: { ...own.toppings } }, rep,
       machine: upgrades.includes('machine'), staff: upgrades.includes('staff') || tempStaff,
       skimpDays, selfCertified: run.flags.inspection === 'pass',
     },
@@ -229,5 +264,174 @@ export function openDay(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFI
     },
     rush: state,
     events,
+  };
+}
+
+/** Score (§3): profit over the starting cash plus the brand value of the rep. Re-exported by `run.ts`. */
+export function score(run: RunState, cfg: SimConfig = CONFIG): { profit: K; brand: K; total: K } {
+  const profit = run.cash - cfg.run.startCash;
+  const brand = run.rep * cfg.run.brandPerRep;
+  return { profit, brand, total: profit + brand };
+}
+
+/**
+ * The evening's rep items (§4 Uy tín, §7), in a fixed order: tea grade (only with tea bought, R31), wrong cups, walkouts,
+ * gouging, clean service (§16 row 11), the afternoon's card rep, the cartel fine, the shock toppings.
+ */
+function eveningRep(run: RunState, plan: MorningPlan, p: RushResult['player'], rules: DayRules, cfg: SimConfig):
+  RepItem[] {
+  const r = cfg.rep;
+  const items: RepItem[] = [];
+  const add = (reason: RepReason, delta: number, count?: number) =>
+    items.push(count === undefined ? { reason, delta, when: 'evening' } : { reason, delta, count, when: 'evening' });
+  const tea = cfg.supplies.teaGrades[plan.tea].rep;
+  if (plan.teaMl > 0 && tea !== 0) add('tea', tea);
+  if (p.wrong > 0) add('wrong', r.wrongCup * p.wrong, p.wrong);
+  if (p.walkouts > 0) add('walkout', r.walkout * p.walkouts, p.walkouts);
+  if (p.gouged) add('gouge', r.gouge);
+  if (p.cups >= r.cleanMinCups && p.wrong === 0 && p.walkouts === 0) add('clean', r.clean);
+  items.push(...run.cardRep);
+  if (rules.cartel) add('cartel', cfg.cards.cartel.fineRep);
+  if (shockDay(run, cfg)) add('shockTopping', cfg.cards.shockTopping.repPerDay);
+  return items;
+}
+
+/** Labels of the day (§8 màn kết): a skimp day, the cartel's outcome, then today's choices that earn one. */
+function dayLabels(run: RunState, plan: MorningPlan, p: RushResult['player'], rules: DayRules, cfg: SimConfig):
+  ChoiceLabel[] {
+  const labels: ChoiceLabel[] = [];
+  if (skimpToday(run, plan, cfg)) labels.push('skimp');
+  if (rules.cartel) labels.push(p.brokeCartel ? 'cartelBroke' : 'cartelKept');
+  for (const c of run.choices) {
+    if (c.id === 'shockTopping' && c.choice === 'A') labels.push('shockTopping');
+    if (c.id === 'blackMarket' && c.choice === 'A') labels.push('blackMarket');
+    if (c.id === 'tax' && c.choice === 'B') labels.push('taxEvaded');
+    if (c.id === 'inspection' && c.choice === 'A') labels.push(run.flags.inspection === 'pass' ? 'inspectPass' : 'inspectFail');
+  }
+  return labels;
+}
+
+/** Prices of the shops that sold, the player included (§16 row 16). */
+const prices = (street: readonly ShopDayResult[], key: 'openPrice' | 'closePrice'): K[] =>
+  street.flatMap(s => { const k = s[key]; return k === null ? [] : [k]; });
+/** Mean rounded to the nearest 0.5k, halves up. */
+const mean = (xs: readonly K[]): K => Math.round((xs.reduce((s, x) => s + x, 0) * 2) / xs.length) / 2;
+
+/**
+ * The lesson card's id and real numbers (§3, §8), by the day's theme; the UI writes the sentences.
+ * - opening `freeMarket`: the street's opening and closing price ranges (openMin, openMax, closeMin, closeMax).
+ * - newShop `entryRefused` / `cartelKept` / `cartelBroke`: the average close of yesterday and today (avgClose1,
+ *   avgClose2, to 0.5k) and the fine.
+ * - priceCeiling `ceiling`: customers who left empty-handed, those who could pay, AI shops resting.
+ * - tax `tax`: the ward's fund, the player's tax, evaded 0/1.
+ * - rumor `rumor`: customers without and with the bus stop, scared, certified and named shops.
+ */
+function lessonOf(run: RunState, result: RushResult, fines: K, rules: DayRules, cfg: SimConfig): DayReport['lesson'] {
+  const street = result.shops;
+  switch (cfg.days[run.day].theme) {
+    case 'opening': {
+      const open = prices(street, 'openPrice');
+      const close = prices(street, 'closePrice');
+      return { id: 'freeMarket', data: {
+        openMin: Math.min(...open), openMax: Math.max(...open), closeMin: Math.min(...close), closeMax: Math.max(...close),
+      } };
+    }
+    case 'newShop': {
+      const yesterday = run.reports.find(r => r.summary.day === run.day - 1);
+      if (yesterday === undefined) throw new Error(`no report of day ${run.day - 1}`);
+      const id = !rules.cartel ? 'entryRefused' : result.player.brokeCartel ? 'cartelBroke' : 'cartelKept';
+      return { id, data: {
+        avgClose1: mean(prices(yesterday.street, 'closePrice')), avgClose2: mean(prices(street, 'closePrice')), fine: fines,
+      } };
+    }
+    case 'priceCeiling':
+      return { id: 'ceiling', data: {
+        emptyHanded: result.emptyHanded, eligible: result.eligible,
+        resting: street.filter(s => s.status === 'resting').length,
+      } };
+    case 'tax':
+      return { id: 'tax', data: { taxFund: result.taxFund, tax: result.player.tax, evaded: run.flags.taxEvaded ? 1 : 0 } };
+    case 'rumor':
+      return { id: 'rumor', data: {
+        ...busLine(run.day, cfg), scared: result.scared, certified: result.certified.length, named: result.named.length,
+      } };
+  }
+}
+
+/**
+ * The evening (§4, §7, §8), after the last card. Money (R27, §16 row 13): stock, upgrade, takings less tax and card
+ * cash were settled earlier; only fines move cash now, even below the credit floor. Day profit = revenue − tea −
+ * toppings − tax − fines; the upgrade, card cash and delayed cash are report lines of their own. On the cartel day
+ * with the cartel agreed: the 150k fine and −5 rep either way, and breaking it sets `cartelBroken` and the street's
+ * gossip for the next morning. The evening rep items are summed and clamped once; rep 0 loses the run (§16 row 10),
+ * on day 5 too. Every AI shop that sold or rested books the day (`aiProfit`), then the exits run (also after day 5).
+ * Writes the day's `DaySummary` and `DayReport` and moves to the report.
+ */
+export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
+  if (run.phase !== 'cards') throw new Error(`cannot close the day in phase ${run.phase}`);
+  if (run.cardIndex !== run.cards.length) throw new Error('cards left to choose');
+  const { rushResult: result, today } = run;
+  if (result === null || today === null) throw new Error('no day to close');
+  const { day } = run;
+  const plan = today.plan;
+  const p = result.player;
+  const rules = dayRules(run, cfg);
+
+  const costs = planCost(run, plan, cfg);
+  const cost = costs.tea + costs.toppings;
+  const fines = rules.cartel ? cfg.cards.cartel.fine : 0;
+  const profit = p.revenue - cost - p.tax - fines;
+  const cash = run.cash - fines;
+  const unit = toppingUnit(run, cfg);
+  const wasteValue = (p.left.teaMl * cfg.supplies.teaGrades[plan.tea].costPer100Ml) / 100
+    + cfg.customers.toppingOrder.reduce((sum, t) => sum + p.left.toppings[t] * unit, 0);
+
+  const items = eveningRep(run, plan, p, rules, cfg);
+  const rep = clampRep(run.rep + items.reduce((sum, i) => sum + i.delta, 0), cfg);
+  const lost = rep <= cfg.run.minRep;
+
+  let { flags, pending } = run;
+  if (rules.cartel && p.brokeCartel) {
+    const c = cfg.cards.cartel;
+    const on = day + c.breakDelayDays;
+    if (on > cfg.run.dayCount) throw new Error('the cartel break lands after the last day');
+    flags = { ...flags, cartelBroken: true };
+    pending = [...pending, { day: on as Day, source: 'cartelBreak', rep: c.breakRep }];
+  }
+
+  const aiDay = new Map<ShopId, K>();
+  const booked: AiShopState[] = run.shops.map(s => {
+    if (s.status !== 'active') return s;
+    const row = result.shops.find(x => x.id === s.id);
+    if (row === undefined) throw new Error(`no result for ${s.id}`);
+    const earned = aiProfit(s.id, row, rules, cfg);
+    aiDay.set(s.id, earned);
+    return { ...s, history: [...s.history,
+      { day, closePrice: row.closePrice, sold: row.sold, profit: earned, rested: s.resting }] };
+  });
+  const street = result.shops.map(row => ({ ...row, profit: row.id === 'player' ? profit : aiDay.get(row.id) ?? null }));
+
+  const summary: DaySummary = {
+    day, openPrice: plan.price, closePrice: p.closePrice, tea: plan.tea,
+    bought: { teaMl: plan.teaMl, toppings: { ...plan.toppings } },
+    used: { teaMl: p.used.teaMl, toppings: { ...p.used.toppings } }, wasteValue,
+    cups: p.cups, wrong: p.wrong, walkouts: p.walkouts,
+    revenue: p.revenue, cost, tax: p.tax, fines, profit, cash, rep, score: score({ ...run, cash, rep }, cfg).total,
+    upgrade: plan.upgrade, cards: run.choices.map(c => ({ ...c })), labels: dayLabels(run, plan, p, rules, cfg), lost,
+  };
+  const before = run.reports.find(r => r.summary.day === day - 1);
+  const report: DayReport = {
+    summary,
+    repItems: [...run.morningNews, ...items],
+    repBefore: before === undefined ? cfg.run.startRep : before.summary.rep,
+    street, emptyHanded: result.emptyHanded, eligible: result.eligible, taxFund: result.taxFund,
+    upgradeCost: costs.upgrade,
+    cardCash: run.choices.reduce((sum, c) => sum + choiceCash(run, c.id, c.choice, cfg), 0),
+    delayedCash: today.applied.reduce((sum, e) => sum + (e.cash ?? 0), 0),
+    lesson: lessonOf(run, result, fines, rules, cfg),
+  };
+  return {
+    ...run, phase: 'report', cash, rep, flags, pending, shops: applyExits(booked, day, cfg),
+    reports: [...run.reports, report], outcome: lost ? 'lostTrust' : run.outcome,
   };
 }

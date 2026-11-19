@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, type SimConfig } from './config';
 import { customerCount, generateAdCustomers, generateCustomers } from './customers';
-import { capacityEstimate, dayRules, morningBrief, openDay, planCost, quickFill, validatePlan } from './day';
+import { applyChoice } from './cards';
+import {
+  capacityEstimate, closeDay, dayRules, morningBrief, openDay, planCost, quickFill, validatePlan,
+} from './day';
 import { AI_SOLD, PLAYER_SOLD, USED, seasoned } from './day.fixtures';
 import { createRush, finishRush, type RushInput } from './rush';
 import { deepFreeze } from './rush.fixtures';
-import { newRun } from './run';
-import { STREET, morningPrices } from './shops';
-import type { Day, MorningPlan, PendingEffect, RunFlags, RunState, RushState, UpgradeId } from './types';
+import { endRush, newRun } from './run';
+import { STREET, aiProfit, morningPrices } from './shops';
+import type {
+  CardId, Choice, Day, DayReport, MorningPlan, PendingEffect, RunFlags, RunState, RushResult, RushState, UpgradeId,
+} from './types';
 
 const run = (over: Partial<RunState> = {}): RunState => ({ ...newRun(7, 'day-test'), ...over });
 const plan = (r: RunState, upgrade: UpgradeId | null = null): MorningPlan => ({ ...r.plan, upgrade });
@@ -251,7 +256,7 @@ describe('morningBrief', () => {
     const r = run();
     expect(morningBrief(r)).toStrictEqual({
       day: 1, theme: 'opening', rules: dayRules(r), busStop: false, news: [], street: [], yesterday: null,
-      capacity: 18, bus: null, cash: 300, rep: 50,
+      capacity: 18, bus: null, cash: 300, rep: 50, toppingCost: 2,
     });
   });
 
@@ -259,7 +264,22 @@ describe('morningBrief', () => {
     const r = seasoned(3, 20, { cash: 39, pending: [{ day: 3, source: 'tab', cash: 30, rep: 3 },
       { day: 4, source: 'tab', cash: 30, rep: 3 }] });
     expect(morningBrief(r).cash).toBe(69);
-    expect(morningBrief(r).rep).toBe(50);
+  });
+
+  it("shows the rep after this morning's delayed rep, clamped; the banner is left to the plan", () => {
+    const tab: PendingEffect = { day: 3, source: 'tab', cash: 30, rep: 3 };
+    expect(morningBrief(seasoned(3, 20, { pending: [tab, { ...tab, day: 4 }] })).rep).toBe(53);
+    expect(morningBrief(seasoned(3, 20, { rep: 99, pending: [tab] })).rep).toBe(100);
+    expect(morningBrief(seasoned(3, 20, { rep: 5, pending: [{ day: 3, source: 'blackMarket', rep: -8 }] })).rep).toBe(0);
+    expect(morningBrief(run({ plan: plan(run(), 'banner') })).rep).toBe(50);
+  });
+
+  it("gives today's price of a topping portion: 0.5k on days 3–4 after the shock toppings (§7)", () => {
+    const shock = flags({ shockTopping: true });
+    expect(morningBrief(seasoned(3, 20, { flags: shock })).toppingCost).toBe(0.5);
+    expect(morningBrief(seasoned(4, 30, { flags: shock })).toppingCost).toBe(0.5);
+    expect(morningBrief(seasoned(5, 30, { flags: shock })).toppingCost).toBe(2);
+    expect(morningBrief(seasoned(3, 20)).toppingCost).toBe(2);
   });
 
   it('lists the delayed effects that land this morning, not later ones', () => {
@@ -277,25 +297,30 @@ describe('morningBrief', () => {
     const brief = morningBrief({ ...r, shops, reports: [r.reports[0], { ...yesterday, street }] });
     expect(brief.street.map(s => s.id)).toEqual(STREET);
     expect(brief.street.find(s => s.id === 'giare')).toStrictEqual({
-      id: 'giare', closePrice: 22, sold: 12, soldOut: true, unsold: 0, opensToday: false, closedOn: null });
+      id: 'giare', status: 'open', closePrice: 22, sold: 12, soldOut: true, unsold: 0, opensToday: false,
+      closedOn: null });
     expect(brief.street.find(s => s.id === 'batu')).toStrictEqual({
-      id: 'batu', closePrice: 27, sold: AI_SOLD, soldOut: false, unsold: 2, opensToday: false, closedOn: null });
-    expect(brief.street.find(s => s.id === 'luotsong')).toMatchObject({ closePrice: 29, closedOn: 2 });
+      id: 'batu', status: 'open', closePrice: 27, sold: AI_SOLD, soldOut: false, unsold: 2, opensToday: false,
+      closedOn: null });
+    expect(brief.street.find(s => s.id === 'luotsong')).toMatchObject({ status: 'closed', closePrice: 29, closedOn: 2 });
     expect(brief.street.find(s => s.id === 'tapdoan')).toMatchObject({ closePrice: 26.5, sold: AI_SOLD, unsold: 8 });
     expect(brief.street.find(s => s.id === 'player')).toStrictEqual({
-      id: 'player', closePrice: 30, sold: PLAYER_SOLD, soldOut: false, unsold: null, opensToday: false, closedOn: null });
+      id: 'player', status: 'open', closePrice: 30, sold: PLAYER_SOLD, soldOut: false, unsold: null, opensToday: false,
+      closedOn: null });
   });
 
   it('marks Chuỗi Tập Đoàn as opening on day 2, with no price yesterday', () => {
     expect(morningBrief(seasoned(2)).street.find(s => s.id === 'tapdoan')).toStrictEqual({
-      id: 'tapdoan', closePrice: null, sold: 0, soldOut: false, unsold: 0, opensToday: true, closedOn: null });
+      id: 'tapdoan', status: 'new', closePrice: null, sold: 0, soldOut: false, unsold: 0, opensToday: true,
+      closedOn: null });
     expect(morningBrief(seasoned(3)).street.find(s => s.id === 'tapdoan')!.opensToday).toBe(false);
   });
 
   it('shows a shop that rested yesterday without a price', () => {
     const brief = morningBrief(seasoned(4));
-    expect(brief.street.find(s => s.id === 'cochap')).toMatchObject({ closePrice: null, sold: 0, unsold: 0 });
-    expect(brief.street.find(s => s.id === 'batu')).toMatchObject({ closePrice: 20 });
+    expect(brief.street.find(s => s.id === 'cochap')).toMatchObject({ status: 'rested', closePrice: null, sold: 0,
+      unsold: 0 });
+    expect(brief.street.find(s => s.id === 'batu')).toMatchObject({ status: 'open', closePrice: 20 });
   });
 
   it("gives the hint line: yesterday's cups and stock used (§5)", () => {
@@ -432,22 +457,32 @@ describe('openDay', () => {
   });
 
   it('counts a skimp day for skimp tea, or on days 3–4 with the shock toppings, once a day (§16 row 9)', () => {
-    const skimps = (r: RunState, tea: MorningPlan['tea']) => openDay(r, { ...zero(r), tea }).run.skimpDays;
+    const skimps = (r: RunState, tea: MorningPlan['tea'], pearl = 0) =>
+      openDay(r, { ...zero(r), tea, teaMl: 250, toppings: { pearl, jelly: 0, pudding: 0 } }).run.skimpDays;
     const shock = flags({ shockTopping: true });
     expect(skimps(run(), 'skimp')).toBe(1);
     expect(skimps(run(), 'standard')).toBe(0);
     expect(skimps(run({ skimpDays: 2 }), 'premium')).toBe(2);
     for (const day of [3, 4] as Day[]) {
-      expect(skimps(seasoned(day, 20, { flags: shock }), 'standard')).toBe(1);
-      expect(skimps(seasoned(day, 20, { flags: shock }), 'skimp')).toBe(1);
-      expect(skimps(seasoned(day, 20), 'standard')).toBe(0);
+      expect(skimps(seasoned(day, 20, { flags: shock }), 'standard', 1)).toBe(1);
+      expect(skimps(seasoned(day, 20, { flags: shock }), 'skimp', 1)).toBe(1);
+      expect(skimps(seasoned(day, 20), 'standard', 1)).toBe(0);
     }
-    for (const day of [2, 5] as Day[]) expect(skimps(seasoned(day, 30, { flags: shock }), 'standard')).toBe(0);
+    for (const day of [2, 5] as Day[]) expect(skimps(seasoned(day, 30, { flags: shock }), 'standard', 1)).toBe(0);
+  });
+
+  it('counts no skimp day for a grade or a topping the shop did not buy (R31)', () => {
+    const shock = flags({ shockTopping: true });
+    expect(openDay(run(), { ...zero(run()), tea: 'skimp' }).run.skimpDays).toBe(0);
+    const day3 = seasoned(3, 20, { flags: shock });
+    expect(openDay(day3, { ...zero(day3), teaMl: 250 }).run.skimpDays).toBe(0);
+    expect(openDay(day3, { ...zero(day3), tea: 'skimp', teaMl: 0, toppings: { pearl: 0, jelly: 1, pudding: 0 } })
+      .run.skimpDays).toBe(1);
   });
 
   it("passes today's skimp day to the day-5 rumor (§16 row 9)", () => {
     const r = seasoned(5, 30, { skimpDays: 1 });
-    const p = playerOf(openDay(r, { ...zero(r), tea: 'skimp' }).rush);
+    const p = playerOf(openDay(r, { ...zero(r), tea: 'skimp', teaMl: 250 }).rush);
     expect(p.skimpDays).toBe(2);
     expect(p.rumorPenalty).toBe(CONFIG.rumor.basePenalty + 2 * CONFIG.rumor.penaltyPerSkimpDay);
   });
@@ -535,5 +570,455 @@ describe('openDay', () => {
     const { run: next, rush } = openDay(r, { ...r.plan, price: 20, upgrade: 'banner' });
     expect(roundTrip(next)).toStrictEqual(next);
     expect(finishRush(rush).state.done).toBe(true);
+  });
+});
+
+describe('openDay: plain numbers', () => {
+  it('stores −0 amounts as 0, so the run survives a JSON round trip exactly', () => {
+    const r = run();
+    const p: MorningPlan = { ...zero(r), teaMl: -0, toppings: { pearl: -0, jelly: 0, pudding: -0 } };
+    const next = openDay(r, p).run;
+    expect(roundTrip(next)).toStrictEqual(next);
+    expect(Object.is(next.plan.teaMl, 0)).toBe(true);
+    expect(Object.is(next.today!.plan.toppings.pearl, 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// The evening (Task 10).
+
+type Tally = Partial<RushResult['player']>;
+const QUIET: Tally = { cups: 0, wrong: 0, walkouts: 0, gouged: false };
+const shock = () => flags({ shockTopping: true });
+const agreed = () => flags({ cartel: 'agreed' });
+
+/** `r` opened with plan `p` and played out with no input; the player's day result then takes the fields of `tally`. */
+function afternoon(r: RunState, p: MorningPlan = r.plan, tally: Tally = {}): RunState {
+  const o = openDay(r, p);
+  const a = endRush(o.run, finishRush(o.rush).state);
+  return { ...a, rushResult: { ...a.rushResult!, player: { ...a.rushResult!.player, ...tally } } };
+}
+/** Makes the afternoon's choices, then closes the day. */
+function evening(a: RunState, choices: [CardId, Choice][] = [], cfg: SimConfig = CONFIG): RunState {
+  let r = a;
+  for (const [id, c] of choices) r = applyChoice(r, id, c);
+  return closeDay({ ...r, cards: r.choices.map(c => c.id), cardIndex: r.choices.length }, cfg);
+}
+/** A quiet day: no cups, no mistakes, no walkouts, no gouging, unless `tally` says otherwise. */
+const quiet = (r: RunState, p: MorningPlan = r.plan, tally: Tally = {}, choices: [CardId, Choice][] = []) =>
+  evening(afternoon(r, p, { ...QUIET, ...tally }), choices);
+const last = (r: RunState): DayReport => r.reports[r.reports.length - 1];
+const eveningItems = (r: RunState) => last(r).repItems.filter(i => i.when === 'evening');
+const at20 = (r: RunState): MorningPlan => ({ ...r.plan, price: 20 });
+const lastEntry = <T>(xs: readonly T[]): T => xs[xs.length - 1];
+
+describe('closeDay: phase and report', () => {
+  it('needs the afternoon with every card chosen, and the day result', () => {
+    const a = afternoon(run());
+    expect(a.cards).toHaveLength(2);
+    expect(() => closeDay(a)).toThrow();
+    expect(() => closeDay({ ...a, cardIndex: 1 })).toThrow();
+    expect(() => closeDay({ ...a, cardIndex: 2, phase: 'report' })).toThrow();
+    expect(() => closeDay({ ...a, cardIndex: 2, rushResult: null })).toThrow();
+    expect(() => closeDay({ ...a, cardIndex: 2, today: null })).toThrow();
+    expect(closeDay({ ...a, cardIndex: 2 }).phase).toBe('report');
+  });
+
+  it("appends the day's report with the street, the street counts and the day's choices", () => {
+    const a = afternoon(seasoned(3, 20), at20(seasoned(3, 20)));
+    const e = evening(a, [['kol', 'A'], ['blackMarket', 'B']]);
+    expect(e.reports).toHaveLength(3);
+    const rep = last(e);
+    expect(rep.summary.day).toBe(3);
+    expect(rep.summary.cards).toEqual([{ id: 'kol', choice: 'A' }, { id: 'blackMarket', choice: 'B' }]);
+    expect(rep.street.map(s => s.id)).toEqual(a.rushResult!.shops.map(s => s.id));
+    expect(rep.emptyHanded).toBe(a.rushResult!.emptyHanded);
+    expect(rep.eligible).toBe(a.rushResult!.eligible);
+    expect(rep.taxFund).toBe(a.rushResult!.taxFund);
+  });
+
+  it("fills the street's profit: AI shops from their books, the player's day profit, null for shops not trading", () => {
+    const r = seasoned(3, 20);
+    const shops = r.shops.map(s => (s.id === 'luotsong' ? { ...s, status: 'closed' as const, closedOn: 2 as Day } : s));
+    const e = quiet({ ...r, shops }, at20(r));
+    for (const row of last(e).street) {
+      if (row.id === 'player') expect(row.profit).toBe(last(e).summary.profit);
+      else if (row.id === 'luotsong') expect(row.profit).toBeNull();
+      else expect(row.profit).toBe(lastEntry(e.shops.find(s => s.id === row.id)!.history).profit);
+    }
+    expect(last(e).street.find(s => s.id === 'cochap')!.profit).toBe(-CONFIG.aiPricing.rent);
+  });
+
+  it('leaves the run it was given alone and gives a run that survives a JSON round trip', () => {
+    const a = afternoon(seasoned(2, 36, { flags: agreed() }), { ...seasoned(2).plan, price: 30 });
+    const frozen = deepFreeze({ ...a, cards: [], cardIndex: 0 });
+    const e = closeDay(frozen);
+    expect(roundTrip(e)).toStrictEqual(e);
+  });
+});
+
+describe('closeDay: money (R27, §16 row 13)', () => {
+  it('day profit = revenue − tea − toppings − tax − fines; cash only loses the fines', () => {
+    const a = afternoon(seasoned(4, 30, { upgrades: ['staff'] }));
+    const p = a.rushResult!.player;
+    expect(p.cups).toBeGreaterThan(0);
+    expect(p.tax).toBe(p.cups * 5);
+    const e = evening(a, [['tax', 'A'], ['inspection', 'B']]);
+    expect(last(e).summary).toMatchObject({
+      revenue: p.revenue, cost: 219, tax: p.tax, fines: 0, profit: p.revenue - 219 - p.tax, cash: a.cash,
+    });
+    expect(e.cash).toBe(a.cash);
+  });
+
+  it('keeps the upgrade out of the cost and the day profit, on a line of its own', () => {
+    const r = run();
+    const a = afternoon(r, plan(r, 'staff'));
+    const s = last(evening(a)).summary;
+    expect(s).toMatchObject({ cost: 219, upgrade: 'staff', profit: a.rushResult!.player.revenue - 219 });
+    expect(last(evening(a)).upgradeCost).toBe(150);
+    expect(last(quiet(r)).upgradeCost).toBe(0);
+  });
+
+  it('does not refund the evaded tax again: it is already in cash, as card money', () => {
+    const a = afternoon(seasoned(4, 30, { upgrades: ['staff'] }));
+    const p = a.rushResult!.player;
+    expect(p.tax).toBeGreaterThan(0);
+    const e = evening(a, [['tax', 'B'], ['inspection', 'B']]);
+    expect(e.cash).toBe(a.cash + p.tax);
+    expect(last(e).summary).toMatchObject({ tax: p.tax, profit: p.revenue - 219 - p.tax });
+    expect(last(e).cardCash).toBe(p.tax);
+  });
+
+  it("puts today's card cash and this morning's delayed cash on lines of their own; cash adds up", () => {
+    const r = seasoned(3, 20, { pending: [{ day: 3, source: 'tab', cash: 30, rep: 3 }] });
+    const e = quiet(r, { ...at20(r), upgrade: 'machine' }, {}, [['kol', 'A'], ['blackMarket', 'A']]);
+    const rep = last(e);
+    expect(rep.cardCash).toBe(-30 + 50);
+    expect(rep.delayedCash).toBe(30);
+    expect(rep.upgradeCost).toBe(80);
+    const before = r.reports[1].summary.cash;
+    expect(rep.summary.cash).toBe(before + rep.delayedCash - rep.upgradeCost + rep.summary.profit + rep.cardCash);
+    expect(rep.summary.cash).toBe(e.cash);
+  });
+
+  it('takes the cartel fine even below the credit floor (§4, §7)', () => {
+    const r = seasoned(2, 36, { cash: -140, flags: agreed() });
+    const e = quiet(r, { ...zero(r), price: 36 });
+    expect(e.cash).toBe(-290);
+    expect(last(e).summary).toMatchObject({ fines: 150, profit: -150, cash: -290 });
+  });
+
+  it("values the leftover tea and toppings at today's unit costs", () => {
+    const left = { teaMl: 1000, toppings: { pearl: 2, jelly: 1, pudding: 0 } };
+    const r = run();
+    expect(last(quiet(r, r.plan, { left })).summary.wasteValue).toBe(30 + 6);
+    expect(last(quiet(r, { ...r.plan, tea: 'premium' }, { left })).summary.wasteValue).toBe(40 + 6);
+    expect(last(quiet(r, { ...r.plan, tea: 'skimp' }, { left: { ...left, teaMl: 1050 } })).summary.wasteValue)
+      .toBe(21 + 6);
+    const d3 = seasoned(3, 20, { flags: shock() });
+    expect(last(quiet(d3, at20(d3), { left })).summary.wasteValue).toBe(30 + 1.5);
+  });
+});
+
+describe('closeDay: the evening reputation (§4 Uy tín, §16 rows 10–11)', () => {
+  it('tea grade: skimp −6, premium +4, standard nothing', () => {
+    const r = run();
+    expect(eveningItems(quiet(r, { ...r.plan, tea: 'skimp' }))).toEqual([{ reason: 'tea', delta: -6, when: 'evening' }]);
+    expect(eveningItems(quiet(r, { ...r.plan, tea: 'premium' }))).toEqual([{ reason: 'tea', delta: 4, when: 'evening' }]);
+    expect(eveningItems(quiet(r))).toEqual([]);
+    expect(quiet(r, { ...r.plan, tea: 'skimp' }).rep).toBe(44);
+  });
+
+  it('counts no tea grade on a day with no tea bought (R31)', () => {
+    const r = run();
+    expect(eveningItems(quiet(r, { ...zero(r), tea: 'skimp' }))).toEqual([]);
+    expect(eveningItems(quiet(r, { ...zero(r), tea: 'premium' }))).toEqual([]);
+  });
+
+  it('wrong cups −2 each, walkouts −1 each, gouging −3', () => {
+    const r = run();
+    expect(eveningItems(quiet(r, r.plan, { cups: 5, wrong: 2 })))
+      .toEqual([{ reason: 'wrong', delta: -4, count: 2, when: 'evening' }]);
+    expect(eveningItems(quiet(r, r.plan, { walkouts: 3 })))
+      .toEqual([{ reason: 'walkout', delta: -3, count: 3, when: 'evening' }]);
+    expect(eveningItems(quiet(r, r.plan, { gouged: true }))).toEqual([{ reason: 'gouge', delta: -3, when: 'evening' }]);
+  });
+
+  it('clean service +3: at least one cup, no wrong cup, no walkout (§16 row 11)', () => {
+    const r = run();
+    expect(eveningItems(quiet(r, r.plan, { cups: 1 }))).toEqual([{ reason: 'clean', delta: 3, when: 'evening' }]);
+    expect(eveningItems(quiet(r, r.plan, { cups: 0 }))).toEqual([]);
+    expect(eveningItems(quiet(r, r.plan, { cups: 4, wrong: 1 })).map(i => i.reason)).toEqual(['wrong']);
+    expect(eveningItems(quiet(r, r.plan, { cups: 4, walkouts: 1 })).map(i => i.reason)).toEqual(['walkout']);
+    expect(eveningItems(quiet(r, r.plan, { cups: 4, gouged: true })).map(i => i.reason)).toEqual(['gouge', 'clean']);
+  });
+
+  it("adds the afternoon's card rep", () => {
+    const r = run();
+    expect(eveningItems(quiet(r, r.plan, {}, [['complaint', 'B'], ['cartel', 'B']]))).toEqual([
+      { reason: 'complaint', delta: -3, when: 'evening' }, { reason: 'cartel', delta: 3, when: 'evening' },
+    ]);
+  });
+
+  it('shock toppings −3 on each evening of days 3–4, not on other days (§7)', () => {
+    for (const day of [3, 4] as Day[]) {
+      const r = seasoned(day, 20, { flags: shock() });
+      expect(eveningItems(quiet(r, at20(r)))).toEqual([{ reason: 'shockTopping', delta: -3, when: 'evening' }]);
+      expect(eveningItems(quiet(seasoned(day, 20), at20(r)))).toEqual([]);
+    }
+    expect(eveningItems(quiet(seasoned(5, 30, { flags: shock() })))).toEqual([]);
+  });
+
+  it('lists the items in a fixed order: tea, wrong, walkouts, gouging, clean, cards, cartel fine, shock toppings', () => {
+    const r = seasoned(2, 36, { flags: { ...agreed(), shockTopping: true } });
+    const e = quiet(r, { ...r.plan, price: 36, tea: 'premium' }, { cups: 3, wrong: 1, walkouts: 2, gouged: true },
+      [['scholarship', 'A'], ['shockTopping', 'A']]);
+    expect(eveningItems(e).map(i => i.reason)).toEqual(['tea', 'wrong', 'walkout', 'gouge', 'scholarship', 'cartel']);
+    const d3 = seasoned(3, 20, { flags: shock() });
+    expect(eveningItems(quiet(d3, { ...at20(d3), tea: 'skimp' }, { cups: 2 }, [['complaint', 'A']])).map(i => i.reason))
+      .toEqual(['tea', 'clean', 'complaint', 'shockTopping']);
+  });
+
+  it("puts this morning's items first in the report, already applied (§4: two times a day)", () => {
+    const r = seasoned(3, 20, { rep: 40, pending: [{ day: 3, source: 'kol', rep: 8 }] });
+    const e = quiet(r, { ...at20(r), upgrade: 'banner' }, { cups: 1 });
+    expect(last(e).repItems).toEqual([
+      { reason: 'kol', delta: 8, when: 'morning' }, { reason: 'banner', delta: 10, when: 'morning' },
+      { reason: 'clean', delta: 3, when: 'evening' },
+    ]);
+    expect(e.rep).toBe(61);
+  });
+
+  it("reports the rep before the day: yesterday's evening rep, or the starting rep on day 1", () => {
+    const r = seasoned(3, 20, { rep: 64 });
+    const reports = r.reports.map(x => (x.summary.day === 2 ? { ...x, summary: { ...x.summary, rep: 61 } } : x));
+    expect(last(quiet({ ...r, reports }, at20(r))).repBefore).toBe(61);
+    expect(last(quiet(run({ rep: 70 }))).repBefore).toBe(CONFIG.run.startRep);
+  });
+
+  it('sums the evening items, then clamps once to 0–100', () => {
+    const r = run({ rep: 98 });
+    expect(quiet(r, { ...r.plan, tea: 'premium' }, { cups: 2 }).rep).toBe(100);
+    const low = run({ rep: 4 });
+    expect(quiet(low, { ...low.plan, tea: 'skimp' }, { cups: 2 }).rep).toBe(1);   // 4 − 6 + 3, not max(0, −2) + 3
+    expect(last(quiet(low, { ...low.plan, tea: 'skimp' }, { cups: 2 })).summary.rep).toBe(1);
+  });
+});
+
+describe('closeDay: losing all trust (§4 Uy tín)', () => {
+  it('ends the run when the evening leaves rep at 0', () => {
+    const r = run({ rep: 5 });
+    const e = quiet(r, { ...r.plan, tea: 'skimp' });
+    expect(e.rep).toBe(0);
+    expect(e.outcome).toBe('lostTrust');
+    expect(e.phase).toBe('report');
+    expect(last(e).summary.lost).toBe(true);
+    expect(quiet(run({ rep: 7 }), { ...r.plan, tea: 'skimp' }).outcome).toBeNull();
+    expect(last(quiet(run({ rep: 7 }), { ...r.plan, tea: 'skimp' })).summary.lost).toBe(false);
+  });
+
+  it('ends the run on the evening of day 5 too', () => {
+    const e = quiet(seasoned(5, 30, { rep: 3 }), seasoned(5).plan, { walkouts: 3 });
+    expect(e.rep).toBe(0);
+    expect(e.outcome).toBe('lostTrust');
+    expect(last(e).summary.lost).toBe(true);
+  });
+
+  it('judges only the evening: a morning at 0 survives if the evening lifts it, and loses if not', () => {
+    const r = seasoned(3, 20, { rep: 5, pending: [{ day: 3, source: 'blackMarket', rep: -8 }] });
+    const lifted = quiet(r, at20(r), { cups: 2 });
+    expect(lifted.rep).toBe(3);
+    expect(lifted.outcome).toBeNull();
+    const sunk = quiet(r, at20(r));
+    expect(sunk.rep).toBe(0);
+    expect(sunk.outcome).toBe('lostTrust');
+  });
+
+  it("never loses to the day-5 rumor penalty: it only scares customers, it is not the shop's rep (§4 Tin đồn)", () => {
+    const r = seasoned(5, 30, { rep: 10, skimpDays: 3 });
+    expect(playerOf(openDay(r, r.plan).rush).rumorPenalty).toBe(25);
+    const e = quiet(r);
+    expect(e.rep).toBe(10);
+    expect(e.outcome).toBeNull();
+  });
+});
+
+describe('closeDay: the cartel on the evening of day 2 (§7)', () => {
+  it('refused: no fine, no penalty', () => {
+    const r = seasoned(2, 30, { flags: flags({ cartel: 'refused' }) });
+    const e = quiet(r);
+    expect(last(e).summary).toMatchObject({ fines: 0, labels: [] });
+    expect(eveningItems(e)).toEqual([]);
+    expect(e.pending).toEqual([]);
+    expect(e.flags.cartelBroken).toBe(false);
+  });
+
+  it('kept: fined 150k and −5 rep', () => {
+    const r = seasoned(2, 36, { flags: agreed() });
+    const a = afternoon(r, { ...r.plan, price: 36 }, QUIET);
+    expect(a.rushResult!.player.brokeCartel).toBe(false);
+    const e = evening(a);
+    expect(last(e).summary).toMatchObject({ fines: 150, labels: ['cartelKept'] });
+    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -5, when: 'evening' }]);
+    expect(e.cash).toBe(a.cash - 150);
+    expect(e.flags.cartelBroken).toBe(false);
+    expect(e.pending).toEqual([]);
+  });
+
+  it('broken: fined 150k and −5 rep all the same, and the street gossips on the morning of day 3 (−8)', () => {
+    const r = seasoned(2, 36, { flags: agreed() });
+    const a = afternoon(r, { ...r.plan, price: 30 }, QUIET);
+    expect(a.rushResult!.player.brokeCartel).toBe(true);
+    const e = evening(a);
+    expect(last(e).summary).toMatchObject({ fines: 150, labels: ['cartelBroke'] });
+    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -5, when: 'evening' }]);
+    expect(e.flags.cartelBroken).toBe(true);
+    expect(e.pending).toEqual([{ day: 3, source: 'cartelBreak', rep: -8 }]);
+  });
+
+  it('fines nobody on another day, even with the cartel agreed', () => {
+    const r = seasoned(3, 20, { flags: agreed() });
+    expect(last(quiet(r, at20(r))).summary.fines).toBe(0);
+  });
+});
+
+describe('closeDay: the AI books (§4 Rút lui)', () => {
+  it('books every AI shop that sold or rested today at aiProfit; shops not trading are left alone', () => {
+    const r = seasoned(3, 20);
+    const shops = r.shops.map(s => (s.id === 'luotsong' ? { ...s, status: 'closed' as const, closedOn: 2 as Day } : s));
+    const a = afternoon({ ...r, shops }, at20(r), QUIET);
+    const e = evening(a);
+    const rules = dayRules(a);
+    for (const s of e.shops) {
+      const before = a.shops.find(x => x.id === s.id)!;
+      if (s.id === 'luotsong') {
+        expect(s.history).toEqual(before.history);
+        continue;
+      }
+      const row = a.rushResult!.shops.find(x => x.id === s.id)!;
+      expect(s.history).toStrictEqual([...before.history,
+        { day: 3, closePrice: row.closePrice, sold: row.sold, profit: aiProfit(s.id, row, rules), rested: before.resting }]);
+    }
+    expect(lastEntry(e.shops.find(s => s.id === 'cochap')!.history))
+      .toStrictEqual({ day: 3, closePrice: null, sold: 0, profit: -100, rested: true });
+  });
+
+  it('opens the books of Chuỗi Tập Đoàn on its first day', () => {
+    const e = quiet(seasoned(2));
+    expect(e.shops.find(s => s.id === 'tapdoan')!.history.map(h => h.day)).toEqual([2]);
+  });
+
+  it('closes a shop after two losing days in a row, that evening', () => {
+    const r = seasoned(3, 20);
+    const loser = r.shops.map(s => (s.id === 'batu'
+      ? { ...s, history: s.history.map(h => (h.day === 2 ? { ...h, profit: -10 } : h)) } : s));
+    const e = quiet({ ...r, shops: loser }, at20(r));
+    expect(e.shops.find(s => s.id === 'batu')).toMatchObject({ status: 'closed', closedOn: 3 });
+    expect(e.shops.find(s => s.id === 'giare')).toMatchObject({ status: 'active', closedOn: null });
+  });
+
+  it('runs the exits after day 5 too, so the ending can tell who did not survive', () => {
+    const r = seasoned(5);
+    const loser = r.shops.map(s => (s.id === 'batu'
+      ? { ...s, history: s.history.map(h => (h.day === 4 ? { ...h, profit: -1 } : h)) } : s));
+    const dear: SimConfig = { ...CONFIG, aiPricing: { ...CONFIG.aiPricing, rent: 1000 } };
+    const e = evening(afternoon({ ...r, shops: loser }, r.plan, QUIET), [], dear);
+    expect(e.shops.find(s => s.id === 'batu')).toMatchObject({ status: 'closed', closedOn: 5 });
+    expect(e.shops.filter(s => s.status === 'closed').map(s => s.id)).toEqual(['batu']);
+  });
+});
+
+describe('closeDay: the day summary (§11)', () => {
+  it('fills every field', () => {
+    const r = seasoned(4, 30, { upgrades: ['staff'], rep: 60 });
+    const a = afternoon(r, { ...r.plan, price: 31, tea: 'premium' });
+    const e = evening(a, [['tax', 'B'], ['inspection', 'A']]);
+    const p = a.rushResult!.player;
+    const left = p.left.toppings.pearl + p.left.toppings.jelly + p.left.toppings.pudding;
+    expect(last(e).summary).toStrictEqual({
+      day: 4, openPrice: 31, closePrice: p.closePrice, tea: 'premium',
+      bought: { teaMl: 5500, toppings: { pearl: 11, jelly: 8, pudding: 8 } }, used: p.used,
+      wasteValue: (p.left.teaMl * 4) / 100 + 2 * left,
+      cups: p.cups, wrong: p.wrong, walkouts: p.walkouts,
+      revenue: p.revenue, cost: 220 + 54, tax: p.tax, fines: 0, profit: p.revenue - 274 - p.tax,
+      cash: e.cash, rep: e.rep, score: e.cash - 300 + e.rep * 8,
+      upgrade: null, cards: [{ id: 'tax', choice: 'B' }, { id: 'inspection', choice: 'A' }],
+      labels: ['taxEvaded', 'inspectPass'], lost: false,
+    });
+    expect(e.cash).toBe(a.cash + p.tax - 40);
+    const sum = eveningItems(e).reduce((s, i) => s + i.delta, 0);
+    expect(e.rep).toBe(Math.max(0, Math.min(100, a.rep + sum)));
+  });
+
+  it("labels today's choices: skimping, the shock toppings, the black market, the inspection", () => {
+    const r = run();
+    expect(last(quiet(r, { ...r.plan, tea: 'skimp' }, {}, [['cartel', 'A']])).summary.labels).toEqual(['skimp']);
+    expect(last(quiet(r, { ...zero(r), tea: 'skimp' })).summary.labels).toEqual([]);
+    expect(last(quiet(seasoned(2), seasoned(2).plan, {}, [['shockTopping', 'A']])).summary.labels)
+      .toEqual(['shockTopping']);
+    const d3 = seasoned(3, 20, { flags: shock() });
+    expect(last(quiet(d3, at20(d3), {}, [['blackMarket', 'A']])).summary.labels).toEqual(['skimp', 'blackMarket']);
+    expect(last(quiet(d3, { ...zero(d3), teaMl: 250 }, {}, [['blackMarket', 'B']])).summary.labels).toEqual([]);
+    const d4 = seasoned(4, 30, { skimpDays: 2 });
+    expect(last(quiet(d4, d4.plan, {}, [['tax', 'A'], ['inspection', 'A']])).summary.labels).toEqual(['inspectFail']);
+  });
+});
+
+describe('closeDay: the lesson card (§3, §8)', () => {
+  const streetPrices = (e: RunState, key: 'openPrice' | 'closePrice') =>
+    last(e).street.flatMap(s => (s[key] === null ? [] : [s[key] as number]));
+  const avg = (xs: number[]) => Math.round((xs.reduce((s, x) => s + x, 0) * 2) / xs.length) / 2;
+
+  it("day 1, free market: the street's opening and closing price ranges, the player included", () => {
+    const e = quiet(run());
+    const open = streetPrices(e, 'openPrice');
+    const close = streetPrices(e, 'closePrice');
+    expect(open).toHaveLength(6);
+    expect(last(e).lesson).toStrictEqual({ id: 'freeMarket', data: {
+      openMin: Math.min(...open), openMax: Math.max(...open), closeMin: Math.min(...close), closeMax: Math.max(...close),
+    } });
+    expect(last(e).lesson.data).toMatchObject({ openMin: 22, openMax: 34 });
+  });
+
+  it('day 2: a variant for refusing, keeping and breaking the cartel, with the average closes and the fine', () => {
+    const refused = quiet(seasoned(2, 30, { flags: flags({ cartel: 'refused' }) }));
+    expect(last(refused).lesson).toStrictEqual({ id: 'entryRefused', data: {
+      avgClose1: 28.5, avgClose2: avg(streetPrices(refused, 'closePrice')), fine: 0 } });
+    const kept = quiet(seasoned(2, 36, { flags: agreed() }), { ...seasoned(2).plan, price: 36 });
+    expect(last(kept).lesson).toStrictEqual({ id: 'cartelKept', data: {
+      avgClose1: avg([27, 22, 30, 29, 34, 36]), avgClose2: avg(streetPrices(kept, 'closePrice')), fine: 150 } });
+    const broke = quiet(seasoned(2, 36, { flags: agreed() }), { ...seasoned(2).plan, price: 30 });
+    expect(last(broke).lesson.id).toBe('cartelBroke');
+    expect(last(broke).lesson.data.fine).toBe(150);
+  });
+
+  it('day 3, price ceiling: customers who left empty-handed, of those who could pay, and the shops resting', () => {
+    const r = seasoned(3, 20);
+    const a = afternoon(r, at20(r));
+    expect(last(evening(a)).lesson).toStrictEqual({ id: 'ceiling', data: {
+      emptyHanded: a.rushResult!.emptyHanded, eligible: a.rushResult!.eligible, resting: 2 } });
+    expect(a.rushResult!.emptyHanded).toBeGreaterThan(0);
+  });
+
+  it("day 4, tax: the ward's fund, the player's tax and whether it was evaded", () => {
+    const a = afternoon(seasoned(4, 30, { upgrades: ['staff'] }));
+    const data = (c: Choice) => last(evening(a, [['tax', c], ['inspection', 'B']])).lesson;
+    const base = { taxFund: a.rushResult!.taxFund, tax: a.rushResult!.player.tax };
+    expect(data('A')).toStrictEqual({ id: 'tax', data: { ...base, evaded: 0 } });
+    expect(data('B')).toStrictEqual({ id: 'tax', data: { ...base, evaded: 1 } });
+    expect(base.taxFund).toBeGreaterThan(base.tax);
+  });
+
+  it('day 5, rumor: customers without and with the bus stop, the scared, the certified and the named', () => {
+    const r = seasoned(5, 30, { skimpDays: 2 });
+    const o = openDay(r, r.plan);
+    const rush = finishRush(o.rush).state;
+    const e = evening(endRush(o.run, rush));
+    const scared = rush.rt.filter(x => x.outcome === 'scared').length;
+    expect(scared).toBeGreaterThan(0);
+    expect(last(e).lesson).toStrictEqual({ id: 'rumor', data: {
+      without: 130, with: 163, scared,
+      certified: rush.shops.filter(s => s.certified).length, named: rush.shops.filter(s => s.named).length } });
+    expect(last(e).lesson.data.named).toBe(2);   // Chuỗi GiáRẻ (4 days) and the player (2)
   });
 });

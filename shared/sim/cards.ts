@@ -2,7 +2,7 @@
 import { CONFIG, type SimConfig } from './config';
 import { shuffle, stream } from './rng';
 import type {
-  CardId, Choice, Day, PendingEffect, RepItem, RunFlags, RunState, SideCardId,
+  CardId, Choice, Day, K, PendingEffect, RepItem, RunFlags, RunState, SideCardId,
 } from './types';
 
 /** Indicators a card option shows (💰 tiền, ⭐ uy tín, 🧋 hàng, 🏛️ pháp luật) — never the numbers (§7). */
@@ -202,6 +202,14 @@ function effectOf(run: RunState, card: CardId, choice: Choice, cfg: SimConfig): 
     case 'scholarship':
       return a ? { cash: c.scholarship.acceptCash, rep: c.scholarship.acceptRep } : {};
   }
+}
+
+/**
+ * Cash the choice moved when it was made (delayed cash not included): the report's card-money line (§16 row 13).
+ * `run` is the afternoon the choice was made in, or that evening.
+ */
+export function choiceCash(run: RunState, card: CardId, choice: Choice, cfg: SimConfig = CONFIG): K {
+  return effectOf(run, card, choice, cfg).cash ?? 0;
 }
 
 /**
