@@ -1,5 +1,5 @@
 // The street part of the rush engine (spec §4 Khách, 6 quán AI, §6, §16.2/5/6; plan "Thứ tự trong một nhịp"; rulings
-// R8–R13, R15): customers walking in and choosing, queues, AI service, patience and re-shopping, mid-rush AI prices,
+// R8–R13, R15, R16): customers walking in and choosing, queues, AI service, patience and re-shopping, mid-rush AI prices,
 // sold-out signs and the end of the rush. Every function works on a draft the caller owns (see `cloneRush`).
 import { evaluate, staysAfterReprice, type ShopOffer } from '../choice';
 import type { SimConfig } from '../config';
@@ -70,7 +70,7 @@ export function arrive(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]
   }
 }
 
-/** @internal Counts a customer the player's shop could not serve for stock, once per customer (R15). */
+/** @internal Counts a customer toward `missedNoStock`, once per customer (R16). */
 export function noteMissed(d: RushState, id: number): void {
   const rt = d.rt[id];
   if (rt.missedNoStock) return;
@@ -80,13 +80,23 @@ export function noteMissed(d: RushState, id: number): void {
 
 /**
  * Scores the street and joins the best queue, or leaves (R9): `noOffer` at the first look, `gaveUp` on a
- * re-shop, `scared` for a scared customer (they never pick a shop). Finding the player's shop out of stock counts.
+ * re-shop, `scared` for a scared customer (they never pick a shop). A customer who finds the player's shop out of
+ * stock counts as missed only if they would have chosen it with stock (R16).
  */
 function chooseShop(d: RushState, id: number, reshop: boolean, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
   const c = d.customers[id];
+  const rt = d.rt[id];
   const offers = d.shops.map(s => offerFor(d, s, c, cfg));
-  const { chosen, verdicts } = evaluate(c, offers, d.rt[id].visited, cfg);
-  for (const v of verdicts) if (v.shop === 'player' && v.reason === 'outOfStock') noteMissed(d, id);
+  const { chosen, verdicts } = evaluate(c, offers, rt.visited, cfg);
+  if (!rt.missedNoStock) {
+    let outOfStock = false;
+    for (const v of verdicts) if (v.shop === 'player' && v.reason === 'outOfStock') outOfStock = true;
+    if (outOfStock) {
+      // The offers are not used after this point: score the street again with the player's shop in stock.
+      for (const o of offers) if (o.id === 'player') o.canServe = true;
+      if (evaluate(c, offers, rt.visited, cfg).chosen === 'player') noteMissed(d, id);
+    }
+  }
   events.push({ t, type: 'customerConsider', customer: id, reshop, verdicts, chosen });
   if (chosen !== null) joinQueue(d, id, shopOf(d, chosen), t, events);
   else leaveStreet(d, id, c.scared ? 'scared' : reshop ? 'gaveUp' : 'noOffer', null, t, events);

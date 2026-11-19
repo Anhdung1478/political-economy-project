@@ -43,7 +43,8 @@ export interface CustomerRt {
   visited: readonly ShopId[]; outcome: CustomerOutcome | null;
   /** Budget ≥ the lowest price on the street at arrival, not scared (plan "khách về tay không"). */
   eligible: boolean;
-  /** Found the player's shop out of stock for their order, or was sent away from it for stock (R15); counted once. */
+  /** Counted in `missedNoStock` (R16): would have chosen the player's shop had it been in stock, or was sent away
+   *  from it for stock. Counted once. */
   missedNoStock: boolean;
 }
 
@@ -89,7 +90,8 @@ export interface RushPlayer {
     revenue: K; tax: K;
     /** Every cup sold, the staff's included. */
     cups: number; wrong: number; staffCups: number; walkouts: number;
-    /** Customers who found the shop out of stock for their order or were sent away for stock (R15). */
+    /** Customers who would have chosen the shop had it been in stock for their order, plus those sent away from it
+     *  for stock; each once (R16). */
     missedNoStock: number;
     /** Cups the player threw in the bin (not the cup dropped on closing early or at 900). */
     trashed: number;

@@ -192,6 +192,27 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
     expect(playerShop(states[22]).queue).toEqual([]);
   });
 
+  it('counts as missed only a customer who would have chosen the player\'s shop with stock, once (R16)', () => {
+    // The player (20k, rep 40) is sold out from the start. Bà Tư (29k, rep 50) is too slow to serve anyone.
+    const cfg = tuned({ batu: { ticksPerCup: 400 } });
+    const s = street([shop('batu', 29), shop('giare', 15)], [
+      cust(0, { arriveTick: 10, budget: 15 }), // can afford nobody
+      cust(1, { arriveTick: 20, trust: 45 }), // trusts only Bà Tư: the player's rep 40 is too low
+      cust(2, { arriveTick: 30 }), // prefers GiáRẻ: 22k against 18k at the player
+      cust(3, { arriveTick: 40, trust: 40 }), // GiáRẻ too low; would take the player (18k) over Bà Tư (9k)
+    ], { price: 20, rep: 40, stock: stock(0) }, {}, cfg);
+    const { events, state } = runTo(s, Infinity, {}, cfg);
+    const playerVerdicts = ofType(events, 'customerConsider').map(e => [e.customer, e.reshop, e.verdicts[2].reason]);
+    expect(playerVerdicts).toEqual([
+      [0, false, 'outOfStock'], [1, false, 'outOfStock'], [2, false, 'outOfStock'], [3, false, 'outOfStock'],
+      [1, true, 'outOfStock'], [3, true, 'outOfStock'],
+    ]);
+    expect(state.rt.map(r => [r.outcome, r.missedNoStock])).toEqual([
+      ['noOffer', false], ['gaveUp', false], ['served', false], ['gaveUp', true],
+    ]);
+    expect(state.player.tally.missedNoStock).toBe(1);
+  });
+
   it('under 250 ml the sign flips; later arrivals find the shop out of stock, each counted once', () => {
     const cfg = tuned({ batu: { ticksPerCup: 400 } }); // nobody gets served at Bà Tư: they all walk out
     const s = street(batu(), [cust(0), cust(1, { order: order('S', 'pearl') }), cust(2, { arriveTick: 100 })],

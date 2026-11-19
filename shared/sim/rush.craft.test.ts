@@ -122,6 +122,20 @@ describe('craftInput and craftTick (R14)', () => {
     expect(b.events).toEqual([]);
   });
 
+  it('queues a copy of the input, never the caller\'s object', () => {
+    const a = craftInput(EMPTY, SIZE('M'), stock(1000), 0, false);
+    const ice: CraftInput = { k: 'ice' };
+    const b = craftInput(a.craft, ice, a.stock, 1, false);
+    expect(b.craft.buffer).toEqual([ice]);
+    expect(b.craft.buffer[0]).not.toBe(ice);
+    const action = top('pearl');
+    const s = street([], [cust(0)], { price: 30 });
+    const { states } = runTo(s, 3, { 1: [size('M'), ICE, TEA], 2: [action] });
+    const queued = states[2].player.craft.buffer;
+    expect(queued.at(-1)).toEqual({ k: 'topping', id: 'pearl' });
+    expect(queued.some(i => i === (action.type === 'craft' ? action.input : null))).toBe(false);
+  });
+
   it('a rejected input changes nothing and says why', () => {
     const r = craftInput(EMPTY, TEA_IN, stock(1000), 7, false);
     expect(r.craft).toEqual(EMPTY);

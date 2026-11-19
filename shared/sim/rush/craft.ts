@@ -146,7 +146,7 @@ export function applyInput(craft: CraftState, input: CraftInput, stock: Stock | 
     return false;
   }
   if (craft.anim !== null) {
-    craft.buffer.push(input);
+    craft.buffer.push({ ...input }); // the state never shares an object with the caller's action
     return false;
   }
   return startStep(craft, input, stock, t, machine, events, cfg);

@@ -139,7 +139,7 @@ export function producePlayer(d: RushState, t: Tick, cfg: SimConfig, events: Sim
 /**
  * @internal Step 6, after the stock changed or the cup left the counter: customers whose order can no longer be made
  * leave to re-shop (`stockOut`, no rep hit, §6, §16.5), except the one the cup in progress holds (§16.3). Each counts
- * toward `missedNoStock` (R15).
+ * toward `missedNoStock` (R16).
  */
 export function recheckStock(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
   const ps = shopOf(d, 'player');
