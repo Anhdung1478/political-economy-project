@@ -769,6 +769,15 @@ describe('closeDay: the evening reputation (§4 Uy tín, §16 rows 10–11)', ()
     expect(eveningItems(quiet(seasoned(5, 30, { flags: shock() })))).toEqual([]);
   });
 
+  it('shock toppings cost no rep on a day the shop bought no toppings (R32)', () => {
+    for (const day of [3, 4] as Day[]) {
+      const r = seasoned(day, 20, { flags: shock() });
+      expect(eveningItems(quiet(r, { ...zero(r), teaMl: 250 }))).toEqual([]);
+      expect(eveningItems(quiet(r, { ...zero(r), toppings: { pearl: 0, jelly: 0, pudding: 1 } })))
+        .toEqual([{ reason: 'shockTopping', delta: -3, when: 'evening' }]);
+    }
+  });
+
   it('lists the items in a fixed order: tea, wrong, walkouts, gouging, clean, cards, cartel fine, shock toppings', () => {
     const r = seasoned(2, 36, { flags: { ...agreed(), shockTopping: true } });
     const e = quiet(r, { ...r.plan, price: 36, tea: 'premium' }, { cups: 3, wrong: 1, walkouts: 2, gouged: true },
@@ -957,7 +966,10 @@ describe('closeDay: the day summary (§11)', () => {
     expect(last(quiet(seasoned(2), seasoned(2).plan, {}, [['shockTopping', 'A']])).summary.labels)
       .toEqual(['shockTopping']);
     const d3 = seasoned(3, 20, { flags: shock() });
-    expect(last(quiet(d3, at20(d3), {}, [['blackMarket', 'A']])).summary.labels).toEqual(['skimp', 'blackMarket']);
+    // R33: `skimp` means skimp tea; a shock-topping day is a skimp day for the rumor, but earns no `skimp` label.
+    expect(last(quiet(d3, at20(d3), {}, [['blackMarket', 'A']])).summary.labels).toEqual(['blackMarket']);
+    expect(last(quiet(d3, { ...at20(d3), tea: 'skimp' })).summary.labels).toEqual(['skimp']);
+    expect(quiet(d3, at20(d3)).skimpDays).toBe(1);
     expect(last(quiet(d3, { ...zero(d3), teaMl: 250 }, {}, [['blackMarket', 'B']])).summary.labels).toEqual([]);
     const d4 = seasoned(4, 30, { skimpDays: 2 });
     expect(last(quiet(d4, d4.plan, {}, [['tax', 'A'], ['inspection', 'A']])).summary.labels).toEqual(['inspectFail']);

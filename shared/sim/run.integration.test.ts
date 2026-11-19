@@ -5,7 +5,7 @@ import { CONFIG } from './config';
 import { morningBrief, openDay, quickFill, validatePlan } from './day';
 import { finishRush } from './rush';
 import { chooseCard, endRush, ending, newRun, nextDay, score } from './run';
-import type { CardId, Choice, Day, LessonId, MorningPlan, Phase, RunState, TeaGrade } from './types';
+import type { CardId, Choice, Day, DayReport, LessonId, MorningPlan, Phase, RunState, TeaGrade } from './types';
 
 interface Script {
   /** Price on days other than 2 and 3 (day 3 sells at the 20k ceiling). */
@@ -24,8 +24,8 @@ function planOf(run: RunState, s: Script): MorningPlan {
   return validatePlan(run, plan).length === 0 ? plan : { ...plan, teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } };
 }
 
-/** Plays the run to its end, checking the JSON round trip and the phase at every step. */
-function play(seed: number, s: Script): RunState {
+/** Plays the run to its end, checking the JSON round trip and the phase at every step; `seen` watches each choice. */
+function play(seed: number, s: Script, seen: (before: RunState, after: RunState) => void = () => {}): RunState {
   let run = newRun(seed, `integration-${seed}`);
   const phases: Phase[] = [];
   const at = (r: RunState) => {
@@ -41,7 +41,9 @@ function play(seed: number, s: Script): RunState {
     run = endRush(opened.run, finishRush(opened.rush).state);
     while (run.phase === 'cards') {
       at(run);
+      const before = run;
       run = chooseCard(run, s.card(run.cards[run.cardIndex]));
+      seen(before, run);
     }
     at(run);
     run = nextDay(run);
@@ -98,8 +100,10 @@ function checkReports(run: RunState) {
   expect(end.repLosses.every(x => x.delta < 0)).toBe(true);
 }
 
-/** Declines every offer and declares the tax; the cartel as given. */
-const honest = (cartel: Choice): Script['card'] => id => (id === 'cartel' ? cartel : id === 'tax' ? 'A' : 'B');
+/** Declines every offer and declares the tax (or evades it with `tax` B); the cartel as given. */
+const honest = (cartel: Choice, tax: Choice = 'A'): Script['card'] => id =>
+  (id === 'cartel' ? cartel : id === 'tax' ? tax : 'B');
+const eveningRepOf = (r: DayReport) => r.repItems.filter(x => x.when === 'evening');
 const branches: { name: string; day2Price: number; cartel: Choice; id: LessonId }[] = [
   { name: 'refused', day2Price: 30, cartel: 'B', id: 'entryRefused' },
   { name: 'kept', day2Price: 36, cartel: 'A', id: 'cartelKept' },
@@ -139,13 +143,41 @@ describe('a whole run, five days', () => {
     const run = play(11, { price: 30, day2Price: 30, tea: 'standard', card: () => 'A' });
     checkReports(run);
     const labels = ending(run).labels;
-    for (const l of ['cartelBroke', 'shockTopping', 'skimp', 'blackMarket'] as const) expect(labels).toContain(l);
+    for (const l of ['cartelBroke', 'shockTopping', 'blackMarket'] as const) expect(labels).toContain(l);
+    expect(labels).not.toContain('skimp');   // standard tea throughout; shock toppings are not skimp tea (R33)
     expect(labels.some(l => l === 'inspectPass' || l === 'inspectFail')).toBe(true);
     expect(run.flags.reporter).toBe('A');
     const story = new Set<CardId>(([1, 2, 3, 4, 5] as Day[]).flatMap(d => CONFIG.days[d].storyCards));
     expect(run.reports.flatMap(r => r.summary.cards.map(c => c.id)).filter(id => story.has(id)))
       .toEqual(['cartel', 'shockTopping', 'blackMarket', 'tax', 'inspection', 'reporter']);
   });
+});
+
+describe('evading the day-4 tax', () => {
+  for (const seed of [11, 12]) {
+    it(`refunds seed ${seed}'s tax once, when the card is chosen, and reports it as card money`, () => {
+      let atChoice: { before: RunState; after: RunState } | null = null;
+      let evening: RunState | null = null;
+      const run = play(seed, { price: 30, day2Price: 30, tea: 'standard', card: honest('B', 'B') }, (before, after) => {
+        if (before.day !== 4) return;
+        if (before.cards[before.cardIndex] === 'tax') atChoice = { before, after };
+        if (after.phase === 'report') evening = after;
+      });
+      checkReports(run);
+      const { before, after } = atChoice!;
+      const tax = before.rushResult!.player.tax;
+      expect(before.rushResult!.player.cups).toBeGreaterThan(0);
+      expect(tax).toBe(before.rushResult!.player.cups * CONFIG.days[4].taxPerCup);
+      expect(after.cash).toBe(before.cash + tax);   // the refund lands at the choice
+      const day4 = evening!.reports[3];
+      expect(evening!.cash).toBe(after.cash);        // inspection B moves no cash; the evening refunds nothing
+      expect(day4.summary).toMatchObject({ tax, fines: 0, labels: ['taxEvaded'], cash: after.cash });
+      expect(day4.summary.profit).toBe(day4.summary.revenue - day4.summary.cost - tax);
+      expect(day4.cardCash).toBe(tax);
+      expect(day4.lesson).toMatchObject({ id: 'tax', data: { tax, evaded: 1 } });
+      expect(eveningRepOf(day4)).toContainEqual({ reason: 'tax', delta: CONFIG.cards.tax.evadeRep, when: 'evening' });
+    });
+  }
 });
 
 describe('a run that loses all trust', () => {

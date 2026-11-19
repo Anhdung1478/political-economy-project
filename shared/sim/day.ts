@@ -29,14 +29,16 @@ const shockDay = (run: RunState, cfg: SimConfig) =>
 const toppingUnit = (run: RunState, cfg: SimConfig): K =>
   (shockDay(run, cfg) ? cfg.cards.shockTopping.toppingCost : cfg.supplies.toppingCost);
 
-/**
- * A skimp day (§4 Uy tín, §16 row 9): skimp tea bought, or shock toppings bought on their days. A grade or a topping
- * the shop did not buy does not count (R31).
- */
-function skimpToday(run: RunState, plan: MorningPlan, cfg: SimConfig): boolean {
-  const toppings = cfg.customers.toppingOrder.some(t => plan.toppings[t] > 0);
-  return (plan.tea === 'skimp' && plan.teaMl > 0) || (shockDay(run, cfg) && toppings);
-}
+/** Skimp tea bought today: the `skimp` label (R33). A grade with no tea bought does not count (R31). */
+const skimpTea = (plan: MorningPlan) => plan.tea === 'skimp' && plan.teaMl > 0;
+
+/** Shock toppings bought on their days: the evening's −3 (R32). */
+const shockToppings = (run: RunState, plan: MorningPlan, cfg: SimConfig) =>
+  shockDay(run, cfg) && cfg.customers.toppingOrder.some(t => plan.toppings[t] > 0);
+
+/** A skimp day for the rumor and the inspection (§4 Uy tín, §16 row 9, R31): skimp tea or shock toppings bought. */
+const skimpToday = (run: RunState, plan: MorningPlan, cfg: SimConfig) =>
+  skimpTea(plan) || shockToppings(run, plan, cfg);
 
 const clampRep = (rep: number, cfg: SimConfig) => Math.min(cfg.run.maxRep, Math.max(cfg.run.minRep, rep));
 
@@ -275,8 +277,9 @@ export function score(run: RunState, cfg: SimConfig = CONFIG): { profit: K; bran
 }
 
 /**
- * The evening's rep items (§4 Uy tín, §7), in a fixed order: tea grade (only with tea bought, R31), wrong cups, walkouts,
- * gouging, clean service (§16 row 11), the afternoon's card rep, the cartel fine, the shock toppings.
+ * The evening's rep items (§4 Uy tín, §7), in a fixed order: tea grade (only with tea bought, R31), wrong cups,
+ * walkouts, gouging, clean service (§16 row 11), the afternoon's card rep, the cartel fine, the shock toppings (only
+ * with toppings bought, R32).
  */
 function eveningRep(run: RunState, plan: MorningPlan, p: RushResult['player'], rules: DayRules, cfg: SimConfig):
   RepItem[] {
@@ -292,15 +295,17 @@ function eveningRep(run: RunState, plan: MorningPlan, p: RushResult['player'], r
   if (p.cups >= r.cleanMinCups && p.wrong === 0 && p.walkouts === 0) add('clean', r.clean);
   items.push(...run.cardRep);
   if (rules.cartel) add('cartel', cfg.cards.cartel.fineRep);
-  if (shockDay(run, cfg)) add('shockTopping', cfg.cards.shockTopping.repPerDay);
+  if (shockToppings(run, plan, cfg)) add('shockTopping', cfg.cards.shockTopping.repPerDay);
   return items;
 }
 
-/** Labels of the day (§8 màn kết): a skimp day, the cartel's outcome, then today's choices that earn one. */
-function dayLabels(run: RunState, plan: MorningPlan, p: RushResult['player'], rules: DayRules, cfg: SimConfig):
-  ChoiceLabel[] {
+/**
+ * Labels of the day (§8 màn kết): skimp tea used (R33; a shock-topping day is a skimp day for the rumor but its
+ * label is `shockTopping`, earned with the card), the cartel's outcome, then today's choices that earn one.
+ */
+function dayLabels(run: RunState, plan: MorningPlan, p: RushResult['player'], rules: DayRules): ChoiceLabel[] {
   const labels: ChoiceLabel[] = [];
-  if (skimpToday(run, plan, cfg)) labels.push('skimp');
+  if (skimpTea(plan)) labels.push('skimp');
   if (rules.cartel) labels.push(p.brokeCartel ? 'cartelBroke' : 'cartelKept');
   for (const c of run.choices) {
     if (c.id === 'shockTopping' && c.choice === 'A') labels.push('shockTopping');
@@ -417,7 +422,7 @@ export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
     used: { teaMl: p.used.teaMl, toppings: { ...p.used.toppings } }, wasteValue,
     cups: p.cups, wrong: p.wrong, walkouts: p.walkouts,
     revenue: p.revenue, cost, tax: p.tax, fines, profit, cash, rep, score: score({ ...run, cash, rep }, cfg).total,
-    upgrade: plan.upgrade, cards: run.choices.map(c => ({ ...c })), labels: dayLabels(run, plan, p, rules, cfg), lost,
+    upgrade: plan.upgrade, cards: run.choices.map(c => ({ ...c })), labels: dayLabels(run, plan, p, rules), lost,
   };
   const before = run.reports.find(r => r.summary.day === day - 1);
   const report: DayReport = {
