@@ -303,61 +303,75 @@ function serveAi(d: RushState, t: Tick, events: SimEvent[]): void {
   }
 }
 
-/** Patience (§4): 250 ticks in one queue. A queue is in join order, so whoever runs out is at its front. */
+/** Whether a queued customer leaves, given how many stay ahead of them: the cause, or null to stay. */
+type QueueDecision = (id: number, ahead: number) => LeaveCause | null;
+
+/**
+ * Goes through the queue of `s` front to back. Each customer is decided with `ahead` = the customers before
+ * them who stay, so a leaver no longer counts for those behind (R11). Leavers are taken out of the queue,
+ * then walk away front first (`leaveQueue`: abandon, then re-shop).
+ */
+function siftQueue(d: RushState, s: RushShop, leaves: QueueDecision, t: Tick, cfg: SimConfig,
+  events: SimEvent[]): void {
+  const stay: number[] = [];
+  const gone: [number, LeaveCause][] = [];
+  for (const id of s.queue) {
+    const cause = leaves(id, stay.length);
+    if (cause === null) stay.push(id);
+    else gone.push([id, cause]);
+  }
+  s.queue = stay;
+  for (const [id, cause] of gone) leaveQueue(d, id, s, cause, t, cfg, events);
+}
+
+/**
+ * Patience (§4): 250 ticks in one queue. Queues are in join order, so only a queue whose front has run out is
+ * sifted; the per-tick loop allocates nothing otherwise.
+ */
 function runOutOfPatience(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
+  const since = t - cfg.rush.patienceTicks;
   for (const s of d.shops) {
-    while (s.queue.length > 0 && t - d.rt[s.queue[0]].joinedTick >= cfg.rush.patienceTicks) {
-      const id = s.queue[0];
-      s.queue.shift();
-      leaveQueue(d, id, s, 'patience', t, cfg, events);
-    }
+    if (s.queue.length === 0 || d.rt[s.queue[0]].joinedTick > since) continue;
+    siftQueue(d, s, id => d.rt[id].joinedTick <= since ? 'patience' : null, t, cfg, events);
   }
 }
 
-/** The whole queue of `s` leaves, front first. */
-function emptyQueue(d: RushState, s: RushShop, cause: LeaveCause, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
-  const leaving = s.queue;
-  s.queue = [];
-  for (const id of leaving) leaveQueue(d, id, s, cause, t, cfg, events);
-}
-
-/** An AI shop out of cups flips its sign and its queue leaves to re-shop, no rep hit. */
+/** An AI shop out of cups flips its sign and its whole queue leaves to re-shop, no rep hit. */
 function flipSoldOut(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
   for (const s of d.shops) {
     if (s.ai === null || s.status !== 'open' || s.ai.cupsLeft > 0) continue;
     s.status = 'soldOut';
     events.push({ t, type: 'shopStatus', shop: s.id, status: 'soldOut' });
-    emptyQueue(d, s, 'stockOut', t, cfg, events);
+    siftQueue(d, s, () => 'stockOut', t, cfg, events);
   }
 }
 
-/** Mid-rush checkpoint (§4): AI shops in slot order may move 2k; a moved shop's queue re-scores at once. */
+/**
+ * Mid-rush checkpoint (§4, R13), in two phases. Phase 1: in slot order, every AI shop decides on the street as
+ * it stood when the checkpoint began and posts its new price (`midRushPrice` reads only the shop's own queue
+ * and sales, which phase 1 never changes). Phase 2: in slot order, the queues of the shops that moved re-score;
+ * leavers re-shop against the new prices.
+ */
 function repriceAi(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
+  const moved: RushShop[] = [];
   for (const s of d.shops) {
     const next = midRushPrice(s, t, d.rules, cfg);
     if (next === null) continue;
     events.push({ t, type: 'shopPrice', shop: s.id, from: s.price, to: next });
     s.price = next;
     s.trail = [...s.trail, [t, next]];
-    rescoreQueue(d, s, t, cfg, events);
+    moved.push(s);
   }
+  for (const s of moved) rescoreQueue(d, s, t, cfg, events);
 }
 
-/**
- * Re-scoring after a price change (§6, §16.6). Everyone in the queue decides at once, each counting the people
- * ahead of them at the moment of the change; those who leave then re-shop one by one, front first.
- */
+/** Re-scoring after a price change (§6, §16.6, R11): front to back, each counting only those ahead who stay. */
 function rescoreQueue(d: RushState, s: RushShop, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
-  const stay: number[] = [];
-  const leave: [number, LeaveCause][] = [];
-  s.queue.forEach((id, ahead) => {
+  siftQueue(d, s, (id, ahead) => {
     const c = d.customers[id];
     const r = staysAfterReprice(c, offerFor(d, s, c, cfg), ahead, cfg);
-    if (r.stay) stay.push(id);
-    else leave.push([id, r.cause ?? 'priceUp']);
-  });
-  s.queue = stay;
-  for (const [id, cause] of leave) leaveQueue(d, id, s, cause, t, cfg, events);
+    return r.stay ? null : r.cause ?? 'priceUp';
+  }, t, cfg, events);
 }
 
 /** Tick 900 (§6): whoever still queues goes home without a rep hit (`rushEnd`), and the rush is done. */

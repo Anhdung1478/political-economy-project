@@ -455,39 +455,62 @@ describe('end of the rush', () => {
 
 describe('mid-rush AI prices (§4, §16.6)', () => {
   // Bà Tư 27 gets four customers at 250; Lướt Sóng 45 has nobody; GiáRẻ and Ông Cố Chấp never move.
+  // At 250, Bà Tư 27 gets 0 (40k), 1 (31k), 2 (33k) and 3 (40k). 2 and 3 do not trust GiáRẻ (rep 35);
+  // 1 trusts it but prefers Bà Tư (31 − 27 − 2 = 2k vs 31 − 27 − 3 = 1k).
   const midRush = () => street(
-    [shop('batu', 27), shop('giare', 31), shop('cochap', 45), shop('luotsong', 45)],
-    [cust(0, { arriveTick: 250 }), cust(1, { arriveTick: 250, budget: 31 }), cust(2, { arriveTick: 250 }),
-      cust(3, { arriveTick: 250, budget: 35 })],
+    [shop('batu', 27), shop('giare', 27), shop('cochap', 45), shop('luotsong', 45)],
+    [cust(0, { arriveTick: 250 }), cust(1, { arriveTick: 250, budget: 31 }),
+      cust(2, { arriveTick: 250, budget: 33, trust: 40 }), cust(3, { arriveTick: 250, trust: 40 })],
     { stock: NONE });
 
-  it('at 300 shops reprice in slot order and the repriced queue re-scores, each with its place at that moment', () => {
+  it('at 300 every shop posts its price first, then moved queues re-score front to back (R11, R13)', () => {
     const { state, events } = runTo(midRush());
     expect(state.rt.slice(0, 4).every(r => r.visited[0] === 'batu')).toBe(true);
-    // New price 29: 0 → 40 − 29 = 11k stays; 1 → 31 − 29 − 2 = 0 leaves; 2 → 40 − 29 − 4 stays;
-    // 3 → 35 − 29 − 6 = 0 leaves (it counts all three ahead, including 1 who is leaving too).
+    // New price 29, front to back, counting only those ahead who stay:
+    // 0 → 40 − 29 = 11k stays; 1 → 31 − 29 − 2 = 0 leaves;
+    // 2 → 33 − 29 − 2 (only 0 ahead now) = 2k stays (it would be 0 if 1 still counted);
+    // 3 → 40 − 29 − 4 = 7k stays.
+    // 1 re-shops against the new prices: Lướt Sóng already shows 43.
     expect(at(events, 300)).toEqual([
       { t: 300, type: 'shopPrice', shop: 'batu', from: 27, to: 29 },
+      { t: 300, type: 'shopPrice', shop: 'luotsong', from: 45, to: 43 },
       { t: 300, type: 'customerAbandon', customer: 1, shop: 'batu', cause: 'priceUp', repHit: false },
-      { t: 300, type: 'customerConsider', customer: 1, reshop: true, chosen: null, verdicts: [
-        { shop: 'batu', score10: null, reason: 'visited' },
-        { shop: 'giare', score10: -30, reason: 'tooExpensive' },
-        { shop: 'cochap', score10: -130, reason: 'tooExpensive' },
-        { shop: 'luotsong', score10: -140, reason: 'tooExpensive' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
-      ] },
-      { t: 300, type: 'customerLeave', customer: 1, outcome: 'gaveUp', emptyHanded: true },
-      { t: 300, type: 'customerAbandon', customer: 3, shop: 'batu', cause: 'priceUp', repHit: false },
-      { t: 300, type: 'customerConsider', customer: 3, reshop: true, chosen: 'giare', verdicts: [
+      { t: 300, type: 'customerConsider', customer: 1, reshop: true, chosen: 'giare', verdicts: [
         { shop: 'batu', score10: null, reason: 'visited' },
         { shop: 'giare', score10: 10, reason: 'chosen' },
-        { shop: 'cochap', score10: -90, reason: 'tooExpensive' },
-        { shop: 'luotsong', score10: -100, reason: 'tooExpensive' },
+        { shop: 'cochap', score10: -130, reason: 'tooExpensive' },
+        { shop: 'luotsong', score10: -120, reason: 'tooExpensive' },
         { shop: 'player', score10: null, reason: 'outOfStock' },
       ] },
-      { t: 300, type: 'customerJoin', customer: 3, shop: 'giare', position: 0 },
-      { t: 300, type: 'shopPrice', shop: 'luotsong', from: 45, to: 43 },
+      { t: 300, type: 'customerJoin', customer: 1, shop: 'giare', position: 0 },
     ]);
+    expect(state.rt.map(r => r.outcome)).toEqual(['served', 'served', 'served', 'served']);
+  });
+
+  it('a customer pushed out of one queue at a checkpoint is not bounced again by the next shop in the same tick', () => {
+    // At 250, ties (2k per person ahead offsets Lướt Sóng's 2k higher price) rotate by `tie`:
+    // Bà Tư 27 gets 0, 2, 4, 5; Lướt Sóng 29 gets 1 and 3.
+    const s = street([shop('batu', 27), shop('luotsong', 29)], [
+      cust(0, { arriveTick: 250 }), cust(1, { arriveTick: 250, tie: 1 }), cust(2, { arriveTick: 250 }),
+      cust(3, { arriveTick: 250, tie: 1 }), cust(4, { arriveTick: 250 }), cust(5, { arriveTick: 250, budget: 34 }),
+    ], { stock: NONE });
+    const { state, events } = runTo(s);
+    expect(state.rt.map(r => r.visited[0])).toEqual(['batu', 'luotsong', 'batu', 'luotsong', 'batu', 'batu']);
+    // Both decide on the street as it stood at 300: Bà Tư (4 waiting) +2k; Lướt Sóng (2 waiting, none sold) stays.
+    // 5 leaves Bà Tư (34 − 29 − 6 < 0) and joins Lướt Sóng third (34 − 29 − 4 = 1k), which must not now
+    // see 3 waiting and raise its price on them.
+    expect(at(events, 300)).toEqual([
+      { t: 300, type: 'shopPrice', shop: 'batu', from: 27, to: 29 },
+      { t: 300, type: 'customerAbandon', customer: 5, shop: 'batu', cause: 'priceUp', repHit: false },
+      { t: 300, type: 'customerConsider', customer: 5, reshop: true, chosen: 'luotsong', verdicts: [
+        { shop: 'batu', score10: null, reason: 'visited' },
+        { shop: 'luotsong', score10: 10, reason: 'chosen' },
+        { shop: 'player', score10: null, reason: 'outOfStock' },
+      ] },
+      { t: 300, type: 'customerJoin', customer: 5, shop: 'luotsong', position: 2 },
+    ]);
+    expect(state.shops[1].trail).toEqual([[0, 29], [600, 27]]);
+    expect(state.rt[5]).toMatchObject({ outcome: 'served', shop: 'luotsong', visited: ['batu', 'luotsong'] });
   });
 
   it('keeps a trail of prices, cuts again at 600, and books each cup at its price at sale', () => {
@@ -499,10 +522,11 @@ describe('mid-rush AI prices (§4, §16.6)', () => {
     expect(batu.trail).toEqual([[0, 27], [300, 29], [600, 27]]);
     expect(luotsong.trail).toEqual([[0, 45], [300, 43], [600, 41]]);
     expect(cochap.trail).toEqual([[0, 45]]);
-    expect(giare.trail).toEqual([[0, 31]]);
-    // Bà Tư served 0 at 319 and 2 at 389, both at 29.
-    expect(ofType(events, 'customerServed').map(e => [e.t, e.customer, e.paid])).toEqual([[319, 0, 29], [369, 3, 31], [389, 2, 29]]);
-    expect(batu.revenue).toBe(58);
+    expect(giare.trail).toEqual([[0, 27]]);
+    // Bà Tư serves 0, 2 and 3 at 29; GiáRẻ serves 1 at 27.
+    expect(ofType(events, 'customerServed').map(e => [e.t, e.customer, e.paid]))
+      .toEqual([[319, 0, 29], [369, 1, 27], [389, 2, 29], [459, 3, 29]]);
+    expect(batu.revenue).toBe(87);
     expect(batu.openPrice).toBe(27);
   });
 
