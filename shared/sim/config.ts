@@ -128,6 +128,8 @@ export const CONFIG = {
     toppingOrder: ['pearl', 'jelly', 'pudding'] as ToppingId[],
     /** `tie` is a whole number in 0..tieMax. */
     tieMax: 6,
+    /** Share of the non-bus customers entering from the left end of the street. */
+    entryLeftShare: 0.5,
     /** Share of customers entering from the bus stop on bus-stop days. */
     busShare: 0.2,
   },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, type SimConfig } from './config';
+import { customerCount } from './customers';
 import type { AiShopId, Day, Size } from './types';
 
 const SIZES: Size[] = ['S', 'M', 'L'];
@@ -133,7 +134,7 @@ describe('CONFIG day schedule (spec section 3)', () => {
     expect([d[1].rumor, d[2].rumor, d[3].rumor, d[4].rumor, d[5].rumor]).toEqual([false, false, false, false, true]);
     expect([d[1].cartelPossible, d[2].cartelPossible, d[3].cartelPossible, d[4].cartelPossible, d[5].cartelPossible])
       .toEqual([false, true, false, false, false]);
-    expect(Math.round(CONFIG.customers.base * d[5].customerFactor)).toBe(163);
+    expect(([1, 2, 3, 4, 5] as Day[]).map(day => customerCount(day))).toEqual([130, 130, 130, 130, 163]);
   });
 
   it('deals the story cards of each day in order, side cards on days 1–3', () => {
