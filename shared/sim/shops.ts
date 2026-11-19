@@ -48,7 +48,8 @@ function freeDays(shop: AiShopState, today: Day, flags: RunFlags, cfg: SimConfig
 
 /**
  * Closing prices of every shop (AI and player) that sold on `day`, in street order. On a tax day
- * the 3k pass-through is taken back off every close before any rule reads it (§16.12).
+ * the 3k pass-through is taken back off the AI closes before any rule reads them (§16.12); the
+ * player's close is read as is, since the player set it (ruling R7).
  */
 function closesOn(day: Day, shops: readonly AiShopState[], player: readonly PlayerDay[], cfg: SimConfig): Close[] {
   const back = cfg.days[day].taxPerCup > 0 ? cfg.aiPricing.taxPassThrough : 0;
@@ -58,7 +59,7 @@ function closesOn(day: Day, shops: readonly AiShopState[], player: readonly Play
     if (e && e.closePrice !== null) closes.push({ id: s.id, price: e.closePrice - back, sold: e.sold });
   }
   const pe = player.find(x => x.day === day);
-  if (pe) closes.push({ id: 'player', price: pe.closePrice - back, sold: pe.sold });
+  if (pe) closes.push({ id: 'player', price: pe.closePrice, sold: pe.sold });
   return closes.sort((a, b) => STREET.indexOf(a.id) - STREET.indexOf(b.id));
 }
 

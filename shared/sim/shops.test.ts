@@ -218,21 +218,28 @@ describe('morningPrices', () => {
     expect(priceOf(out, 'giare')).toBe(28);
   });
 
-  it('morning of day 5 takes the 3k pass-through back off every day-4 close', () => {
-    const shops = [
-      ai('batu', [h(1, 27, 12), h(2, 28, 12), h(3, 20, 12), h(4, 30, 12)]),
-      ai('giare', [h(1, 22, 12), h(2, 25, 12), h(3, 18, 12), h(4, 29, 12)]),
-      ai('luotsong', [h(1, 29, 11), h(2, 29, 11), h(3, 20, 12), h(4, 31, 5)]),
-    ];
-    const player = [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18), p(4, 33, 15)];
-    const out = morningPrices(shops, player, rules(5), flags());
-    // day-4 closes become batu 27, giare 26, luotsong 28, player 30.
-    // batu: others (26 + 28 + 30) / 3 = 28 > 27 → 28
+  const day5Shops = () => [
+    ai('batu', [h(1, 27, 12), h(2, 28, 12), h(3, 20, 12), h(4, 30, 12)]),
+    ai('giare', [h(1, 22, 12), h(2, 25, 12), h(3, 18, 12), h(4, 29, 12)]),
+    ai('luotsong', [h(1, 29, 11), h(2, 29, 11), h(3, 20, 12), h(4, 31, 5)]),
+  ];
+  const day5Player = (close4: K) => [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18), p(4, close4, 15)];
+
+  it('morning of day 5 takes the 3k pass-through back off the AI day-4 closes, not the player\'s (R7)', () => {
+    const out = morningPrices(day5Shops(), day5Player(33), rules(5), flags());
+    // day-4 closes become batu 27, giare 26, luotsong 28; the player stays 33.
+    // batu: others (26 + 28 + 33) / 3 = 29 > 27 → 28
     expect(priceOf(out, 'batu')).toBe(28);
-    // giare: min(27, 28, 30) − 2 = 25
+    // giare: min(27, 28, 33) − 2 = 25
     expect(priceOf(out, 'giare')).toBe(25);
-    // earned: batu 14 × 12 = 168, giare 13 × 12 = 156, luotsong 15 × 5 = 75, player 17 × 15 = 255 → copy 30
-    expect(priceOf(out, 'luotsong')).toBe(30);
+    // earned: batu 14 × 12 = 168, giare 13 × 12 = 156, luotsong 15 × 5 = 75, player 20 × 15 = 300 → copy 33
+    expect(priceOf(out, 'luotsong')).toBe(33);
+  });
+
+  it('morning of day 5: a player day-4 close at the street minimum is read as is (R7)', () => {
+    const out = morningPrices(day5Shops(), day5Player(25), rules(5), flags());
+    // giare: min(27, 28, 25) − 2 = 23 (taking 3k off the player too would give 20)
+    expect(priceOf(out, 'giare')).toBe(23);
   });
 
   it('clamps the rule result', () => {
