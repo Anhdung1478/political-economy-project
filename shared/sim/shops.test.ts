@@ -268,7 +268,7 @@ describe('morningPrices', () => {
 const rushShop = (id: RushShop['id'], over: Partial<RushShop> = {}, ai: Partial<NonNullable<RushShop['ai']>> = {}):
   RushShop => ({
   id, slot: STREET.indexOf(id), status: 'open', grandOpening: false, price: 27, openPrice: 27, trail: [[0, 27]],
-  rep: 50, rumorPenalty: 0, certified: false, named: false, queue: [], sold: 0, revenue: 0,
+  rep: 50, rumorPenalty: 0, skimpDays: 0, certified: false, named: false, queue: [], sold: 0, revenue: 0,
   ai: { cost: 13, capacity: 20, cupsLeft: 20, ticksPerCup: 70, busy: 0, frozen: false, ...ai }, ...over,
 });
 

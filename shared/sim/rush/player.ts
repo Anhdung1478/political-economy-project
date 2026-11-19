@@ -1,10 +1,11 @@
-// The player's shop during the rush (spec §4 Nâng cấp and Thuế, §6 Quầy, §16.3/4/5/7; plan staff ruling; rulings R14,
-// R15): the player's actions, the cup station and the staff at production, the re-check of the queue against the
-// stock, and the books of every cup sold. Every function works on a draft the caller owns (see `cloneRush`).
+// The player's shop during the rush (spec §4 Nâng cấp and Thuế, §6 Quầy and Đổi giá giữa trưa, §16.3/4/5/6/7; plan
+// staff ruling; rulings R14, R15, R18): the player's actions (the price change among them), the cup station and the
+// staff at production, the re-check of the queue against the stock, and the books of every cup sold. Every function
+// works on a draft the caller owns (see `cloneRush`).
 import type { SimConfig } from '../config';
 import type { Action, InputReject, K, RushShop, RushState, SimEvent, Tick } from '../types';
 import { applyInput, canServe, dropCup, holds, orderPrice, payment, tickCraft } from './craft';
-import { leaveStreet, noteMissed, shopOf, siftQueue } from './street';
+import { leaveStreet, noteMissed, rescoreQueue, shopOf, siftQueue } from './street';
 
 const reject = (events: SimEvent[], t: Tick, action: Action['type'], why: InputReject): false => {
   events.push({ t, type: 'inputRejected', action, why });
@@ -76,16 +77,44 @@ function closeEarly(d: RushState, ps: RushShop, t: Tick, cfg: SimConfig, events:
 }
 
 /**
+ * The player's one price change of the rush (§6, R18). Refused when already used, outside 10–50k or off the 1k step,
+ * or above today's ceiling. Percents are against the morning price, in integers: a rise of more than 20% is gouging;
+ * a cut of more than 20% records its depth in permille, and the skeptic test then runs on the queue and on every later
+ * arrival. Any price under the cartel's on a cartel day breaks the cartel. The queue then re-scores (R11); leavers
+ * re-shop without a rep hit.
+ */
+function setPrice(d: RushState, ps: RushShop, price: K, t: Tick, cfg: SimConfig, events: SimEvent[]): false {
+  const p = d.player;
+  const { min, max, step } = cfg.pricing;
+  if (p.priceChanged) return reject(events, t, 'setPrice', 'priceUsed');
+  if (price < min || price > max || (price - min) % step !== 0) return reject(events, t, 'setPrice', 'priceRange');
+  if (d.rules.ceiling !== null && price > d.rules.ceiling) return reject(events, t, 'setPrice', 'ceiling');
+  const morning = p.morningPrice;
+  const { gougePercent, discountPermille } = cfg.priceChange;
+  p.priceChanged = true;
+  p.gouged = (price - morning) * 100 > gougePercent * morning;
+  p.dropPermille = (morning - price) * 1000 > discountPermille * morning
+    ? Math.floor((morning - price) * 1000 / morning) : 0;
+  if (d.rules.cartel && price < cfg.cards.cartel.price) p.brokeCartel = true;
+  events.push({ t, type: 'shopPrice', shop: 'player', from: ps.price, to: price });
+  ps.price = price;
+  ps.trail = [...ps.trail, [t, price]];
+  rescoreQueue(d, ps, t, cfg, events);
+  return false;
+}
+
+/**
  * @internal One player action at tick t (plan tick order, step 1); a refused action emits `inputRejected` and changes
  * nothing. Returns true when the queue must be re-checked against the stock: stock was taken, or the cup that held a
  * customer left the counter.
  */
 export function playerAction(d: RushState, a: Action, t: Tick, cfg: SimConfig, events: SimEvent[]): boolean {
-  if (a.type === 'setPrice') throw new Error(`action '${a.type}' is not supported yet`);
   const ps = shopOf(d, 'player');
   if (ps.status === 'closedEarly') return reject(events, t, a.type, 'closed');
   const p = d.player;
   switch (a.type) {
+    case 'setPrice':
+      return setPrice(d, ps, a.price, t, cfg, events);
     case 'craft':
       return applyInput(p.craft, a.input, p.stock, t, p.machine, events, cfg);
     case 'deliver':

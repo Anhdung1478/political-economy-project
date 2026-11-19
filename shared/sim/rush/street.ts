@@ -1,6 +1,7 @@
-// The street part of the rush engine (spec §4 Khách, 6 quán AI, §6, §16.2/5/6; plan "Thứ tự trong một nhịp"; rulings
-// R8–R13, R15, R16): customers walking in and choosing, queues, AI service, patience and re-shopping, mid-rush AI prices,
-// sold-out signs and the end of the rush. Every function works on a draft the caller owns (see `cloneRush`).
+// The street part of the rush engine (spec §4 Khách, 6 quán AI, Tin đồn, §6, §16.2/5/6/8/9; plan "Thứ tự trong một
+// nhịp"; rulings R8–R13, R15, R16, R19): customers walking in and choosing, queues, AI service, patience and re-shopping,
+// mid-rush AI prices, sold-out signs, the day-5 inspection and the end of the rush. Every function works on a draft
+// the caller owns (see `cloneRush`).
 import { evaluate, staysAfterReprice, type ShopOffer } from '../choice';
 import type { SimConfig } from '../config';
 import { midRushPrice } from '../shops';
@@ -228,13 +229,40 @@ export function repriceAi(d: RushState, t: Tick, cfg: SimConfig, events: SimEven
   for (const s of moved) rescoreQueue(d, s, t, cfg, events);
 }
 
-/** Re-scoring after a price change (§6, §16.6, R11): front to back, each counting only those ahead who stay. */
-function rescoreQueue(d: RushState, s: RushShop, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
+/**
+ * @internal Re-scoring after a price change, the AI's or the player's (§6, §16.6, R11): front to back, each counting
+ * only those ahead who stay; the skeptic test of a steep cut comes first.
+ */
+export function rescoreQueue(d: RushState, s: RushShop, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
   siftQueue(d, s, (id, ahead) => {
     const c = d.customers[id];
     const r = staysAfterReprice(c, offerFor(d, s, c, cfg), ahead, cfg);
     return r.stay ? null : r.cause ?? 'priceUp';
   }, t, cfg, events);
+}
+
+/**
+ * @internal Day 5, tick 450 (§4 Tin đồn, §16.9, R19): the state announces its inspection of every shop selling
+ * today that is not yet certified, in slot order. Fewer than 2 skimp days: the penalty goes and the shop is certified.
+ * Otherwise it is named and keeps the penalty to the end of the day. Then the rumor lifts. Nobody re-scores: a lifted
+ * penalty only makes a queue more willing to stay.
+ */
+export function inspect(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
+  const certified: ShopId[] = [];
+  const named: ShopId[] = [];
+  for (const s of d.shops) {
+    if (s.certified || !sellsToday(s)) continue;
+    if (s.skimpDays >= cfg.rumor.failSkimpDays) {
+      s.named = true;
+      named.push(s.id);
+    } else {
+      s.rumorPenalty = 0;
+      s.certified = true;
+      certified.push(s.id);
+    }
+  }
+  events.push({ t, type: 'policy', kind: 'inspection', certified, named });
+  events.push({ t, type: 'policy', kind: 'rumorLifted' });
 }
 
 /**

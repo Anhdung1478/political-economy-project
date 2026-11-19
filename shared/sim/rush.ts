@@ -1,5 +1,5 @@
 // The 90-second lunch rush: the public entry point of the engine (spec §6; plan "Thứ tự trong một nhịp", "Hiệu năng";
-// rulings R8–R15). Setting up the street, one tick (`advance`), stepping and fast-forwarding, the day's result and the
+// rulings R8–R19). Setting up the street, one tick (`advance`), stepping and fast-forwarding, the day's result and the
 // player's counter view. The internals live in `rush/`: `street.ts` (customers, queues, AI shops), `craft.ts` (the cup
 // station, prices and payment) and `player.ts` (the player's actions, staff and stock re-check).
 import { CONFIG, type SimConfig } from './config';
@@ -7,12 +7,13 @@ import { generateAdCustomers, generateCustomers } from './customers';
 import { copyCraft, copyStock } from './rush/craft';
 import { producePlayer, playerAction, recheckStock } from './rush/player';
 import {
-  arrive, closeStreet, enterStreet, flipSoldOut, isCheckpoint, repriceAi, runOutOfPatience, sellsToday, serveAi, shopOf,
+  arrive, closeStreet, enterStreet, flipSoldOut, inspect, isCheckpoint, repriceAi, runOutOfPatience, sellsToday, serveAi,
+  shopOf,
 } from './rush/street';
 import { STREET } from './shops';
 import type {
   Action, AiShopState, Customer, CustomerRt, DayRules, K, Order, RushPlayer, RushResult, RushShop, RushState,
-  ShopDayResult, SimEvent, Stock, TeaGrade, Tick, ToppingId,
+  ShopDayResult, SimEvent, Stock, TeaGrade, Tick,
 } from './types';
 
 export {
@@ -33,6 +34,17 @@ export interface RushInput {
 export interface StepResult { state: RushState; events: SimEvent[] }
 export interface CounterView { first: { customer: number; order: Order; patienceLeft: Tick }[]; rest: number }
 
+/**
+ * Day 5 (§4 Tin đồn, R19): a self-certified shop starts certified; every other shop selling today carries the
+ * temporary penalty of 10 + 5 per skimp day until the inspection at 450. No penalty and no badge on other days.
+ */
+function rumorStart(sells: boolean, selfCertified: boolean, skimpDays: number, rules: DayRules, cfg: SimConfig):
+  Pick<RushShop, 'rumorPenalty' | 'certified'> {
+  if (!rules.rumor || !sells) return { rumorPenalty: 0, certified: false };
+  if (selfCertified) return { rumorPenalty: 0, certified: true };
+  return { rumorPenalty: cfg.rumor.basePenalty + cfg.rumor.penaltyPerSkimpDay * skimpDays, certified: false };
+}
+
 function aiShop(s: AiShopState, rules: DayRules, cfg: SimConfig): RushShop {
   const spec = cfg.aiShops[s.id];
   const status = s.status === 'active' ? (s.resting ? 'resting' : 'open') : s.status;
@@ -45,17 +57,19 @@ function aiShop(s: AiShopState, rules: DayRules, cfg: SimConfig): RushShop {
     id: s.id, slot: STREET.indexOf(s.id), status,
     grandOpening: sells && spec.firstDay > 1 && spec.firstDay === rules.day,
     price, openPrice: price, trail: sells ? [[0, price]] : [],
-    rep: spec.rep, rumorPenalty: 0, certified: false, named: false, queue: [], sold: 0, revenue: 0,
+    rep: spec.rep, ...rumorStart(sells, spec.selfCertified, spec.rumorSkimpDays, rules, cfg),
+    skimpDays: spec.rumorSkimpDays, named: false, queue: [], sold: 0, revenue: 0,
     ai: { cost: spec.cost, capacity, cupsLeft: capacity, ticksPerCup: spec.ticksPerCup, busy: 0, frozen: rules.cartel },
   };
 }
 
-function playerShop(p: RushInput['player'], cfg: SimConfig): RushShop {
+function playerShop(p: RushInput['player'], rules: DayRules, cfg: SimConfig): RushShop {
   return {
     id: 'player', slot: STREET.indexOf('player'),
     status: p.stock.teaMl < cfg.supplies.soldOutBelowMl ? 'soldOut' : 'open', grandOpening: false,
     price: p.price, openPrice: p.price, trail: [[0, p.price]],
-    rep: p.rep, rumorPenalty: 0, certified: false, named: false, queue: [], sold: 0, revenue: 0, ai: null,
+    rep: p.rep, ...rumorStart(true, p.selfCertified, p.skimpDays, rules, cfg), skimpDays: p.skimpDays, named: false,
+    queue: [], sold: 0, revenue: 0, ai: null,
   };
 }
 
@@ -72,7 +86,7 @@ export function createRushWith(input: RushInput, customers: Customer[], cfg: Sim
   });
   const arrivalOrder = customers.map(c => c.id)
     .sort((a, b) => customers[a].arriveTick - customers[b].arriveTick || a - b);
-  const shops = [...input.ai.map(s => aiShop(s, input.rules, cfg)), playerShop(input.player, cfg)]
+  const shops = [...input.ai.map(s => aiShop(s, input.rules, cfg)), playerShop(input.player, input.rules, cfg)]
     .sort((a, b) => a.slot - b.slot);
   const p = input.player;
   const state: RushState = {
@@ -81,7 +95,8 @@ export function createRushWith(input: RushInput, customers: Customer[], cfg: Sim
     arrivalOrder, nextArrival: 0, nextEnter: 0,
     shops,
     player: {
-      morningPrice: p.price, priceChanged: false, gouged: false, dropPermille: 0, brokeCartel: false,
+      morningPrice: p.price, priceChanged: false, gouged: false, dropPermille: 0,
+      brokeCartel: input.rules.cartel && p.price < cfg.cards.cartel.price,
       tea: p.tea, machine: p.machine, stock: copyStock(p.stock), bought: copyStock(p.stock),
       craft: { cup: null, anim: null, buffer: [] }, staff: p.staff ? { progress: 0 } : null,
       tally: { revenue: 0, tax: 0, cups: 0, wrong: 0, staffCups: 0, walkouts: 0, missedNoStock: 0, trashed: 0 },
@@ -145,13 +160,13 @@ export function finishRush(state: RushState, cfg: SimConfig = CONFIG): StepResul
 export function advance(d: RushState, actions: readonly Action[], cfg: SimConfig, events: SimEvent[]): void {
   if (d.done) return;
   const t = d.tick;
-  // 1. Player actions in order (setPrice comes with Task 7). Taking stock, or the cup leaving the counter, calls
-  //    for the stock re-check of step 6.
+  // 1. Player actions in order. Taking stock, or the cup leaving the counter, calls for the stock re-check of step 6.
   let recheck = false;
   for (const a of actions) if (playerAction(d, a, t, cfg, events)) recheck = true;
-  // 2. Timeline (the day-5 inspection at 450 comes with Task 7).
+  // 2. Timeline: the start, the AI checkpoints, the day-5 inspection.
   if (t === 0) events.push({ t, type: 'rushStart', day: d.day, rules: d.rules });
   if (isCheckpoint(t, cfg)) repriceAi(d, t, cfg, events);
+  if (d.rules.rumor && t === cfg.rumor.inspectionTick) inspect(d, t, cfg, events);
   // 3–4. Customers walk into view, then those arriving now choose, in id order.
   enterStreet(d, t, cfg, events);
   arrive(d, t, cfg, events);
@@ -180,12 +195,15 @@ function dayResult(s: RushShop, p: RushPlayer): ShopDayResult {
   };
 }
 
-/** The day's result for the evening report and the AI books (street part; Task 7 completes the player's side). */
-export function summarizeRush(state: RushState): RushResult {
+/**
+ * The day's result for the evening report and the AI books: the player's tally, closing price, stock used and left,
+ * gouging and cartel flags; every shop's row (AI profit is left to the evening, `aiProfit`); the street counts.
+ */
+export function summarizeRush(state: RushState, cfg: SimConfig = CONFIG): RushResult {
   const p = state.player;
   const used = copyStock(p.bought);
   used.teaMl -= p.stock.teaMl;
-  for (const k of Object.keys(used.toppings) as ToppingId[]) used.toppings[k] -= p.stock.toppings[k];
+  for (const k of cfg.customers.toppingOrder) used.toppings[k] -= p.stock.toppings[k];
   return {
     player: { ...p.tally, closePrice: shopOf(state, 'player').price, used, left: copyStock(p.stock),
       gouged: p.gouged, brokeCartel: p.brokeCartel },

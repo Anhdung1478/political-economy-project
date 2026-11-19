@@ -56,7 +56,16 @@ export interface RushShop {
   /** Price changes as [tick, new price], starting with [0, open price]; empty when not selling. Replaced, never pushed
    *  (clones and the day result share it). */
   trail: readonly (readonly [Tick, K])[];
-  rep: number; rumorPenalty: number; certified: boolean; named: boolean;
+  rep: number;
+  /** Day 5 only (§4 Tin đồn): the temporary penalty customers subtract from `rep`; 0 on other days and for the
+   *  shops that are certified. */
+  rumorPenalty: number;
+  /** Skimp days the day-5 inspection counts: the player's own, Chuỗi GiáRẻ 4, other AI shops 0. */
+  skimpDays: number;
+  /** Day 5: self-certified from the start, or cleared by the inspection at 450. */
+  certified: boolean;
+  /** Day 5: named by the inspection at 450 (2+ skimp days); it keeps its penalty. */
+  named: boolean;
   queue: number[]; sold: number;
   /** AI shops: Σ price at the moment of each sale. The player's takings are in RushPlayer.tally.revenue. */
   revenue: K;
