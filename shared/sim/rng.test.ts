@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashSeed, mulberry32, shuffle, stream } from './rng';
+import { hashSeed, mulberry32, nextState, shuffle, stream } from './rng';
 
 const take = (rng: () => number, n: number) => Array.from({ length: n }, () => rng());
 
@@ -10,6 +10,39 @@ describe('mulberry32', () => {
 
   it('gives values in [0, 1)', () => {
     for (const x of take(mulberry32(7), 5000)) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(1);
+    }
+  });
+});
+
+describe('nextState', () => {
+  /** The first n values of the state sequence that starts at s. */
+  const walk = (s: number, n: number) => {
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const [v, next] = nextState(s);
+      out.push(v);
+      s = next;
+    }
+    return out;
+  };
+
+  it('walks the same sequence as mulberry32 from the same seed', () => {
+    for (const seed of [0, 1, 42, -7, 0xffffffff, hashSeed(3, 'bot/reasonable/1')]) {
+      expect(walk(seed, 30)).toEqual(take(mulberry32(seed), 30));
+    }
+  });
+
+  it('is pure: the same state gives the same value and next state, an integer', () => {
+    const [v, s] = nextState(123);
+    expect(nextState(123)).toEqual([v, s]);
+    expect(Number.isInteger(s)).toBe(true);
+    expect(s).not.toBe(123);
+  });
+
+  it('gives values in [0, 1)', () => {
+    for (const x of walk(9, 5000)) {
       expect(x).toBeGreaterThanOrEqual(0);
       expect(x).toBeLessThan(1);
     }
