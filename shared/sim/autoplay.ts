@@ -9,7 +9,7 @@ import { hashSeed, nextState } from './rng';
 import { advance, canDeliver, checkInput, cloneRush } from './rush';
 import { chooseCard, endRush, newRun, nextDay, score } from './run';
 import type {
-  Action, CardId, Choice, CraftInput, CraftState, Cup, DayRules, DayReport, K, MorningBrief, MorningPlan, Order,
+  Action, CardId, Choice, CraftInput, CraftState, Cup, Day, DayRules, DayReport, K, MorningBrief, MorningPlan, Order,
   RunState, RushShop, RushState, SimEvent, Size, Stock, TeaGrade, Tick, ToppingId,
 } from './types';
 
@@ -17,7 +17,8 @@ import type {
 export interface RushPolicy {
   /** Ticks from one input to the next (a human's reaction time); inputs may still queue in the 3-step buffer. */
   delayTicks: number;
-  /** Share of cups the bot makes wrong: a wrong size, one extra topping or one missing topping. */
+  /** Share of cups the bot makes wrong: a wrong size, one extra topping or one missing topping, among those the stock
+   *  can make (R42a). */
   mistakeRate: number;
   /** `urgent`: of the first four whose order can be made, the one with the least patience left; `fifo`: the first. */
   serve: 'urgent' | 'fifo';
@@ -25,7 +26,7 @@ export interface RushPolicy {
   cup: 'asOrdered' | 'plainS';
   /** One price change, at the bot's first free tick from `atTick`, to `to` (brought into the day's range); skipped
    *  when that is the price already on the board. */
-  reprice: null | { atTick: Tick; to: (s: RushState) => K };
+  reprice: null | { atTick: Tick; to: (s: RushState, cfg: SimConfig) => K };
   /** Close early once the stock cannot make any order and no cup is left to hand over. */
   closeWhenEmpty: boolean;
 }
@@ -50,35 +51,36 @@ const NO_TOPPINGS: Record<ToppingId, number> = { pearl: 0, jelly: 0, pudding: 0 
 /** What the bot means to hand over: a size and toppings in canonical order. */
 interface Target { size: Size; toppings: ToppingId[] }
 
-/** The cup's plan, drawn from the bot's PRNG state: made wrong or not, how, and the state for the next cup. */
-interface CupDraw { wrong: boolean; kind: number; pick: number; next: number }
+/** The cup's plan, drawn from the bot's PRNG state: made wrong or not, which wrong cup, and the state for the next cup. */
+interface CupDraw { wrong: boolean; pick: number; next: number }
 
 function drawCup(rng: number, policy: RushPolicy): CupDraw {
   const [u1, s1] = nextState(rng);
   const [u2, s2] = nextState(s1);
-  const [u3, s3] = nextState(s2);
-  return { wrong: u1 < policy.mistakeRate, kind: Math.floor(u2 * 3), pick: u3, next: s3 };
+  return { wrong: u1 < policy.mistakeRate, pick: u2, next: s2 };
 }
 
 /**
- * The cup the bot makes for this order. A mistake is a wrong size (one of the other two), an extra topping (one not
- * ordered; a 3-topping order gets a missing one instead) or a missing topping, chosen by the cup's draw. `plainS`
- * makes an S cup with no topping for everyone.
+ * The cup the bot makes for this order (R42a). `plainS` makes an S cup with no topping for everyone. A cup drawn wrong
+ * is one of the wrong cups the stock can still make, given the steps already started (`cup`): each other size,
+ * each extra topping not ordered, each ordered topping left out, in that order, the draw picking among them. If none
+ * can be made, the order is made right, so the bot never waits on a mistake it cannot make.
  */
-function targetFor(order: Order, draw: CupDraw, policy: RushPolicy, cfg: SimConfig): Target {
+function targetFor(order: Order, draw: CupDraw, policy: RushPolicy, cup: Cup | null, stock: Stock,
+  cfg: SimConfig): Target {
   if (policy.cup === 'plainS') return { size: 'S', toppings: [] };
   if (!draw.wrong) return order;
-  if (draw.kind === 0) {
-    const others = SIZES.filter(s => s !== order.size);
-    return { size: others[Math.floor(draw.pick * others.length)], toppings: order.toppings };
+  const all = cfg.customers.toppingOrder;
+  const options: Target[] = [];
+  for (const size of SIZES) if (size !== order.size) options.push({ size, toppings: order.toppings });
+  for (const extra of all) {
+    if (!order.toppings.includes(extra)) {
+      options.push({ size: order.size, toppings: all.filter(t => t === extra || order.toppings.includes(t)) });
+    }
   }
-  const absent = cfg.customers.toppingOrder.filter(t => !order.toppings.includes(t));
-  if (draw.kind === 1 && absent.length > 0) {
-    const extra = absent[Math.floor(draw.pick * absent.length)];
-    return { size: order.size, toppings: cfg.customers.toppingOrder.filter(t => t === extra || order.toppings.includes(t)) };
-  }
-  const drop = order.toppings[Math.floor(draw.pick * order.toppings.length)];
-  return { size: order.size, toppings: order.toppings.filter(t => t !== drop) };
+  for (const drop of order.toppings) options.push({ size: order.size, toppings: order.toppings.filter(t => t !== drop) });
+  const makeable = options.filter(t => stockCovers(cup, t, stock, cfg));
+  return makeable.length === 0 ? order : makeable[Math.floor(draw.pick * makeable.length)];
 }
 
 /** The cup as it will be once the running step and the buffer are done; null if there is none. */
@@ -134,7 +136,7 @@ function dayPrice(price: K, rules: DayRules, cfg: SimConfig): K {
 function decide(s: RushState, ps: RushShop, draw: CupDraw, policy: RushPolicy, cfg: SimConfig): Action | null {
   const p = s.player;
   if (policy.reprice !== null && s.tick >= policy.reprice.atTick && !p.priceChanged) {
-    const price = dayPrice(policy.reprice.to(s), s.rules, cfg);
+    const price = dayPrice(policy.reprice.to(s, cfg), s.rules, cfg);
     if (price !== ps.price) return { type: 'setPrice', price };
   }
   const craft = p.craft;
@@ -146,7 +148,7 @@ function decide(s: RushState, ps: RushShop, draw: CupDraw, policy: RushPolicy, c
   const n = Math.min(ps.queue.length, cfg.rush.counterSlots);
   for (let i = 0; i < n; i++) {
     const id = ps.queue[i];
-    const t = targetFor(s.customers[id].order, draw, policy, cfg);
+    const t = targetFor(s.customers[id].order, draw, policy, craft.cup, p.stock, cfg);
     if (!fits(projected, t) || !stockCovers(craft.cup, t, p.stock, cfg)) continue;
     const left = cfg.rush.patienceTicks - (s.tick - s.rt[id].joinedTick);
     if (policy.serve === 'urgent' ? left < bestLeft : best < 0) {
@@ -244,7 +246,7 @@ type Stocking = Pick<MorningPlan, 'teaMl' | 'toppings'>;
 /** How a style differs from `reasonable`. */
 interface Style {
   price?: (run: RunState, cfg: SimConfig) => K;
-  tea?: (run: RunState) => TeaGrade;
+  tea?: (run: RunState, cfg: SimConfig) => TeaGrade;
   stock?: (run: RunState, draft: MorningPlan, cfg: SimConfig) => Stocking;
   cards?: Partial<Record<CardId, Choice>>;
   rush?: Partial<RushPolicy>;
@@ -273,9 +275,9 @@ function streetPrice(run: RunState, cfg: SimConfig): K {
   return cfg.morning.defaultPrice;
 }
 
-/** The upgrade `reasonable` reaches for: the machine on day 1, the staff from day 3; one a morning, each once. */
+/** The upgrade `reasonable` reaches for (R42b): the machine any morning until owned, then the staff from day 3. */
 function wantedUpgrade(run: RunState): MorningPlan['upgrade'] {
-  if (run.day === 1 && !run.upgrades.includes('machine')) return 'machine';
+  if (!run.upgrades.includes('machine')) return 'machine';
   if (run.day >= 3 && !run.upgrades.includes('staff')) return 'staff';
   return null;
 }
@@ -295,26 +297,44 @@ const scaled = (s: Stocking, num: number, den: number, cfg: SimConfig): Stocking
 };
 
 /**
- * The morning plan of a style: its price brought into the day's range and ceiling, its tea, and the first plan the
- * shop may open with of: the wanted upgrade with the style's stock; the style's stock; today's capacity ("high");
- * "low"; no stock at all (always allowed).
+ * The largest stock up to `target` the shop may open with on `draft` (R42b): the tea steps down 250 ml at a time,
+ * each topping in proportion (rounded down), to no stock at all; null if not even that is allowed (an upgrade the
+ * credit cannot pay for).
+ */
+function stepDown(run: RunState, draft: MorningPlan, target: Stocking, cfg: SimConfig): MorningPlan | null {
+  const steps = target.teaMl / cfg.supplies.teaStepMl;
+  const at = (k: number): Stocking => (k === steps ? target : {
+    teaMl: k * cfg.supplies.teaStepMl,
+    toppings: {
+      pearl: Math.floor((target.toppings.pearl * k) / steps),
+      jelly: Math.floor((target.toppings.jelly * k) / steps),
+      pudding: Math.floor((target.toppings.pudding * k) / steps),
+    },
+  });
+  for (let k = steps; k >= 0; k--) {
+    const plan = { ...draft, ...at(k) };
+    if (validatePlan(run, plan, cfg).length === 0) return plan;
+  }
+  return null;
+}
+
+/**
+ * The morning plan of a style: its price brought into the day's range and ceiling, its tea, and (R42b) the wanted
+ * upgrade with as much of the style's stock as the credit allows; only if not even the upgrade alone is allowed, no
+ * upgrade and as much of the style's stock as allowed (no stock at all always is).
  */
 function planOf(run: RunState, brief: MorningBrief, style: Style, cfg: SimConfig): MorningPlan {
   const price = dayPrice((style.price ?? streetPrice)(run, cfg), brief.rules, cfg);
-  const tea = style.tea === undefined ? 'standard' : style.tea(run);
+  const tea = style.tea === undefined ? 'standard' : style.tea(run, cfg);
   const stockOf = style.stock ?? highStock;
   const base: MorningPlan = { ...run.plan, price, tea, upgrade: null };
-  const tries: MorningPlan[] = [];
   const upgrade = wantedUpgrade(run);
   if (upgrade !== null) {
     const draft = { ...base, upgrade };
-    tries.push({ ...draft, ...stockOf(run, draft, cfg) });
+    const plan = stepDown(run, draft, stockOf(run, draft, cfg), cfg);
+    if (plan !== null) return plan;
   }
-  tries.push({ ...base, ...stockOf(run, base, cfg) });
-  tries.push({ ...base, ...highStock(run, base, cfg) });
-  tries.push({ ...base, ...quickFill(run, 'low', base, cfg) });
-  return tries.find(p => validatePlan(run, p, cfg).length === 0)
-    ?? { ...base, teaMl: 0, toppings: { ...NO_TOPPINGS } };
+  return stepDown(run, base, stockOf(run, base, cfg), cfg) ?? { ...base, teaMl: 0, toppings: { ...NO_TOPPINGS } };
 }
 
 /**
@@ -341,11 +361,38 @@ function styled(id: string, style: Style = {}): Strategy {
   };
 }
 
-/** Day 5 of `day5cheat`: from the morning price to just over 20% more (gouging), at mid-rush. */
-const gougeDay5 = (s: RushState): K => {
-  const p = s.player.morningPrice;
-  return s.day === 5 ? Math.floor((p * 6) / 5) + 1 : s.shops.find(x => x.id === 'player')?.price ?? p;
+/**
+ * The smallest price above `morning` that is gouging (§6, R42): a rise of more than `gougePercent`, in whole price
+ * steps, counted in integers as the engine does.
+ */
+function gougeFrom(morning: K, cfg: SimConfig): K {
+  const step = cfg.pricing.step;
+  return morning + (Math.floor((cfg.priceChange.gougePercent * morning) / (100 * step)) + 1) * step;
+}
+
+/** The highest price allowed on the last day. */
+const lastDayTop = (cfg: SimConfig): K => {
+  const ceiling = cfg.days[cfg.run.dayCount as Day].ceiling;
+  return ceiling === null ? cfg.pricing.max : Math.min(cfg.pricing.max, ceiling);
 };
+
+/**
+ * `day5cheat`'s price: the street's, except on the last day no higher than the highest morning price that still
+ * leaves room for a gouging rise under the top price (so the mid-rush rise always gouges).
+ */
+function cheatPrice(run: RunState, cfg: SimConfig): K {
+  const street = streetPrice(run, cfg);
+  if (run.day !== cfg.run.dayCount) return street;
+  const top = lastDayTop(cfg);
+  let m = Math.min(street, top);
+  while (m > cfg.pricing.min && gougeFrom(m, cfg) > top) m -= cfg.pricing.step;
+  return m;
+}
+
+/** `day5cheat`'s mid-rush price: on the last day the smallest gouging rise; on other days the price on the board. */
+const gougeLastDay = (s: RushState, cfg: SimConfig): K =>
+  (s.day === cfg.run.dayCount ? gougeFrom(s.player.morningPrice, cfg)
+    : s.shops.find(x => x.id === 'player')?.price ?? s.player.morningPrice);
 
 /** The play styles of spec §14, each a variation of `reasonable`. */
 export const STRATEGIES: Record<string, Strategy> = {
@@ -355,12 +402,13 @@ export const STRATEGIES: Record<string, Strategy> = {
   skimp: styled('skimp', { tea: () => 'skimp' }),
   premium: styled('premium', { tea: () => 'premium' }),
   double: styled('double', { stock: (run, draft, cfg) => scaled(highStock(run, draft, cfg), 2, 1, cfg) }),
-  half: styled('half', { stock: (run, draft, cfg) => scaled(quickFill(run, 'mid', draft, cfg), 1, 2, cfg) }),
+  half: styled('half', { stock: (run, draft, cfg) => scaled(highStock(run, draft, cfg), 1, 2, cfg) }),
   plainS: styled('plainS', { rush: { cup: 'plainS' } }),
   day5cheat: styled('day5cheat', {
-    tea: run => (run.day === 5 ? 'skimp' : 'standard'),
+    price: cheatPrice,
+    tea: (run, cfg) => (run.day === cfg.run.dayCount ? 'skimp' : 'standard'),
     cards: { inspection: 'A' },
-    rush: { reprice: { atTick: 450, to: gougeDay5 } },
+    rush: { reprice: { atTick: 450, to: gougeLastDay } },
   }),
   delay1: styled('delay1', { rush: { delayTicks: 1 } }),
   delay6: styled('delay6', { rush: { delayTicks: 6 } }),

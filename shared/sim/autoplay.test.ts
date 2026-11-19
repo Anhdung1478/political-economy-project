@@ -6,9 +6,9 @@ import {
 } from './autoplay';
 import { CONFIG } from './config';
 import { customerCount } from './customers';
-import { dayRules, morningBrief, openDay, quickFill } from './day';
+import { dayRules, morningBrief, openDay, quickFill, validatePlan } from './day';
 import { hashSeed } from './rng';
-import { step } from './rush';
+import { advance, canServe, cloneRush, step } from './rush';
 import { cust, deepFreeze, order, playerShop, runTo, stock, street } from './rush.fixtures';
 import { chooseCard, endRush, newRun, nextDay } from './run';
 import type {
@@ -177,6 +177,26 @@ describe('mistakes (R37)', () => {
     expect(t.wrong / t.cups).toBeGreaterThan(0.17);
     expect(t.wrong / t.cups).toBeLessThan(0.33);
   });
+
+  it('draws a mistake only among wrong cups the stock can make, so a cup always starts (R42a)', () => {
+    // A pearl-only order with no jelly or pudding left: no extra topping is possible, every cup is drawn wrong.
+    const s0 = street([], [cust(0, { order: order('M', 'pearl') })], { stock: stock(5000, 3) });
+    const s = structuredClone(runTo(s0, 1).state);
+    s.player.stock.toppings = { pearl: 3, jelly: 0, pudding: 0 };
+    const sizes = new Set<string>();
+    for (let rng = 1; rng <= 200; rng++) {
+      const [a] = botStep(s, { cooldown: 0, rng }, { ...POLICY, mistakeRate: 1 }).actions;
+      expect(a?.type).toBe('craft');
+      if (a.type === 'craft' && a.input.k === 'size') sizes.add(a.input.size);
+    }
+    expect([...sizes].sort()).toEqual(['L', 'M', 'S']);   // the wrong sizes, and M for the missing pearl
+    // 400 ml of tea: an L cannot be poured, so it is never drawn.
+    s.player.stock.teaMl = 400;
+    for (let rng = 1; rng <= 200; rng++) {
+      expect(botStep(s, { cooldown: 0, rng }, { ...POLICY, mistakeRate: 1 }).actions)
+        .not.toEqual([{ type: 'craft', input: { k: 'size', size: 'L' } }]);
+    }
+  });
 });
 
 describe('plainS (R37)', () => {
@@ -224,6 +244,38 @@ function customersByDay(seed: number, s: Strategy): Customer[][] {
   }
   expect(run).toStrictEqual(playRun(seed, s).run);
   return out;
+}
+
+/**
+ * playRun's loop with the rush stepped by hand: the longest run of ticks in which the bot, free to act at an empty and
+ * idle counter, took no input although one of the first four could be served from the stock.
+ */
+function longestStall(seed: number, s: Strategy): { stall: number; run: RunState } {
+  let run: RunState = newRun(seed, `bot-${seed}`);
+  let longest = 0;
+  while (run.phase !== 'end') {
+    const opened = openDay(run, s.plan(run, morningBrief(run), CONFIG));
+    const d = cloneRush(opened.rush);
+    let bot: BotState = { cooldown: 0, rng: hashSeed(seed, `bot/${run.day}`) };
+    let stall = 0;
+    while (!d.done) {
+      const r = botStep(d, bot, s.rush);
+      const ps = playerShop(d);
+      const c = d.player.craft;
+      const servable = ps.queue.slice(0, CONFIG.rush.counterSlots)
+        .some(id => canServe(d.player.stock, d.customers[id].order));
+      const idle = ps.status !== 'closedEarly' && servable && c.cup === null && c.anim === null
+        && bot.cooldown === 0 && r.actions.length === 0;
+      stall = idle ? stall + 1 : 0;
+      longest = Math.max(longest, stall);
+      bot = r.bot;
+      advance(d, r.actions, CONFIG, []);
+    }
+    run = endRush(opened.run, d);
+    while (run.phase === 'cards') run = chooseCard(run, s.card(run.cards[run.cardIndex], run));
+    run = nextDay(run);
+  }
+  return { stall: longest, run };
 }
 
 const SEEDS = [11, 12, 13];
@@ -287,6 +339,32 @@ describe('playRun with every play style (spec §14)', () => {
     for (const seed of [11, 12]) expect(playRun(seed, same!)).toStrictEqual(playRun(seed, STRATEGIES.reasonable));
   });
 
+  it('never sits idle with a servable customer at the counter (R42a)', () => {
+    for (const name of NAMES) {
+      for (const seed of [11, 61, 90, 91]) {
+        const { stall, run } = longestStall(seed, STRATEGIES[name]);
+        expect(stall, `${name} seed ${seed}`).toBe(0);
+        expect(run).toStrictEqual(playRun(seed, STRATEGIES[name]).run);
+      }
+    }
+    const { run } = playRun(61, STRATEGIES.reasonable);
+    expect(run.reports.map(r => r.summary.walkouts)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it('owns the machine by the end of day 2 in every style (R42b)', () => {
+    for (const name of NAMES) {
+      for (const seed of [11, 12, 13, 61, 90]) {
+        const { run } = playRun(seed, STRATEGIES[name]);
+        expect(run.reports.slice(0, 2).some(r => r.summary.upgrade === 'machine'), `${name} seed ${seed}`).toBe(true);
+      }
+    }
+  });
+
+  it("pins reasonable's rush constants (R37)", () => {
+    expect(STRATEGIES.reasonable.rush).toEqual({ delayTicks: 3, mistakeRate: 0.03, serve: 'urgent', cup: 'asOrdered',
+      reprice: null, closeWhenEmpty: true });
+  });
+
   it('prices, teas and cards of each style as named', () => {
     const seed = 11;
     const days = (name: string) => playRun(seed, STRATEGIES[name]).run.reports.map(r => r.summary);
@@ -311,7 +389,9 @@ describe('playRun with every play style (spec §14)', () => {
       expect(d.slice(0, 4).every(x => x.tea === 'standard')).toBe(true);
       expect(d[3].labels).toContain('inspectPass');
       expect(d[4].tea).toBe('skimp');
-      expect(d[4].closePrice * 100).toBeGreaterThan(120 * d[4].openPrice);
+      const open = d[4].openPrice;
+      expect((d[4].closePrice - open) * 100).toBeGreaterThan(CONFIG.priceChange.gougePercent * open);
+      expect(d[4].closePrice).toBe(open + Math.floor((CONFIG.priceChange.gougePercent * open) / 100) + 1);
       expect(run.reports[4].repItems.map(i => i.reason)).toContain('gouge');
       expect(d.slice(0, 4).every(x => x.closePrice === x.openPrice)).toBe(true);
     }
@@ -365,22 +445,58 @@ describe('the morning plans', () => {
     expect(plan('reasonable', { ...owned, day: 4, upgrades: ['machine', 'staff'] }).upgrade).toBeNull();
   });
 
-  it('falls back to the low stock, then to none, when the credit runs out', () => {
-    const broke: RunState = { ...run, cash: 50 };
-    const low = plan('reasonable', broke);
-    expect(low).toMatchObject({ upgrade: null, ...quickFill(broke, 'low') });
-    const none = plan('reasonable', { ...run, cash: -150 });
-    expect(none).toMatchObject({ upgrade: null, teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } });
+  type Stocking = ReturnType<typeof quickFill>;
+  /** `target` stepped down to k tea steps of 250 ml, toppings in proportion, rounded down. */
+  const atStep = (target: Stocking, k: number): Stocking => {
+    const n = target.teaMl / 250;
+    return { teaMl: k * 250, toppings: { pearl: Math.floor((target.toppings.pearl * k) / n),
+      jelly: Math.floor((target.toppings.jelly * k) / n), pudding: Math.floor((target.toppings.pudding * k) / n) } };
+  };
+  /** The plan is `target` at a step the credit allows, and one more step it does not. */
+  const largestAffordable = (r: RunState, p: MorningPlan, target: Stocking) => {
+    const k = p.teaMl / 250;
+    expect(k).toBeLessThan(target.teaMl / 250);
+    expect(p).toMatchObject(atStep(target, k));
+    expect(validatePlan(r, p)).toEqual([]);
+    expect(validatePlan(r, { ...p, ...atStep(target, k + 1) })).toContain('credit');
+  };
+
+  it('keeps the wanted upgrade and steps the stock down to what the credit allows (R42b)', () => {
+    for (const cash of [50, -40]) {
+      const r: RunState = { ...run, cash };
+      const p = plan('reasonable', r);
+      expect(p.upgrade).toBe('machine');
+      largestAffordable(r, p, high(r, 'machine'));
+    }
+    // The machine alone is beyond the credit: no upgrade, as much stock as allowed.
+    const deep: RunState = { ...run, cash: -100 };
+    const q = plan('reasonable', deep);
+    expect(q.upgrade).toBeNull();
+    largestAffordable(deep, q, high(deep, null));
+    expect(plan('reasonable', { ...run, cash: -150 }))
+      .toMatchObject({ upgrade: null, teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } });
   });
 
-  it("double buys twice today's capacity, half half the mid stock", () => {
+  it('wants the machine any morning until it owns it (R42b)', () => {
+    expect(plan('reasonable', { ...rich, day: 2 }).upgrade).toBe('machine');
+    expect(plan('premium', { ...rich, day: 4 }).upgrade).toBe('machine');
+  });
+
+  it("double buys twice today's capacity, half half of it", () => {
     const two = high(rich, 'machine');
     expect(plan('double', rich)).toMatchObject({ upgrade: 'machine', teaMl: 2 * two.teaMl,
       toppings: { pearl: 2 * two.toppings.pearl, jelly: 2 * two.toppings.jelly, pudding: 2 * two.toppings.pudding } });
-    const mid = quickFill(run, 'mid');
-    const half = plan('half');
-    expect(half.teaMl).toBe(Math.ceil(mid.teaMl / 2 / 250) * 250);
-    expect(half.toppings.pearl).toBe(Math.ceil(mid.toppings.pearl / 2));
+    const one = high(run, 'machine');
+    expect(plan('half')).toMatchObject({ upgrade: 'machine', teaMl: Math.ceil(one.teaMl / 500) * 250,
+      toppings: { pearl: Math.ceil(one.toppings.pearl / 2), jelly: Math.ceil(one.toppings.jelly / 2),
+        pudding: Math.ceil(one.toppings.pudding / 2) } });
+  });
+
+  it('day5cheat opens day 5 low enough for its rise to gouge under the 50k top', () => {
+    // Street at 48k (AI 51 - 3 pass-through, the player's 48): reasonable 48, day5cheat 41 (41 -> 50 is +22%).
+    const r = after(5, { 4: [['batu', 51], ['player', 48]] });
+    expect(price(r)).toBe(48);
+    expect(STRATEGIES.day5cheat.plan(r, { ...brief, rules: dayRules(r) }, CONFIG).price).toBe(41);
   });
 
   it('day5cheat buys skimp tea on day 5 only', () => {

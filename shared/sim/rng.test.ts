@@ -29,7 +29,7 @@ describe('nextState', () => {
   };
 
   it('walks the same sequence as mulberry32 from the same seed', () => {
-    for (const seed of [0, 1, 42, -7, 0xffffffff, hashSeed(3, 'bot/reasonable/1')]) {
+    for (const seed of [0, 1, 42, -7, 0xffffffff, hashSeed(3, 'bot/1')]) {
       expect(walk(seed, 30)).toEqual(take(mulberry32(seed), 30));
     }
   });

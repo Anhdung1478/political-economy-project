@@ -34,7 +34,7 @@
 | `look/{day}/{i}` | Ngoại hình, chỉ cảnh phố dùng |
 | `ad/{day}/{j}` | 6 khách của thẻ quảng cáo |
 | `side-deck` | Thứ tự thẻ phụ |
-| `bot/{strategy}/{day}` | Bot giả lập; không bao giờ vào sim |
+| `bot/{day}` | Bot giả lập, chung cho mọi lối chơi (R39); không bao giờ vào sim |
 | `scene/{day}` | Cảnh phố (câu thoại, không khí); không bao giờ vào sim |
 
   Trưa không rút số ngẫu nhiên lúc chạy: hoà điểm (`tie`), độ đa nghi (`skeptic`), khách sợ (`scared`) đều rút sẵn khi tạo khách. Số khách chỉ phụ thuộc ngày, nên cùng seed cho cùng khách bất kể người chơi làm gì.
