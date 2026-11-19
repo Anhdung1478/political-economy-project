@@ -34,17 +34,36 @@ export interface Customer {
 }
 export type CustomerOutcome = 'served' | 'servedWrong' | 'noOffer' | 'gaveUp' | 'rushEnd' | 'scared';
 export interface CustomerRt {
-  status: 'pending' | 'queued' | 'done'; shop: ShopId | null;
-  joinedTick: Tick; visited: ShopId[]; outcome: CustomerOutcome | null;
+  status: 'pending' | 'queued' | 'done';
+  /** The queue they stand in; once done, the shop that served them (null if they left without a cup). */
+  shop: ShopId | null;
+  /** Tick they joined their current queue; −1 before the first join. */
+  joinedTick: Tick;
+  /** Shops whose queue they joined, in order (at most 2). Replaced on change, never pushed. */
+  visited: ShopId[]; outcome: CustomerOutcome | null;
+  /** Budget ≥ the lowest price on the street at arrival, not scared (plan "khách về tay không"). */
+  eligible: boolean;
 }
 
 export type ShopStatus = 'open' | 'soldOut' | 'resting' | 'closed' | 'notYet' | 'closedEarly';
 export interface RushShop {
   id: ShopId; slot: number; status: ShopStatus; grandOpening: boolean;
-  price: K; openPrice: K; trail: [Tick, K][];
+  /** 0 for a shop that does not sell today (resting, closed, not yet open). */
+  price: K; openPrice: K;
+  /** Price changes as [tick, new price], starting with [0, open price]; empty when not selling. Replaced, never pushed. */
+  trail: [Tick, K][];
   rep: number; rumorPenalty: number; certified: boolean; named: boolean;
   queue: number[]; sold: number;
-  ai: null | { cost: K; capacity: number; cupsLeft: number; ticksPerCup: Tick; busy: Tick; frozen: boolean };
+  /** AI shops: Σ price at the moment of each sale. The player's takings are in RushPlayer.tally.revenue. */
+  revenue: K;
+  ai: null | {
+    cost: K;
+    /** Cups stocked today (0 when not selling). */
+    capacity: number; cupsLeft: number; ticksPerCup: Tick;
+    /** Ticks of work on the cup in progress; it only advances while someone waits. */
+    busy: Tick;
+    frozen: boolean;
+  };
 }
 
 export type CraftInput = { k: 'size'; size: Size } | { k: 'ice' } | { k: 'tea' } | { k: 'topping'; id: ToppingId };
