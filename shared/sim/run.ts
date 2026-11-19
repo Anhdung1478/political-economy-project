@@ -1,9 +1,10 @@
-// The run across five days (spec §3). Task 8: the starting state; Tasks 9–10 add the day transitions.
-import { shuffleSideDeck } from './cards';
+// The run across five days (spec §3): the starting state and the day transitions (Task 10 adds the evening).
+import { cardsForDay, shuffleSideDeck } from './cards';
 import { CONFIG, type SimConfig } from './config';
 import { quickFill } from './day';
+import { summarizeRush } from './rush';
 import { STREET } from './shops';
-import type { AiShopId, AiShopState, RunState, ShopId } from './types';
+import type { AiShopId, AiShopState, RunState, RushState, ShopId } from './types';
 
 const isAi = (id: ShopId): id is AiShopId => id !== 'player';
 
@@ -37,5 +38,23 @@ export function newRun(seed: number, runId: string, cfg: SimConfig = CONFIG): Ru
     cards: [], cardIndex: 0, choices: [], cardRep: [],
     reports: [], outcome: null,
   };
-  return { ...run, plan: { ...run.plan, ...quickFill(run, 'mid', cfg) } };
+  return { ...run, plan: { ...run.plan, ...quickFill(run, 'mid', run.plan, cfg) } };
+}
+
+/**
+ * The lunch rush is over: keeps the day's result, takes in the takings less the tax (R27, so the afternoon cards
+ * see the real cash and a tax refund comes after the tax was paid) and deals the afternoon's cards. The afternoon
+ * starts with no choices or card rep; the evening (`closeDay`) records each day's choices in its report.
+ */
+export function endRush(run: RunState, rush: RushState, cfg: SimConfig = CONFIG): RunState {
+  if (run.phase !== 'rush') throw new Error(`cannot end the rush in phase ${run.phase}`);
+  if (!rush.done) throw new Error('the rush is still running');
+  if (rush.day !== run.day) throw new Error(`rush of day ${rush.day} on day ${run.day}`);
+  const rushResult = summarizeRush(rush, cfg);
+  const afternoon: RunState = {
+    ...run, phase: 'cards', rushResult,
+    cash: run.cash + rushResult.player.revenue - rushResult.player.tax,
+    cardIndex: 0, choices: [], cardRep: [],
+  };
+  return { ...afternoon, cards: cardsForDay(afternoon, cfg) };
 }

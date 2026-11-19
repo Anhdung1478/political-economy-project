@@ -201,6 +201,35 @@ export interface PendingEffect {
   day: Day; source: CardId | 'cartelBreak'; rep?: number; cash?: K;
   tempStaff?: true; adCustomers?: number;
 }
+
+/** One shop in the morning's table of yesterday's street (§5 Bản tin). */
+export interface BriefShopRow {
+  id: ShopId;
+  /** Yesterday's closing price; null when it did not sell yesterday (resting, not open yet, closed before). */
+  closePrice: K | null; sold: number; soldOut: boolean;
+  /** AI shops: cups left at close (capacity − sold), 0 when it did not sell; null for the player, whose leftovers
+   *  are in the hint line. */
+  unsold: number | null;
+  /** On the street for the first time today (Chuỗi Tập Đoàn on day 2). */
+  opensToday: boolean;
+  /** The evening it closed for good; `day − 1` means it closed last night. Null while trading. */
+  closedOn: Day | null;
+}
+/** What the morning screen shows (§5), as data; the UI writes the sentences. */
+export interface MorningBrief {
+  day: Day; theme: ThemeId; rules: DayRules; busStop: boolean;
+  /** Delayed card effects landing this morning; `openDay` applies them. */
+  news: PendingEffect[];
+  /** Yesterday's street in street order, the player included; empty on day 1. */
+  street: BriefShopRow[];
+  /** The hint line: yesterday's cups sold and stock used; null on day 1. */
+  yesterday: null | { cups: number; used: Stock };
+  /** "Sức pha hôm nay: khoảng N ly" for `run.plan`. */
+  capacity: number;
+  /** Bus-stop days: the street's customers without and with the stop (§4 Chính sách). */
+  bus: null | { without: number; with: number };
+  cash: K; rep: number;
+}
 export interface AiShopState {
   id: AiShopId; status: 'notYet' | 'active' | 'closed'; closedOn: Day | null;
   todayPrice: K | null; resting: boolean; probeDir: -1 | 1;
