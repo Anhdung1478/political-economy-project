@@ -1,0 +1,159 @@
+// Shared data types of the Phố Trà Sữa simulation (contract: plan appendix "giao diện của shared/sim").
+
+/** Money in thousand VND, always a multiple of 0.5. */
+export type K = number;
+/** Simulation time; 1 tick = 100 ms, a rush runs ticks 0..900. */
+export type Tick = number;
+export type Ml = number;
+export type Day = 1 | 2 | 3 | 4 | 5;
+export type Phase = 'morning' | 'rush' | 'cards' | 'report' | 'end';
+export type Size = 'S' | 'M' | 'L';
+export type ToppingId = 'pearl' | 'jelly' | 'pudding';
+export type TeaGrade = 'skimp' | 'standard' | 'premium';
+export type UpgradeId = 'staff' | 'machine' | 'banner';
+export type AiShopId = 'batu' | 'giare' | 'cochap' | 'luotsong' | 'sinhvien' | 'tapdoan';
+export type ShopId = 'player' | AiShopId;
+export type StoryCardId = 'cartel' | 'shockTopping' | 'blackMarket' | 'tax' | 'inspection' | 'reporter';
+export type SideCardId = 'kol' | 'tab' | 'student' | 'complaint' | 'deliveryAd' | 'scholarship';
+export type CardId = StoryCardId | SideCardId;
+export type Choice = 'A' | 'B';
+/** Theme of a day in the 5-day schedule (spec section 3). */
+export type ThemeId = 'opening' | 'newShop' | 'priceCeiling' | 'tax' | 'rumor';
+
+/** 1..3 distinct toppings, in canonical order pearl → jelly → pudding. */
+export interface Order { size: Size; toppings: ToppingId[] }
+export interface Stock { teaMl: Ml; toppings: Record<ToppingId, number> }
+
+/** Fixed for the day; its index in RushState.customers equals its id. */
+export interface Customer {
+  id: number; budget: K; trust: number;
+  /** 0..1000 */
+  skeptic: number;
+  order: Order; arriveTick: Tick; entry: 'left' | 'right' | 'bus';
+  tie: number; look: number; scared: boolean; onlyShop: ShopId | null;
+}
+export type CustomerOutcome = 'served' | 'servedWrong' | 'noOffer' | 'gaveUp' | 'rushEnd' | 'scared';
+export interface CustomerRt {
+  status: 'pending' | 'queued' | 'done'; shop: ShopId | null;
+  joinedTick: Tick; visited: ShopId[]; outcome: CustomerOutcome | null;
+}
+
+export type ShopStatus = 'open' | 'soldOut' | 'resting' | 'closed' | 'notYet' | 'closedEarly';
+export interface RushShop {
+  id: ShopId; slot: number; status: ShopStatus; grandOpening: boolean;
+  price: K; openPrice: K; trail: [Tick, K][];
+  rep: number; rumorPenalty: number; certified: boolean; named: boolean;
+  queue: number[]; sold: number;
+  ai: null | { cost: K; capacity: number; cupsLeft: number; ticksPerCup: Tick; busy: Tick; frozen: boolean };
+}
+
+export type CraftInput = { k: 'size'; size: Size } | { k: 'ice' } | { k: 'tea' } | { k: 'topping'; id: ToppingId };
+export interface Cup { size: Size; iced: boolean; teaMl: Ml; toppings: ToppingId[] }
+export interface CraftState {
+  cup: Cup | null;
+  anim: { step: CraftInput['k'] | 'deliver'; endsAt: Tick } | null;
+  /** At most CONFIG.craft.bufferMax inputs queued behind the running animation. */
+  buffer: CraftInput[];
+}
+
+export interface RushPlayer {
+  morningPrice: K; priceChanged: boolean; gouged: boolean; dropPermille: number; brokeCartel: boolean;
+  tea: TeaGrade; machine: boolean; stock: Stock; bought: Stock; craft: CraftState;
+  staff: null | { progress: Tick };
+  tally: {
+    revenue: K; tax: K; cups: number; wrong: number; staffCups: number;
+    walkouts: number; missedNoStock: number; trashed: number;
+  };
+}
+export interface DayRules { day: Day; ceiling: K | null; taxPerCup: K; rumor: boolean; cartel: boolean; customerFactor: number }
+export interface RushState {
+  day: Day; tick: Tick; done: boolean; rules: DayRules;
+  customers: Customer[]; rt: CustomerRt[];
+  arrivalOrder: number[]; nextArrival: number; nextEnter: number;
+  shops: RushShop[]; player: RushPlayer;
+  street: { eligible: number; emptyHanded: number; taxFund: K };
+}
+
+export type Action =
+  | { type: 'craft'; input: CraftInput } | { type: 'deliver'; customer: number }
+  | { type: 'trash' } | { type: 'setPrice'; price: K } | { type: 'closeEarly' };
+
+export type RejectReason = 'tooExpensive' | 'tooCrowded' | 'lowTrust' | 'outOfStock'
+  | 'steepDiscount' | 'otherBetter' | 'closed' | 'visited' | 'rumor';
+export interface ShopVerdict { shop: ShopId; score10: number | null; reason: RejectReason | 'chosen' }
+export type LeaveCause = 'patience' | 'priceUp' | 'steepDiscount' | 'stockOut' | 'shopClosed';
+export type InputReject = 'order' | 'bufferFull' | 'noTea' | 'noTopping' | 'duplicate' | 'busy'
+  | 'noCup' | 'notInFirstFour' | 'priceUsed' | 'priceRange' | 'ceiling';
+
+export type SimEvent = { t: Tick } & (
+  | { type: 'rushStart'; day: Day; rules: DayRules }
+  | { type: 'customerEnter'; customer: number; entry: Customer['entry'] }
+  | { type: 'customerConsider'; customer: number; reshop: boolean; verdicts: ShopVerdict[]; chosen: ShopId | null }
+  | { type: 'customerJoin'; customer: number; shop: ShopId; position: number }
+  | { type: 'customerServed'; customer: number; shop: ShopId; by: 'player' | 'staff' | 'ai'; correct: boolean; paid: K; full: K }
+  | { type: 'customerAbandon'; customer: number; shop: ShopId; cause: LeaveCause; repHit: boolean }
+  | { type: 'customerLeave'; customer: number; outcome: CustomerOutcome; emptyHanded: boolean }
+  | { type: 'shopPrice'; shop: ShopId; from: K; to: K }
+  | { type: 'shopStatus'; shop: ShopId; status: ShopStatus }
+  | { type: 'policy'; kind: 'inspection'; certified: ShopId[]; named: ShopId[] }
+  | { type: 'policy'; kind: 'rumorLifted' }
+  | { type: 'craftStep'; step: CraftInput['k'] | 'deliver'; endsAt: Tick }
+  | { type: 'cupTrashed' }
+  | { type: 'inputRejected'; action: Action['type']; why: InputReject }
+  | { type: 'rushEnd'; early: boolean });
+
+export interface MorningPlan { price: K; tea: TeaGrade; teaMl: Ml; toppings: Record<ToppingId, number>; upgrade: UpgradeId | null }
+export type PlanIssue = 'price' | 'ceiling' | 'teaStep' | 'credit' | 'upgradeOwned' | 'negative';
+export interface ShopDayResult {
+  id: ShopId; status: ShopStatus; openPrice: K | null; closePrice: K | null;
+  trail: [Tick, K][]; sold: number; capacity: number; soldOut: boolean; profit: K | null;
+}
+export interface RushResult {
+  player: RushPlayer['tally'] & {
+    closePrice: K; used: Stock; left: Stock;
+    gouged: boolean; brokeCartel: boolean;
+  };
+  shops: ShopDayResult[]; customers: number;
+  eligible: number; emptyHanded: number; taxFund: K;
+}
+
+export type ChoiceLabel = 'skimp' | 'cartelKept' | 'cartelBroke' | 'shockTopping' | 'blackMarket'
+  | 'taxEvaded' | 'inspectPass' | 'inspectFail';
+export interface DaySummary {
+  day: Day; openPrice: K; closePrice: K; tea: TeaGrade; bought: Stock; used: Stock; wasteValue: K;
+  cups: number; wrong: number; walkouts: number;
+  revenue: K; cost: K; tax: K; fines: K; profit: K; cash: K; rep: number; score: K;
+  upgrade: UpgradeId | null; cards: { id: CardId; choice: Choice }[]; labels: ChoiceLabel[]; lost: boolean;
+}
+export type RepReason = 'tea' | 'wrong' | 'walkout' | 'gouge' | 'clean' | 'banner' | 'delayed' | CardId;
+export interface RepItem { reason: RepReason; delta: number; count?: number; when: 'morning' | 'evening' }
+export interface DayReport {
+  summary: DaySummary; repItems: RepItem[]; repBefore: number;
+  street: ShopDayResult[]; emptyHanded: number; eligible: number; taxFund: K;
+  lesson: { id: string; data: Record<string, number> };
+}
+
+export interface PendingEffect {
+  day: Day; source: CardId | 'cartelBreak'; rep?: number; cash?: K;
+  tempStaff?: true; adCustomers?: number;
+}
+export interface AiShopState {
+  id: AiShopId; status: 'notYet' | 'active' | 'closed'; closedOn: Day | null;
+  todayPrice: K | null; resting: boolean; probeDir: -1 | 1;
+  history: { day: Day; closePrice: K | null; sold: number; profit: K; rested: boolean }[];
+}
+export interface RunFlags {
+  cartel: 'none' | 'refused' | 'agreed'; cartelBroken: boolean; shockTopping: boolean;
+  blackMarket: boolean; taxEvaded: boolean; inspection: 'none' | 'wait' | 'pass' | 'fail'; reporter: Choice | null;
+}
+export interface RunState {
+  v: 1; seed: number; runId: string; day: Day; phase: Phase;
+  cash: K; rep: number; upgrades: UpgradeId[]; skimpDays: number;
+  flags: RunFlags; pending: PendingEffect[];
+  sideDeck: SideCardId[]; sideDrawn: SideCardId[];
+  shops: AiShopState[]; plan: MorningPlan; morningNews: RepItem[];
+  today: null | { plan: MorningPlan; spent: K; tempStaff: boolean };
+  rushResult: RushResult | null;
+  cards: CardId[]; cardIndex: number; choices: { id: CardId; choice: Choice }[]; cardRep: RepItem[];
+  reports: DayReport[]; outcome: null | 'finished' | 'lostTrust';
+}
