@@ -57,6 +57,14 @@ describe('setPrice: when it is accepted (§6, R18)', () => {
     expect(playerShop(state).price).toBe(20);
   });
 
+  it('the same price is accepted and uses the one change (R20)', () => {
+    const { events, state } = runTo(street([], [cust(0)]), 21, { 10: [setPrice(30)], 20: [setPrice(28)] });
+    expect(ofType(events, 'shopPrice')).toEqual([{ t: 10, type: 'shopPrice', shop: 'player', from: 30, to: 30 }]);
+    expect(at(events, 20)).toEqual([{ t: 20, type: 'inputRejected', action: 'setPrice', why: 'priceUsed' }]);
+    expect(playerShop(state)).toMatchObject({ price: 30, trail: [[0, 30], [10, 30]], queue: [0] });
+    expect(state.player).toMatchObject({ priceChanged: true, gouged: false, dropPermille: 0 });
+  });
+
   it('is refused once the shop has closed early, before any other check', () => {
     const { events, state } = runTo(street([], []), 12, { 10: [CLOSE, setPrice(31)], 11: [setPrice(99)] });
     expect(ofType(events, 'inputRejected')).toEqual([

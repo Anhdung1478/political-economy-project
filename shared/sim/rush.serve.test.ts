@@ -7,7 +7,7 @@ import {
 import {
   canServe, checkInput, counterView, createRush, cupPrice, finishRush, orderPrice, payment, step, summarizeRush,
 } from './rush';
-import type { Action, AiShopState, Cup, Day, Order, RushState, SimEvent } from './types';
+import type { Action, AiShopState, Cup, Day, Order, RushState, SimEvent, Stock, StockItem } from './types';
 
 const cupOf = (o: Order): Cup => ({ size: o.size, iced: true, teaMl: CONFIG.supplies.sizeMl[o.size], toppings: [...o.toppings] });
 
@@ -122,18 +122,18 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
       { price: 20, stock: { teaMl: 700, toppings: { pearl: 1, jelly: 5, pudding: 5 } } });
     const { events, states } = runTo(s, 200, { 10: [size('M'), ICE, TEA, top('pearl')], 45: [deliver(2)] });
     expect(playerShop(states[0]).queue).toEqual([0, 1, 2, 3, 4]);
-    const reshop = (id: number, batuScore: number, position: number, t: number): SimEvent[] => [
-      { t, type: 'customerAbandon', customer: id, shop: 'player', cause: 'stockOut', repHit: false },
+    const reshop = (id: number, batuScore: number, position: number, t: number, missing: StockItem): SimEvent[] => [
+      { t, type: 'customerAbandon', customer: id, shop: 'player', cause: 'stockOut', repHit: false, missing },
       { t, type: 'customerConsider', customer: id, reshop: true, chosen: 'batu', verdicts: [
         { shop: 'batu', score10: batuScore, reason: 'chosen' }, { shop: 'player', score10: null, reason: 'visited' },
       ] },
       { t, type: 'customerJoin', customer: id, shop: 'batu', position },
     ];
     // The tea leaves 350 ml: the L order goes. The cup (an M, no topping yet) holds customer 0.
-    expect(at(events, 22)).toEqual([{ t: 22, type: 'craftStep', step: 'tea', endsAt: 38 }, ...reshop(1, 110, 0, 22)]);
+    expect(at(events, 22)).toEqual([{ t: 22, type: 'craftStep', step: 'tea', endsAt: 38 }, ...reshop(1, 110, 0, 22, 'tea')]);
     // The last pearl goes into the cup: it now holds customer 2 (M with pearl), who stays though no pearl is left;
     // customer 4 (S with pearl) goes; customer 0 (M with jelly) can still be made and stays.
-    expect(at(events, 38)).toEqual([{ t: 38, type: 'craftStep', step: 'topping', endsAt: 44 }, ...reshop(4, 90, 1, 38)]);
+    expect(at(events, 38)).toEqual([{ t: 38, type: 'craftStep', step: 'topping', endsAt: 44 }, ...reshop(4, 90, 1, 38, 'pearl')]);
     expect(playerShop(states[38]).queue).toEqual([0, 2, 3]);
     expect(about(events, 2).slice(-2)).toEqual([
       { t: 45, type: 'customerServed', customer: 2, shop: 'player', by: 'player', correct: true, paid: 25, full: 25 },
@@ -154,7 +154,7 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
     ]);
     expect(at(events, 30)).toEqual([
       { t: 30, type: 'cupTrashed' },
-      { t: 30, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false },
+      { t: 30, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false, missing: 'tea' },
       { t: 30, type: 'customerConsider', customer: 0, reshop: true, chosen: 'batu', verdicts: [
         { shop: 'batu', score10: 110, reason: 'chosen' }, { shop: 'player', score10: null, reason: 'visited' },
       ] },
@@ -173,7 +173,8 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
       { t: 45, type: 'customerServed', customer: 1, shop: 'player', by: 'player', correct: false, paid: 17, full: 25 },
       { t: 45, type: 'customerLeave', customer: 1, outcome: 'servedWrong', emptyHanded: false },
       { t: 45, type: 'craftStep', step: 'deliver', endsAt: 49 },
-      { t: 45, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false },
+      { t: 45, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false,
+        missing: 'pearl' },
       { t: 45, type: 'customerConsider', customer: 0, reshop: true, chosen: null, verdicts: [
         { shop: 'player', score10: null, reason: 'visited' },
       ] },
@@ -220,7 +221,7 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
     const { events, state } = runTo(s, Infinity, { 10: make(order('M', 'pearl')), 45: [deliver(0)] }, cfg);
     expect(at(events, 22)).toEqual([
       { t: 22, type: 'craftStep', step: 'tea', endsAt: 38 },
-      { t: 22, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false },
+      { t: 22, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false, missing: 'tea' },
       { t: 22, type: 'customerConsider', customer: 1, reshop: true, chosen: 'batu', verdicts: [
         { shop: 'batu', score10: 110, reason: 'chosen' }, { shop: 'player', score10: null, reason: 'visited' },
       ] },
@@ -229,11 +230,66 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
     ]);
     // Customer 2 sees the player's shop out of stock at arrival and again when re-shopping after Bà Tư.
     expect(ofType(about(events, 2), 'customerConsider').map(e => [e.t, e.chosen, e.verdicts[1]])).toEqual([
-      [100, 'batu', { shop: 'player', score10: null, reason: 'outOfStock' }],
-      [350, null, { shop: 'player', score10: null, reason: 'outOfStock' }],
+      [100, 'batu', { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' }],
+      [350, null, { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' }],
     ]);
     expect(state.rt.map(r => [r.outcome, r.missedNoStock])).toEqual([['served', false], ['gaveUp', true], ['gaveUp', true]]);
     expect(state.player.tally).toMatchObject({ missedNoStock: 2, walkouts: 0, cups: 1 });
+  });
+});
+
+describe('what ran out (R21)', () => {
+  const playerVerdict = (events: SimEvent[], id: number) =>
+    ofType(about(events, id), 'customerConsider')[0].verdicts.find(v => v.shop === 'player');
+
+  it('the player\'s verdict names the first missing item: tea before toppings, toppings in canonical order', () => {
+    const s = (st: Stock, o: Order) => runTo(street([], [cust(0, { order: o })], { stock: st }), 1).events;
+    const noPearlNoPudding: Stock = { teaMl: 2000, toppings: { pearl: 0, jelly: 5, pudding: 0 } };
+    expect(playerVerdict(s(stock(300, 5), order('M', 'pearl')), 0))
+      .toEqual({ shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' });
+    expect(playerVerdict(s(stock(300, 0), order('M', 'pearl')), 0)?.missing).toBe('tea');
+    expect(playerVerdict(s(noPearlNoPudding, order('M', 'jelly', 'pudding')), 0)?.missing).toBe('pudding');
+    expect(playerVerdict(s(noPearlNoPudding, order('M', 'pearl', 'pudding')), 0)?.missing).toBe('pearl');
+  });
+
+  it('a customer sent away from the player\'s queue is told what ran out: the tea, or a topping', () => {
+    // 600 ml: the M pour leaves 250, too little for the L order.
+    const tea = runTo(street([], [cust(0), cust(1, { order: order('L', 'jelly') })], { stock: stock(600, 5) }), 23,
+      { 10: [size('M'), ICE, TEA] }).events;
+    expect(ofType(tea, 'customerAbandon')).toEqual([
+      { t: 22, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false, missing: 'tea' },
+    ]);
+    // The only pearl goes into the M cup (held by customer 0): customer 1's S with pearl and jelly can no longer be made.
+    const pearl = runTo(street([], [cust(0), cust(1, { order: order('S', 'pearl', 'jelly') })],
+      { stock: { teaMl: 2000, toppings: { pearl: 1, jelly: 5, pudding: 5 } } }), 39, { 10: make(order('M', 'pearl')) }).events;
+    expect(ofType(pearl, 'customerAbandon')).toEqual([
+      { t: 38, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false, missing: 'pearl' },
+    ]);
+  });
+
+  it('an AI shop out of cups has nothing left: its queue and later arrivals are told the tea', () => {
+    const cfg = tuned({ batu: { capacity: 1 } });
+    const s = street([shop('batu', 27)], [cust(0), cust(1), cust(2, { arriveTick: 100 })], { stock: stock(0) }, {}, cfg);
+    const { events } = runTo(s, 101, {}, cfg);
+    expect(ofType(events, 'customerAbandon')).toEqual([
+      { t: 69, type: 'customerAbandon', customer: 1, shop: 'batu', cause: 'stockOut', repHit: false, missing: 'tea' },
+    ]);
+    expect(ofType(about(events, 2), 'customerConsider')[0].verdicts).toEqual([
+      { shop: 'batu', score10: null, reason: 'outOfStock', missing: 'tea' },
+      { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
+    ]);
+  });
+
+  it('is set on outOfStock verdicts and stockOut abandons only', () => {
+    for (const day of [1, 5] as Day[]) {
+      const ai = [shop('batu', 28), shop('giare', 25), shop('cochap', 30), shop('tapdoan', 27)];
+      const { events } = finishRush(createRush(input({ seed: 3, rules: rules(day), ai },
+        { stock: { teaMl: 1500, toppings: { pearl: 0, jelly: 2, pudding: 1 } } })).state);
+      const verdicts = ofType(events, 'customerConsider').flatMap(e => e.verdicts);
+      expect(verdicts.some(v => v.missing !== undefined)).toBe(true);
+      for (const v of verdicts) expect(v.missing !== undefined).toBe(v.reason === 'outOfStock');
+      for (const e of ofType(events, 'customerAbandon')) expect(e.missing !== undefined).toBe(e.cause === 'stockOut');
+    }
   });
 });
 
@@ -284,7 +340,8 @@ describe('the staff helper (§4 Nâng cấp, plan)', () => {
     const { events, states } = runTo(s, 100, { 77: [size('M'), ICE, TEA] });
     expect(at(events, 89)).toEqual([
       { t: 89, type: 'craftStep', step: 'tea', endsAt: 105 },
-      { t: 89, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false },
+      { t: 89, type: 'customerAbandon', customer: 1, shop: 'player', cause: 'stockOut', repHit: false,
+        missing: 'tea' },
       { t: 89, type: 'customerConsider', customer: 1, reshop: true, chosen: null, verdicts: [
         { shop: 'player', score10: null, reason: 'visited' },
       ] },
@@ -304,7 +361,8 @@ describe('the staff helper (§4 Nâng cấp, plan)', () => {
     expect(at(events, 92)).toEqual([{ t: 92, type: 'inputRejected', action: 'craft', why: 'noTea' }]);
     expect(at(events, 100)).toEqual([
       { t: 100, type: 'cupTrashed' },
-      { t: 100, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false },
+      { t: 100, type: 'customerAbandon', customer: 0, shop: 'player', cause: 'stockOut', repHit: false,
+        missing: 'tea' },
       { t: 100, type: 'customerConsider', customer: 0, reshop: true, chosen: null, verdicts: [
         { shop: 'player', score10: null, reason: 'visited' },
       ] },

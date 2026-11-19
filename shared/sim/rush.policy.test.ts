@@ -2,7 +2,7 @@
 // with the player's price change and the rumor in play.
 import { describe, expect, it } from 'vitest';
 import {
-  TRASH, about, at, cust, deepFreeze, deliver, input, make, ofType, playerShop, rules, runTo, shop, stock, street,
+  CLOSE, TRASH, about, at, cust, deepFreeze, deliver, input, make, ofType, playerShop, rules, runTo, shop, stock, street,
   type PlayerIn,
 } from './rush.fixtures';
 import { counterView, createRush, finishRush, step } from './rush';
@@ -79,6 +79,16 @@ describe('day 5: the state inspection at second 45 (§4 Tin đồn, §16.9, R19)
     expect(playerShop(two.state)).toMatchObject({ rumorPenalty: 20, certified: false, named: true });
     const self = runTo(day5({ skimpDays: 1, selfCertified: true }), 451);
     expect(ofType(self.events, 'policy')[0]).toMatchObject({ certified: ['batu'], named: ['giare'] });
+  });
+
+  it('a player who closed early before 450 is still inspected (R20)', () => {
+    const closed = (skimpDays: number) => runTo(day5({ skimpDays }), 451, { 100: [CLOSE] });
+    const cleared = closed(1);
+    expect(playerShop(cleared.state)).toMatchObject({ status: 'closedEarly', rumorPenalty: 0, certified: true });
+    expect(ofType(cleared.events, 'policy')[0]).toMatchObject({ certified: ['batu', 'player'], named: ['giare'] });
+    const named = closed(3);
+    expect(playerShop(named.state)).toMatchObject({ status: 'closedEarly', rumorPenalty: 25, named: true });
+    expect(ofType(named.events, 'policy')[0]).toMatchObject({ certified: ['batu'], named: ['giare', 'player'] });
   });
 
   it('a named shop still loses the customers who do not trust it after the inspection', () => {

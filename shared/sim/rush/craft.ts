@@ -3,13 +3,22 @@
 // taken when a step starts. Pure functions for the scene and the day-1 practice cup, with the mutating internals the
 // rush engine runs on its draft.
 import { CONFIG, type SimConfig } from '../config';
-import type { CraftInput, CraftState, Cup, InputReject, K, Order, SimEvent, Size, Stock, Tick } from '../types';
+import type {
+  CraftInput, CraftState, Cup, InputReject, K, Order, SimEvent, Size, Stock, StockItem, Tick,
+} from '../types';
 
 /** The stock covers this order: tea for its size and a portion of each topping (§6 "Còn hàng cho một đơn"). */
 export function canServe(stock: Stock, order: Order, cfg: SimConfig = CONFIG): boolean {
   if (stock.teaMl < cfg.supplies.sizeMl[order.size]) return false;
   for (const t of order.toppings) if (stock.toppings[t] < 1) return false;
   return true;
+}
+
+/** @internal The first item the stock lacks for this order, tea before toppings in canonical order; null if none. */
+export function missingFor(stock: Stock, order: Order, cfg: SimConfig): StockItem | null {
+  if (stock.teaMl < cfg.supplies.sizeMl[order.size]) return 'tea';
+  for (const t of order.toppings) if (stock.toppings[t] < 1) return t;
+  return null;
 }
 
 /** What the customer pays for this order made right: the M price, −5k for S, +5k for L, +5k per topping (§4). */

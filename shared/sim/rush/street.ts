@@ -5,8 +5,10 @@
 import { evaluate, staysAfterReprice, type ShopOffer } from '../choice';
 import type { SimConfig } from '../config';
 import { midRushPrice } from '../shops';
-import type { Customer, CustomerOutcome, K, LeaveCause, RushShop, RushState, ShopId, SimEvent, Tick } from '../types';
-import { canServe, dropCup } from './craft';
+import type {
+  Customer, CustomerOutcome, K, LeaveCause, Order, RushShop, RushState, ShopId, SimEvent, StockItem, Tick,
+} from '../types';
+import { canServe, dropCup, missingFor } from './craft';
 
 /** Open, sold out or closed early: the shop put a price on the board today. */
 export const sellsToday = (s: RushShop) => s.status === 'open' || s.status === 'soldOut' || s.status === 'closedEarly';
@@ -80,6 +82,14 @@ export function noteMissed(d: RushState, id: number): void {
 }
 
 /**
+ * What shop `id` lacks for this order (R21): the player's first missing item, `'tea'` for an AI shop out of cups (and
+ * for the player's sold-out sign, which only flips without tea for any size).
+ */
+function missingAt(d: RushState, id: ShopId, order: Order, cfg: SimConfig): StockItem {
+  return id === 'player' ? missingFor(d.player.stock, order, cfg) ?? 'tea' : 'tea';
+}
+
+/**
  * Scores the street and joins the best queue, or leaves (R9): `noOffer` at the first look, `gaveUp` on a
  * re-shop, `scared` for a scared customer (they never pick a shop). A customer who finds the player's shop out of
  * stock counts as missed only if they would have chosen it with stock (R16).
@@ -89,14 +99,16 @@ function chooseShop(d: RushState, id: number, reshop: boolean, t: Tick, cfg: Sim
   const rt = d.rt[id];
   const offers = d.shops.map(s => offerFor(d, s, c, cfg));
   const { chosen, verdicts } = evaluate(c, offers, rt.visited, cfg);
-  if (!rt.missedNoStock) {
-    let outOfStock = false;
-    for (const v of verdicts) if (v.shop === 'player' && v.reason === 'outOfStock') outOfStock = true;
-    if (outOfStock) {
-      // The offers are not used after this point: score the street again with the player's shop in stock.
-      for (const o of offers) if (o.id === 'player') o.canServe = true;
-      if (evaluate(c, offers, rt.visited, cfg).chosen === 'player') noteMissed(d, id);
-    }
+  let playerOut = false;
+  for (const v of verdicts) {
+    if (v.reason !== 'outOfStock') continue;
+    v.missing = missingAt(d, v.shop, c.order, cfg);
+    if (v.shop === 'player') playerOut = true;
+  }
+  if (playerOut && !rt.missedNoStock) {
+    // The offers are not used after this point: score the street again with the player's shop in stock.
+    for (const o of offers) if (o.id === 'player') o.canServe = true;
+    if (evaluate(c, offers, rt.visited, cfg).chosen === 'player') noteMissed(d, id);
   }
   events.push({ t, type: 'customerConsider', customer: id, reshop, verdicts, chosen });
   if (chosen !== null) joinQueue(d, id, shopOf(d, chosen), t, events);
@@ -123,7 +135,10 @@ function leaveQueue(d: RushState, id: number, s: RushShop, cause: LeaveCause, t:
   events: SimEvent[]): void {
   const repHit = cause === 'patience' && s.ai === null;
   if (repHit) d.player.tally.walkouts++;
-  events.push({ t, type: 'customerAbandon', customer: id, shop: s.id, cause, repHit });
+  events.push(cause === 'stockOut'
+    ? { t, type: 'customerAbandon', customer: id, shop: s.id, cause, repHit,
+      missing: missingAt(d, s.id, d.customers[id].order, cfg) }
+    : { t, type: 'customerAbandon', customer: id, shop: s.id, cause, repHit });
   if (d.rt[id].visited.length < cfg.rush.maxVisits) chooseShop(d, id, true, t, cfg, events);
   else leaveStreet(d, id, 'gaveUp', null, t, events);
 }

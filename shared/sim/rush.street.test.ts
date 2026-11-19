@@ -216,12 +216,12 @@ describe('customers walking in (tick order 3 and 4)', () => {
       { t: 20, type: 'customerEnter', customer: 3, entry: 'left' },
       { t: 20, type: 'customerConsider', customer: 0, reshop: false, chosen: 'batu', verdicts: [
         { shop: 'batu', score10: 110, reason: 'chosen' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
+        { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
       ] },
       { t: 20, type: 'customerJoin', customer: 0, shop: 'batu', position: 1 },
       { t: 20, type: 'customerConsider', customer: 2, reshop: false, chosen: 'batu', verdicts: [
         { shop: 'batu', score10: 90, reason: 'chosen' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
+        { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
       ] },
       { t: 20, type: 'customerJoin', customer: 2, shop: 'batu', position: 2 },
     ]);
@@ -257,7 +257,7 @@ describe('customers walking in (tick order 3 and 4)', () => {
     expect(about(events, 0).slice(1)).toEqual([
       { t: 5, type: 'customerConsider', customer: 0, reshop: false, chosen: null, verdicts: [
         { shop: 'batu', score10: -70, reason: 'tooExpensive' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
+        { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
       ] },
       { t: 5, type: 'customerLeave', customer: 0, outcome: 'noOffer', emptyHanded: false },
     ]);
@@ -340,16 +340,18 @@ describe('sold out', () => {
     const shops3 = (giare: number) => [
       { shop: 'batu', score10: null, reason: 'visited' },
       { shop: 'giare', score10: giare, reason: 'chosen' },
-      { shop: 'player', score10: null, reason: 'outOfStock' },
+      { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
     ];
     expect(at(events, 139)).toEqual([
       { t: 139, type: 'customerServed', customer: 1, shop: 'batu', by: 'ai', correct: true, paid: 20, full: 20 },
       { t: 139, type: 'customerLeave', customer: 1, outcome: 'served', emptyHanded: false },
       { t: 139, type: 'shopStatus', shop: 'batu', status: 'soldOut' },
-      { t: 139, type: 'customerAbandon', customer: 2, shop: 'batu', cause: 'stockOut', repHit: false },
+      { t: 139, type: 'customerAbandon', customer: 2, shop: 'batu', cause: 'stockOut', repHit: false,
+        missing: 'tea' },
       { t: 139, type: 'customerConsider', customer: 2, reshop: true, chosen: 'giare', verdicts: shops3(170) },
       { t: 139, type: 'customerJoin', customer: 2, shop: 'giare', position: 0 },
-      { t: 139, type: 'customerAbandon', customer: 3, shop: 'batu', cause: 'stockOut', repHit: false },
+      { t: 139, type: 'customerAbandon', customer: 3, shop: 'batu', cause: 'stockOut', repHit: false,
+        missing: 'tea' },
       { t: 139, type: 'customerConsider', customer: 3, reshop: true, chosen: 'giare', verdicts: shops3(150) },
       { t: 139, type: 'customerJoin', customer: 3, shop: 'giare', position: 1 },
     ]);
@@ -357,7 +359,7 @@ describe('sold out', () => {
     expect(ofType(events, 'customerServed').filter(e => e.shop === 'giare').map(e => [e.t, e.customer]))
       .toEqual([[209, 2], [279, 3], [369, 4]]);
     const later = ofType(events, 'customerConsider').find(e => e.customer === 4);
-    expect(later?.verdicts[0]).toEqual({ shop: 'batu', score10: null, reason: 'outOfStock' });
+    expect(later?.verdicts[0]).toEqual({ shop: 'batu', score10: null, reason: 'outOfStock', missing: 'tea' });
     const [batu, giare] = state.shops;
     expect([batu.status, batu.sold, batu.ai?.cupsLeft, batu.revenue]).toEqual(['soldOut', 2, 0, 40]);
     expect([giare.sold, giare.revenue]).toEqual([3, 90]);
@@ -480,7 +482,7 @@ describe('mid-rush AI prices (§4, §16.6)', () => {
         { shop: 'giare', score10: 10, reason: 'chosen' },
         { shop: 'cochap', score10: -130, reason: 'tooExpensive' },
         { shop: 'luotsong', score10: -120, reason: 'tooExpensive' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
+        { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
       ] },
       { t: 300, type: 'customerJoin', customer: 1, shop: 'giare', position: 0 },
     ]);
@@ -505,7 +507,7 @@ describe('mid-rush AI prices (§4, §16.6)', () => {
       { t: 300, type: 'customerConsider', customer: 5, reshop: true, chosen: 'luotsong', verdicts: [
         { shop: 'batu', score10: null, reason: 'visited' },
         { shop: 'luotsong', score10: 10, reason: 'chosen' },
-        { shop: 'player', score10: null, reason: 'outOfStock' },
+        { shop: 'player', score10: null, reason: 'outOfStock', missing: 'tea' },
       ] },
       { t: 300, type: 'customerJoin', customer: 5, shop: 'luotsong', position: 2 },
     ]);

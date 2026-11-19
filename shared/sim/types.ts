@@ -121,19 +121,39 @@ export type Action =
 
 export type RejectReason = 'tooExpensive' | 'tooCrowded' | 'lowTrust' | 'outOfStock'
   | 'steepDiscount' | 'otherBetter' | 'closed' | 'visited' | 'rumor';
-export interface ShopVerdict { shop: ShopId; score10: number | null; reason: RejectReason | 'chosen' }
+/** What ran out (R21): the tea, or a topping. An AI shop that is sold out has nothing left: `'tea'`. */
+export type StockItem = 'tea' | ToppingId;
+export interface ShopVerdict {
+  shop: ShopId; score10: number | null; reason: RejectReason | 'chosen';
+  /** Only with `outOfStock` (R21): what the shop lacks for this customer's order; for the player the first missing
+   *  item, tea before toppings in canonical order; `'tea'` for a sold-out AI shop. */
+  missing?: StockItem;
+}
 export type LeaveCause = 'patience' | 'priceUp' | 'steepDiscount' | 'stockOut' | 'shopClosed';
 /** `closed`: the player closed early, every later action is refused. */
 export type InputReject = 'order' | 'bufferFull' | 'noTea' | 'noTopping' | 'duplicate' | 'busy'
   | 'noCup' | 'notInFirstFour' | 'priceUsed' | 'priceRange' | 'ceiling' | 'closed';
 
+/**
+ * What the rush tells the street scene; the scene may rely on this contract without reading the state.
+ * - Events come in the plan's tick order ("Thứ tự trong một nhịp"): player actions, timeline (start, AI checkpoints,
+ *   day-5 inspection), customers walking in, arrivals, production, the player's stock re-check, patience, sold-out
+ *   signs. `t` is the tick whose step emitted the event; the closing events at the end of the rush carry t = 900.
+ * - Every `customerAbandon` is followed, in the same tick, by that customer's re-shop `customerConsider` or their
+ *   `customerLeave`.
+ * - A `shopPrice` comes before the re-score abandons it causes.
+ * - On day 5 `policy inspection` comes before `policy rumorLifted`, both at tick 450.
+ * - `rushEnd` is the last event of the rush.
+ */
 export type SimEvent = { t: Tick } & (
   | { type: 'rushStart'; day: Day; rules: DayRules }
   | { type: 'customerEnter'; customer: number; entry: Customer['entry'] }
   | { type: 'customerConsider'; customer: number; reshop: boolean; verdicts: ShopVerdict[]; chosen: ShopId | null }
   | { type: 'customerJoin'; customer: number; shop: ShopId; position: number }
   | { type: 'customerServed'; customer: number; shop: ShopId; by: 'player' | 'staff' | 'ai'; correct: boolean; paid: K; full: K }
-  | { type: 'customerAbandon'; customer: number; shop: ShopId; cause: LeaveCause; repHit: boolean }
+  | { type: 'customerAbandon'; customer: number; shop: ShopId; cause: LeaveCause; repHit: boolean;
+      /** Only with `stockOut` (R21), by the rule of `ShopVerdict.missing`. */
+      missing?: StockItem }
   | { type: 'customerLeave'; customer: number; outcome: CustomerOutcome; emptyHanded: boolean }
   | { type: 'shopPrice'; shop: ShopId; from: K; to: K }
   | { type: 'shopStatus'; shop: ShopId; status: ShopStatus }
