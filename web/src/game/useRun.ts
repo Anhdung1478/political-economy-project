@@ -185,6 +185,18 @@ export class RunController {
     this.ensureLoop();
   };
 
+  /**
+   * Opens the shop with the clock held, so no tick runs while the morning screen is still leaving: the rush screen
+   * releases it once it is on screen (every day; the day-1 practice cup keeps it held until it is done). A refused
+   * open leaves the hold as it was.
+   */
+  openHeld = (): void => {
+    const was = this.view.held;
+    this.setHold(true);
+    this.dispatch({ type: 'open' });
+    if (this.view.state.rush === null) this.setHold(was);
+  };
+
   /** Holds or releases the rush clock. */
   setHold = (held: boolean): void => {
     if (held === this.view.held) return;
@@ -308,7 +320,7 @@ export interface UseRunOptions extends Omit<RunControllerOpts, 'env'> {
 
 /**
  * The run for a screen. `held` is the UI's own switch: it survives `open` and `newRun`, so a screen that holds the
- * clock (the day-1 trial cup) must release it with `setHold(false)`, or the rush never ticks.
+ * clock (`openHeld`, the day-1 trial cup) must release it with `setHold(false)`, or the rush never ticks.
  */
 export interface RunHandle extends ShellView, RushSource {
   dispatch(intent: Intent): void;
@@ -316,6 +328,7 @@ export interface RunHandle extends ShellView, RushSource {
   subscribe(sub: RushSubscriber): () => void;
   simTime(): number;
   setHold(held: boolean): void;
+  openHeld(): void;
 }
 
 /** The run, driven in real time. One per game screen; the options are read on mount. */
@@ -327,7 +340,7 @@ export function useRun(opts: UseRunOptions): RunHandle {
   }, [ctl]);
   const shell = useSyncExternalStore(ctl.subscribeView, ctl.getShell);
   return { ...shell, dispatch: ctl.dispatch, act: ctl.act, subscribe: ctl.subscribe, simTime: ctl.simTime,
-    setHold: ctl.setHold, subscribeView: ctl.subscribeView, getRush: ctl.getRush };
+    setHold: ctl.setHold, openHeld: ctl.openHeld, subscribeView: ctl.subscribeView, getRush: ctl.getRush };
 }
 
 /** The live rush, re-rendering on every tick (the rush screen only); null outside the rush. */

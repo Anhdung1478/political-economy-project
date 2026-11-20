@@ -29,8 +29,9 @@ import './rush.css';
  * Everything the rush screen gets from Game: where to read the live rush (`source`; the screen subscribes itself, so
  * Game does not re-render on every tick) and the run, the rush as it opened (`opening`, the street's snapshot),
  * `dispatch` (closeEarly, endRush), `act` (craft, deliver, trash, setPrice for the next tick), the clock hold
- * (`setHold`/`held`: the day-1 practice cup, the pause after a hidden tab), `hidden` (tab hidden, clock paused),
- * `simTime` and `subscribe` (each tick's events).
+ * (`setHold`/`held`: Game opens with the clock held and the screen releases it on mount, or keeps it for the day-1
+ * practice cup and the pause after a hidden tab), `hidden` (tab hidden, clock paused), `simTime` and `subscribe`
+ * (each tick's events).
  */
 export interface RushScreenProps extends Pick<RunHandle,
   'opening' | 'dispatch' | 'act' | 'setHold' | 'held' | 'hidden' | 'simTime' | 'subscribe'> {

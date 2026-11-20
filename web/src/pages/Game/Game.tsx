@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { morningBrief } from '../../../../shared/sim/day';
 import type { Choice, Day, DaySummary, Phase, RunState } from '../../../../shared/sim/types';
-import { KEYS, loadBest, startRun, type PersistOpts, type RunStoreState } from '../../game/runStore';
+import { KEYS, loadBest, startRun, type Intent, type PersistOpts, type RunStoreState } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { resumeOrStart, useRun } from '../../game/useRun';
 import type { TimeOfDay } from '../../scene/lighting';
@@ -177,7 +177,10 @@ export default function Game(props: GameProps) {
   const brief = useMemo(() => (phase === 'morning' ? morningBrief(run) : null), [phase, run]);
   const cash = brief?.cash ?? run.cash;
   const rep = brief?.rep ?? run.rep;
-  const { dispatch } = r;
+  const { dispatch, openHeld } = r;
+  // "Mở cửa" opens with the clock held; the rush screen lets it go once it is on screen (the morning's exit takes
+  // ~0.35 s, which would otherwise cost the first ticks of the rush, and the day-1 practice cup would start late).
+  const morningDispatch = useCallback((i: Intent) => (i.type === 'open' ? openHeld() : dispatch(i)), [dispatch, openHeld]);
   const newRun = props.onNewRun ?? (props.mode === 'solo'
     ? () => dispatch({ type: 'newRun', seed: Math.floor(Math.random() * 2 ** 31), runId: `solo-${Date.now().toString(36)}` })
     : undefined);
@@ -191,7 +194,7 @@ export default function Game(props: GameProps) {
   } else if (phase === 'morning') {
     screen = (
       <motion.div key={`morning-${run.runId}-${day}`} className="game__screen" {...screenMotion}>
-        <MorningScreen run={run} planDraft={planDraft} dispatch={dispatch} entrants={street?.entrants ?? []}
+        <MorningScreen run={run} planDraft={planDraft} dispatch={morningDispatch} entrants={street?.entrants ?? []}
           focusPrice={justTitled} />
       </motion.div>
     );

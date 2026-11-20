@@ -274,6 +274,37 @@ describe('resumeOrStart', () => {
 });
 
 describe('RunController, final fix wave', () => {
+  it('opens with the clock held: no tick until the rush screen releases it, then the rush starts at tick 0', () => {
+    const { clock, ctl, pushes } = setup();
+    ctl.openHeld();
+    expect(ctl.getView().state.rush?.tick).toBe(0);
+    expect(ctl.getView().held).toBe(true);
+    expect(clock.pending()).toBe(false);
+    // the morning screen leaving: real time passes, nothing ticks
+    clock.frame(0);
+    clock.frame(350);
+    expect(ctl.getView().state.rush?.tick).toBe(0);
+    const before = pushes.length;
+    // the rush screen mounts and lets go
+    ctl.setHold(false);
+    expect(clock.pending()).toBe(true);
+    clock.frame(400);
+    expect(ctl.simTime()).toBe(0);
+    clock.frame(450);
+    expect(ctl.getView().state.rush?.tick).toBe(0);
+    clock.frame(500);
+    expect(ctl.getView().state.rush?.tick).toBe(1);
+    expect(pushes.slice(before)).toHaveLength(1);
+  });
+
+  it('keeps the hold as it was when the open is refused', () => {
+    const { ctl } = setup();
+    ctl.dispatch({ type: 'setTeaMl', teaMl: 1e9 });
+    ctl.openHeld();
+    expect(ctl.getView().state.rush).toBeNull();
+    expect(ctl.getView().held).toBe(false);
+  });
+
   it('keeps the shell view the same object across rush ticks, and changes it with the run or the flags', () => {
     const { clock, ctl } = setup();
     const morning = ctl.getShell();
