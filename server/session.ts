@@ -105,6 +105,12 @@ export class Session {
     if (p) p.connected = connected;
   }
 
+  /** The vote of player `id` for `when`; null when none, or for an unknown player or moment. */
+  voteOf(id: string, when: string): VoteChoice | null {
+    const v = this.players.get(id)?.votes;
+    return v !== undefined && (when === 'before' || when === 'after') ? v[when] : null;
+  }
+
   /**
    * `before` in the lobby or while open; `after` while open or after the awards. `code` is the session the phone
    * queued the vote in: a vote from before a reset is refused.

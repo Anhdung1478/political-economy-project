@@ -114,13 +114,11 @@ describe('awards view', () => {
     expect(v.mine.map(a => a.id)).toEqual(['tycoon']);
     expect(v.top).toHaveLength(5);
     expect(v.top.filter(t => t.me).map(t => t.playerId)).toEqual(['p2']);
-    expect(v.outside).toBe(false);
   });
-  it('says when the player is below the top 5', () => {
+  it('has no awards and no mark for a player below the top 5', () => {
     const v = awardsView(awards, 'p9')!;
     expect(v.rank).toBe(7);
     expect(v.mine).toEqual([]);
-    expect(v.outside).toBe(true);
   });
   it('has no rank for a player the list does not know, and nothing before the awards', () => {
     expect(awardsView(awards, 'ghost')!.rank).toBeNull();
@@ -145,8 +143,8 @@ describe('stored records', () => {
   });
   it('words the lobby count', () => {
     const counts = { joined: 1, playing: 0, finished: 0, lostTrust: 0 };
-    expect(lobbyLine({ phase: 'lobby', counts })).toContain('đầu tiên');
-    expect(lobbyLine({ phase: 'lobby', counts: { ...counts, joined: 12 } })).toContain('12 người');
+    expect(lobbyLine({ counts })).toContain('đầu tiên');
+    expect(lobbyLine({ counts: { ...counts, joined: 12 } })).toContain('12 người');
     expect(lobbyLine(null)).toContain('đầu tiên');
   });
 });

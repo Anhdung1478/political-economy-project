@@ -2,14 +2,13 @@
 // over the ambient street, the game itself in class mode when the market opens, the awards, and the way out to solo.
 // The logic lives in `PlayController` (socket, token, report queue) and `playLogic` (pure); this file only chooses the
 // screen and wires the game to them.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { Phase } from '../../../../shared/sim/types';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { Day, Phase } from '../../../../shared/sim/types';
 import { KEYS } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { connect } from '../../net/socket';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { AwardsScreen, EndedScreen, goSolo } from './AwardsScreen';
-import { watchGamePhase } from './gameWatch';
 import { JoinScreen } from './JoinScreen';
 import { LobbyScreen } from './LobbyScreen';
 import { PlayController } from './PlayController';
@@ -35,34 +34,39 @@ export default function Play() {
   const awardsOut = phase === 'awards';
   const myRank = (view.playerId !== null ? awards?.ranks[view.playerId] : undefined) ?? view.rank;
 
-  // The game's phase, for `player:progress` and for where the banners go (the game does not tell the socket).
+  // The game tells its day and phase (`onPhase`): sent as `player:progress`, and it says where the strip may go.
   const [gamePhase, setGamePhase] = useState<Phase | null>(null);
-  useEffect(() => {
-    if (screen !== 'game') { setGamePhase(null); return; }
-    return watchGamePhase(p => {
-      setGamePhase(p);
-      if (p !== null) ctl.reportProgress(p);
-    });
-  }, [screen, ctl]);
+  const onPhase = useCallback((day: Day, phase: Phase) => {
+    setGamePhase(phase);
+    ctl.reportProgress(day, phase);
+  }, [ctl]);
+  useEffect(() => { if (screen !== 'game') setGamePhase(null); }, [screen]);
 
-  // The awards over a run still in progress: a small banner opens them; a finished run sees them once on its own.
+  // The awards over a run still in progress or finished: a small strip on top (the game moves down by its height, see
+  // play.css) opens them. It never interrupts: no sheet opens by itself, and the strip is not there during the rush.
   const [awardsOpen, setAwardsOpen] = useState(false);
-  const autoOpened = useRef(false);
-  useEffect(() => {
-    if (awardsOut && screen === 'game' && gamePhase === 'end' && !autoOpened.current) {
-      autoOpened.current = true;
-      setAwardsOpen(true);
-    }
-  }, [awardsOut, screen, gamePhase]);
-  useEffect(() => { if (!awardsOut) { autoOpened.current = false; setAwardsOpen(false); } }, [awardsOut]);
-
-  // A thin strip over the game (the game moves down by its height, see play.css): the awards banner of a run still in
-  // progress and, once the run is over, the way to solo (the class end screen has no "Chơi lại"). Never during the rush.
-  const strip = screen === 'game' && ((awardsOut && gamePhase !== 'rush') || gamePhase === 'end');
+  useEffect(() => { if (!awardsOut) setAwardsOpen(false); }, [awardsOut]);
+  const strip = screen === 'game' && awardsOut && gamePhase !== 'rush';
   useEffect(() => {
     document.documentElement.classList.toggle('play-strip-on', strip);
     return () => document.documentElement.classList.remove('play-strip-on');
   }, [strip]);
+
+  // The sheet is a dialog: focus goes into it, Escape closes it.
+  const sheet = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!awardsOpen) return;
+    const prev = document.activeElement as HTMLElement | null;
+    sheet.current?.querySelector<HTMLElement>('button')?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAwardsOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); prev?.focus(); };
+  }, [awardsOpen]);
+
+  // No "connection lost" flash while the page is still making its first connection.
+  const [grace, setGrace] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setGrace(false), 2500); return () => clearTimeout(t); }, []);
+  const online = view.connected || grace;
 
   // Made once per session and kept; read again only when the session changes.
   const runId = useMemo(() => (code === null ? '' : ctl.runId()), [ctl, code]);
@@ -70,28 +74,21 @@ export default function Play() {
   if (screen === 'game' && code !== null && seed !== null) {
     return (
       <>
-        <ConnectionBadge connected={view.connected} />
+        <ConnectionBadge connected={online} />
         <Suspense fallback={<Boot />}>
           <Game key={code} mode="class" seed={seed} runId={runId} sessionCode={code} persistKey={KEYS.class(code)}
             rank={myRank ?? null} awaitingAwards={!awardsOut} onNewRun={goSolo}
-            onDayReport={(_, run) => ctl.reportDay(run)} onReporterVote={c => ctl.reporterVote(c)} />
+            onDayReport={(_, run) => ctl.reportDay(run)} onReporterVote={c => ctl.reporterVote(c)} onPhase={onPhase} />
         </Suspense>
         {strip && (
           <div className="play-strip" role="region" aria-label="Buổi chơi">
-            {awardsOut && (
-              <button type="button" className="play-pill play-pill--awards" onClick={() => setAwardsOpen(true)}>
-                <span aria-hidden="true">🏆</span> Đã trao giải · Xem
-              </button>
-            )}
-            {gamePhase === 'end' && (
-              <button type="button" className="play-pill" onClick={goSolo}>
-                <span aria-hidden="true">🔁</span> {awardsOut ? 'Chơi solo' : 'Chơi lại (solo)'}
-              </button>
-            )}
+            <button type="button" className="play-pill play-pill--awards" onClick={() => setAwardsOpen(true)}>
+              <span aria-hidden="true">🏆</span> Đã trao giải · Xem
+            </button>
           </div>
         )}
         {awardsOut && awardsOpen && (
-          <div className="play-overlay" role="dialog" aria-label="Kết quả buổi chơi">
+          <div className="play-overlay" role="dialog" aria-modal="true" aria-label="Kết quả buổi chơi" ref={sheet}>
             <div className="play play--overlay">
               <AwardsScreen awards={awards} playerId={view.playerId} rank={view.rank} onClose={() => setAwardsOpen(false)} />
             </div>
@@ -116,7 +113,7 @@ export default function Play() {
   return (
     <div className={`play${withStreet ? ' play--street' : ''}`}>
       {withStreet && <PlayStreet seed={seed} />}
-      <ConnectionBadge connected={view.connected} />
+      <ConnectionBadge connected={online} />
       <header className="play__top">
         <span className="play__brand"><img src="/favicon.svg" alt="" width="28" height="28" /> Phố Trà Sữa</span>
       </header>

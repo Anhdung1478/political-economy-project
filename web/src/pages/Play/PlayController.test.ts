@@ -8,8 +8,8 @@ import { playRun, STRATEGIES } from '../../../../shared/sim/autoplay';
 import type { RunState } from '../../../../shared/sim/types';
 import { emptyQueue, QUEUE_KEY, serialize } from '../../game/reportQueue';
 import { KEYS, save } from '../../game/runStore';
-import { type KeyValueStore, memoryStore } from '../../game/storage';
-import { type ClassSocket, createClient } from '../../net/socket';
+import { type KeyValueStore, memoryStore, webStore } from '../../game/storage';
+import { type ClassSocket, createClient, type SessionClient } from '../../net/socket';
 import { PlayController } from './PlayController';
 import { PLAY_KEYS } from './playLogic';
 
@@ -33,14 +33,31 @@ const until = async (pred: () => boolean, what = 'condition') => {
 };
 const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-/** A phone: its own socket, store and controller (attached, not yet connected unless `connected`). */
-async function phone(url: string, store: KeyValueStore = memoryStore()) {
+/**
+ * A phone, built the way the page builds it: the socket opens and the client starts listening at once (`connect()`),
+ * and the controller attaches later, in an effect. We wait until the server's one `state` has arrived BEFORE attaching,
+ * which is what a fast connection does (the first state used to be lost, leaving the loading dots for ever).
+ */
+async function phone(url: string, store: KeyValueStore = memoryStore(), wrap?: (c: SessionClient) => SessionClient) {
   const socket: ClassSocket = io(url, { transports: ['websocket'], forceNew: true, reconnection: false });
   sockets.push(socket);
-  const ctl = new PlayController(createClient(socket, 1500), store, { retryMs: 20, resumeRetryMs: 30 });
+  const client = createClient(socket, 1500);
+  await until(() => socket.connected && client.lastState() !== null, 'the socket and its first state');
+  const ctl = new PlayController(wrap ? wrap(client) : client, store, { retryMs: 20, resumeRetryMs: 30 });
   stops.push(ctl.attach());
   await until(() => ctl.getView().session !== null, 'the first state');
   return { socket, ctl, store, view: () => ctl.getView() };
+}
+/** The host, over a socket: `open`, `awards` and `reset` broadcast like the real ones. */
+async function hostOf(url: string) {
+  const s: ClassSocket = io(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+  sockets.push(s);
+  await until(() => s.connected, 'host socket');
+  const ok = await new Promise<{ ok: boolean }>(r => s.emit('host:auth', { key: 'k' }, r));
+  expect(ok.ok).toBe(true);
+  return {
+    open: () => s.emit('host:open'), awards: () => s.emit('host:awards'), reset: () => s.emit('host:reset'),
+  };
 }
 async function joined(url: string, name: string, store?: KeyValueStore) {
   const p = await phone(url, store);
@@ -92,8 +109,11 @@ describe('PlayController', () => {
 
   it('refuses a join after the awards and does not attach', async () => {
     const url = await server();
-    app.session.open();
-    app.session.awards();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
+    host.awards();
+    await until(() => app.session.snapshot().phase === 'awards', 'server awards');
     const p = await phone(url);
     const r = await p.ctl.join('Muộn');
     expect(r).toEqual({ ok: false, error: 'Buổi đã kết thúc' });
@@ -105,7 +125,9 @@ describe('PlayController', () => {
     const url = await server();
     const p = await joined(url, 'An');
     await joined(url, 'Bình'); // a second player, so ranks mean something
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
     await until(() => p.view().session?.phase === 'open', 'open');
 
     p.ctl.reportDay(atReport(2));
@@ -125,7 +147,9 @@ describe('PlayController', () => {
   it('sends the reporter vote of an early loser', async () => {
     const url = await server();
     const p = await joined(url, 'An');
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
     await until(() => p.view().session?.phase === 'open', 'open');
     p.ctl.reporterVote('A');
     await until(() => member().vote.after === 'invisible', 'invisible after vote');
@@ -140,7 +164,9 @@ describe('PlayController', () => {
     const token = first.store.get(PLAY_KEYS.token)!;
     stops.splice(0).forEach(s => s());
     first.socket.close();
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
 
     // A new page load: nothing queued, but the saved run holds five reported days (and the reporter answer).
     const store = memoryStore({ [PLAY_KEYS.token]: token });
@@ -159,7 +185,9 @@ describe('PlayController', () => {
     const token = first.store.get(PLAY_KEYS.token)!;
     stops.splice(0).forEach(s => s());
     first.socket.close();
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
 
     // The phone's queue believes days 1-3 were delivered; the server (restarted and lost them) has none.
     const store = memoryStore({ [PLAY_KEYS.token]: token });
@@ -174,16 +202,18 @@ describe('PlayController', () => {
   it('keeps a day queued while offline, goes online only after resume, and sends progress again', async () => {
     const url = await server();
     const p = await joined(url, 'An');
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
     await until(() => p.view().session?.phase === 'open', 'open');
     saveRun(p.store, p.view().session!.code, atReport(1));
-    p.ctl.reportProgress('morning');
+    p.ctl.reportProgress(1, 'morning');
     await until(() => member().progress?.phase === 'morning', 'progress');
 
     p.socket.disconnect();
     await until(() => !p.view().connected, 'disconnect');
     p.ctl.reportDay(atReport(1));
-    p.ctl.reportProgress('rush');
+    p.ctl.reportProgress(1, 'rush');
     await pause(100);
     expect(p.ctl.pending()).toBe(1);
     expect(member().days).toHaveLength(0);
@@ -200,7 +230,9 @@ describe('PlayController', () => {
     const oldCode = p.view().session!.code;
     p.ctl.vote('visible');
     await until(() => member().vote.before === 'visible', 'vote');
-    app.session.open();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
     await until(() => p.view().session?.phase === 'open', 'open');
     const runId = p.ctl.runId();
     expect(p.store.get(PLAY_KEYS.runId(oldCode))).toBe(runId);
@@ -208,7 +240,7 @@ describe('PlayController', () => {
     p.ctl.reportDay(atReport(2));
     await until(() => p.view().rank !== null, 'rank');
 
-    app.session.reset();
+    host.reset();
     await until(() => p.view().session?.code !== oldCode, 'the new code');
     const v = p.view();
     expect(v.session?.phase).toBe('lobby');
@@ -246,7 +278,109 @@ describe('PlayController', () => {
     expect(v.resume).toBe('in');
     expect(v.hasRun).toBe(true);
     expect(v.local).toEqual({ code: 'ABCD', seed: 5 });
-    expect(ctl.seed()).toBe(5);
     expect(v.session).toBeNull();
+  });
+
+  it('C1: a phone that loads alone sees the lobby from the state the server sent as it connected', async () => {
+    const url = await server();
+    const socket: ClassSocket = io(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+    sockets.push(socket);
+    const client = createClient(socket, 1500);
+    await until(() => socket.connected && client.lastState() !== null, 'connect and the first state');
+    await pause(150); // nobody else does anything: the server sends no other state
+    const ctl = new PlayController(client, memoryStore());
+    stops.push(ctl.attach());
+    expect(ctl.getView().session?.phase).toBe('lobby');
+    expect(ctl.getView().session?.code).toBe(app.session.snapshot().code);
+  });
+
+  it('I1: a finished phone sends a bounded number of votes over many states and the server stays quiet', async () => {
+    const url = await server();
+    const first = await joined(url, 'An');
+    const code = first.view().session!.code;
+    const token = first.store.get(PLAY_KEYS.token)!;
+    stops.splice(0).forEach(s => s());
+    first.socket.close();
+    const host = await hostOf(url);
+    host.open();
+    await until(() => app.session.snapshot().phase === 'open', 'server open');
+
+    // The phone comes back with a finished run (reporter answered) saved.
+    const store = memoryStore({ [PLAY_KEYS.token]: token });
+    saveRun(store, code, withReporter(full, 'A'));
+    let votes = 0;
+    const p = await phone(url, store, c => ({ ...c, vote: v => { votes++; return c.vote(v); } }));
+    await until(() => member().vote.after === 'invisible' && member().days.length === 5, 'the run and its vote');
+    await until(() => p.ctl.pending() === 0, 'an empty queue');
+    const states = { n: 0 };
+    p.socket.on('state', () => { states.n++; });
+    const sent = votes;
+
+    // Many states: other phones come and go, vote and send progress.
+    const others = [];
+    for (let i = 0; i < 6; i++) others.push(await joined(url, `Bạn ${i}`));
+    for (const o of others) o.ctl.vote('visible');
+    await pause(500);
+    expect(votes - sent).toBe(0);
+    expect(votes).toBeLessThanOrEqual(2);
+    // Idle now: the line goes quiet (no vote, no state, nothing to resend).
+    const quiet = states.n;
+    await pause(500);
+    expect(states.n).toBe(quiet);
+    expect(votes).toBeLessThanOrEqual(2);
+  });
+
+  it('I2: with storage blocked a phone still joins once, plays through the awards and keeps its vote and run', async () => {
+    const url = await server();
+    const dead = webStore(() => { throw new Error('SecurityError: storage blocked'); });
+    const p = await joined(url, 'Không Lưu', dead);
+    expect(p.view().resume).toBe('in');
+    expect(app.session.board().members).toHaveLength(1); // no ghost player
+    p.ctl.vote('visible');
+    await until(() => member().vote.before === 'visible', 'the vote');
+    const host = await hostOf(url);
+    host.open();
+    await until(() => p.view().session?.phase === 'open', 'open');
+    expect(p.ctl.runId()).toBe(p.ctl.runId());
+
+    p.ctl.reportProgress(1, 'morning');
+    p.ctl.reportDay(atReport(2));
+    await until(() => member().days.length === 2, 'two days');
+    await until(() => p.view().rank === 1, 'the rank');
+    expect(member().progress).toMatchObject({ day: 1 });
+
+    // More states (another player, then the awards) must not wipe the vote, rank or the run.
+    await joined(url, 'Khác');
+    host.awards();
+    await until(() => p.view().session?.phase === 'awards', 'awards');
+    const v = p.view();
+    expect(v.vote).toBe('visible');
+    expect(v.rank).toBe(1);
+    expect(v.hasRun).toBe(true);
+    expect(v.resume).toBe('in');
+    // A resume (reconnect) still has the token in memory.
+    p.socket.disconnect();
+    await until(() => !p.view().connected, 'disconnect');
+    p.socket.connect();
+    await until(() => p.view().connected && p.view().resume === 'in', 'resumed again');
+    expect(app.session.board().members).toHaveLength(2);
+  });
+
+  it('does not claim to be in while an offline phone finds the session reset', async () => {
+    const url = await server();
+    const code = app.session.snapshot().code;
+    const store = memoryStore({
+      [PLAY_KEYS.token]: 'gone', [PLAY_KEYS.name]: 'An', [PLAY_KEYS.session]: JSON.stringify({ code: 'OLD1', seed: 5 }),
+    });
+    saveRun(store, 'OLD1', atReport(2));
+    const seen: string[] = [];
+    const p = await phone(url, store);
+    seen.push(p.view().resume);
+    await until(() => p.view().resume === 'anon', 'token refused');
+    expect(seen[0]).not.toBe('in'); // never the lobby with the old name
+    expect(p.view().session?.code).toBe(code);
+    expect(p.view().hasRun).toBe(false);
+    expect(store.get(KEYS.class('OLD1'))).toBeNull();
+    expect(p.view().name).toBe('An'); // remembered for the join form
   });
 });

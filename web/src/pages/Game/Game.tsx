@@ -9,7 +9,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { morningBrief } from '../../../../shared/sim/day';
-import type { Choice, DaySummary, Phase, RunState } from '../../../../shared/sim/types';
+import type { Choice, Day, DaySummary, Phase, RunState } from '../../../../shared/sim/types';
 import { KEYS, loadBest, startRun, type PersistOpts, type RunStoreState } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { resumeOrStart, useRun } from '../../game/useRun';
@@ -50,6 +50,8 @@ export interface GameProps {
   awaitingAwards?: boolean;
   /** The reporter card answered on the end screen by a player who lost before day 5 (§7). */
   onReporterVote?: (choice: Choice) => void;
+  /** Class mode: the day and phase the run is in, on mount and at every change (progress for the host board). */
+  onPhase?: (day: Day, phase: Phase) => void;
 }
 
 function persistFor(p: GameProps): PersistOpts {
@@ -158,6 +160,10 @@ export default function Game(props: GameProps) {
     }
     prevPhase.current = run.phase;
   }, [run]);
+
+  const onPhase = useRef(props.onPhase);
+  onPhase.current = props.onPhase;
+  useEffect(() => { onPhase.current?.(day, phase); }, [day, phase]);
 
   // No page scroll or pull-to-refresh behind the game.
   useEffect(() => {

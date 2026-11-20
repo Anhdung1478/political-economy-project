@@ -148,10 +148,12 @@ export function createApp(opts: AppOptions) {
     socket.on('player:vote', (p, ack) => handle(ack, reply => {
       const id = me();
       if (!id) { reply({ ok: false, error: 'unknownPlayer' }); return; }
-      const r = session.vote(id, field(p, 'code') as string,
-        { choice: field(p, 'choice'), when: field(p, 'when') } as never);
+      const when = field(p, 'when');
+      const before = session.voteOf(id, String(when));
+      const r = session.vote(id, field(p, 'code') as string, { choice: field(p, 'choice'), when } as never);
       if (!r.ok) { reply(r); return; }
-      changed();
+      // A vote that changes nothing (a phone sending it again) must not wake every phone with a new `state`.
+      if (session.voteOf(id, String(when)) !== before) changed();
       replyWhenSaved(reply, r);
     }));
     socket.on('player:progress', p => handle(undefined, () => {

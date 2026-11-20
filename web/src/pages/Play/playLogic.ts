@@ -17,6 +17,8 @@ export const PLAY_KEYS = {
   vote: 'pts.vote',
   /** `{ code, day, rank }`: the rank from the latest day the server answered. */
   rank: 'pts.rank',
+  /** `{ code, runId, choice }`: the "after" vote last pushed, so it is not pushed again and again. */
+  afterVote: 'pts.afterVote',
   runId: (code: string) => `pts.class.${code}.runId`,
 } as const;
 
@@ -85,8 +87,6 @@ export interface AwardsView {
   mine: Award[];
   /** The top 5 (the server sends them), the player's own row marked. */
   top: (TopEntry & { me: boolean })[];
-  /** The player is not in the top 5: their own line goes below it. */
-  outside: boolean;
 }
 export function awardsView(awards: AwardsResult | null, playerId: string | null): AwardsView | null {
   if (awards === null) return null;
@@ -95,12 +95,11 @@ export function awardsView(awards: AwardsResult | null, playerId: string | null)
     rank: playerId !== null ? awards.ranks[playerId] ?? null : null,
     mine: awards.awards.filter(a => a.playerId === playerId),
     top,
-    outside: !top.some(t => t.me),
   };
 }
 
 /** The line under "Chờ thầy/cô mở chợ…". */
-export function lobbyLine(s: Pick<SessionSnapshot, 'phase' | 'counts'> | null): string {
+export function lobbyLine(s: Pick<SessionSnapshot, 'counts'> | null): string {
   const n = s?.counts.joined ?? 0;
   return n > 1 ? `${n} người đã vào phố` : 'Bạn là người đầu tiên vào phố';
 }

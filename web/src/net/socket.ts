@@ -37,6 +37,11 @@ export interface SessionClient {
   reset(): void;
   /** Runs `cb` now if connected and after every (re)connect; returns the unsubscribe. */
   onConnect(cb: () => void): () => void;
+  /**
+   * The latest `state` this client has seen. The server sends one `state` when the socket connects, often before the
+   * page has attached its listeners, so a late listener reads it here (and goes on with the live ones).
+   */
+  lastState(): SessionSnapshot | null;
 }
 
 /** Whether an ack is the local timeout rather than a reply from the server. */
@@ -72,8 +77,12 @@ export function createClient(socket: ClassSocket, ackTimeoutMs = ACK_TIMEOUT_MS)
       timed.emit(event, payload, (err, r) => resolve(err ? timedOut : r));
     });
   }
+  // Listening from the start (the client is made right after the socket), so the first `state` is never missed.
+  let last: SessionSnapshot | null = null;
+  socket.on('state', s => { last = s; });
   return {
     socket,
+    lastState: () => last,
     join: nickname => call('player:join', { nickname }),
     resume: token => call('player:resume', { token }),
     vote: p => call('player:vote', p),

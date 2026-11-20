@@ -220,6 +220,23 @@ describe('class session over sockets', () => {
     await h.untilBoard(b => b.members.length === 1);
   });
 
+  it('broadcasts a vote only when it changed (R69), still answering the repeat', async () => {
+    await start();
+    const a = await player('An');
+    const code = a.state()!.code;
+    const vote = (choice: string) => a.emit('player:vote', { code, choice, when: 'before' });
+    expect(await vote('visible')).toEqual({ ok: true });
+    await wait(250); // let the coalesced broadcast of the change go out
+    const before = a.states();
+    for (let i = 0; i < 5; i++) expect(await vote('visible')).toEqual({ ok: true });
+    await wait(250);
+    expect(a.states()).toBe(before);
+    expect(await vote('invisible')).toEqual({ ok: true });
+    await wait(250);
+    expect(a.states()).toBe(before + 1);
+    expect(app.session.voteOf(app.session.board().members[0].id, 'before')).toBe('invisible');
+  });
+
   it('marks a player disconnected only when their last tab closes', async () => {
     await start();
     const h = await host();

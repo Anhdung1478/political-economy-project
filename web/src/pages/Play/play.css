@@ -78,17 +78,22 @@
 .awards-phone__actions { width: 100%; display: grid; gap: 10px; margin-top: 8px; }
 .ended__emoji { font-size: 54px; }
 
-/* Over a run in progress: a thin strip on top (the game, a fixed full-screen layer, moves down by its height) and the
-   awards sheet. */
+/* Over a run in progress: a strip on top (the game, a fixed full-screen layer, moves down by its height; its own top
+   gap already stands for the notch, so it is not counted twice) and the awards sheet. */
+html { --strip-h: calc(44px + env(safe-area-inset-top)); }
 .play-strip {
-  position: fixed; z-index: 120; top: 0; left: 0; right: 0; height: 34px; padding: 0 12px;
+  position: fixed; z-index: 120; top: 0; left: 0; right: 0; height: var(--strip-h);
+  padding: env(safe-area-inset-top) 12px 0;
   display: flex; align-items: center; justify-content: center; gap: 10px;
   background: var(--ink);
 }
-html.play-strip-on .game { top: 34px; height: calc(100vh - 34px); height: calc(100dvh - 34px); }
+html.play-strip-on .game {
+  --top: 10px;
+  top: var(--strip-h); height: calc(100vh - var(--strip-h)); height: calc(100dvh - var(--strip-h));
+}
 .play-pill {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 12px;
-  border: 0; border-radius: var(--r-pill); font: 700 13px var(--font); cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 16px;
+  border: 0; border-radius: var(--r-pill); font: 700 14px var(--font); cursor: pointer; white-space: nowrap;
   background: var(--paper); color: var(--ink);
 }
 .play-pill--awards { background: var(--caramel); color: #fff; }

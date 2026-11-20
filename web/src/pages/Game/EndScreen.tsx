@@ -234,10 +234,13 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
         {mode === 'solo'
           ? onNewRun && <Button variant="primary" size="lg" block onClick={onNewRun}>Chơi lại</Button>
           : (
-            <p className="end__wait" role="status">
-              {rank != null && <span className="rchip rchip--rank">🏆 Hạng <b>#{rank}</b></span>}
-              <span>{awaitingAwards === false ? 'Xem bảng giải trên màn hình lớn!' : 'Chờ thầy cô trao giải…'}</span>
-            </p>
+            <>
+              <p className="end__wait" role="status">
+                {rank != null && <span className="rchip rchip--rank">🏆 Hạng <b>#{rank}</b></span>}
+                <span>{awaitingAwards === false ? 'Xem bảng giải trên màn hình lớn!' : 'Chờ thầy cô trao giải…'}</span>
+              </p>
+              {onNewRun && <Button variant="secondary" size="md" block onClick={onNewRun}>Chơi lại (solo)</Button>}
+            </>
           )}
       </footer>
     </div>
