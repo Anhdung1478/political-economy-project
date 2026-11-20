@@ -88,7 +88,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
     const root = body.current;
     const price = priceRef.current;
     if (root === null || price === null || getComputedStyle(root).display === 'contents') return;
-    setCue(price.getBoundingClientRect().top > root.getBoundingClientRect().bottom - 60);
+    setCue(price.getBoundingClientRect().top > root.getBoundingClientRect().bottom - 8);
   }, [focusPrice]);
   const toPrice = () => {
     setCue(false);
@@ -249,10 +249,10 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             </div>
             <Shelf plan={local} />
             <p className="hint"><span aria-hidden="true">💡</span> {hintLine(brief)}</p>
-            <div className="stock">
+            <div className="stock-wrap"><div className="stock">
               <Stepper label="Trà (ml)" value={local.teaMl} step={(v, s) => stepTea(v, s)} format={v => fmtNumber(v)}
                 valueText={v => `${fmtNumber(v)} ml`} onChange={teaMl => edit({ teaMl })} invalid={issuesAt('tea').length > 0}>
-                <span>🍵 Trà (ml)</span><small>bước {fmtNumber(CONFIG.supplies.teaStepMl)}</small>
+                <span>🍵 Trà (ml)</span>
               </Stepper>
               {TOPPINGS.map(id => (
                 <Stepper key={id} label={`${TOPPING_NAMES[id]} (phần)`} value={local.toppings[id]} step={stepCount}
@@ -260,7 +260,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                   <span>{TOPPING_NAMES[id]}</span><small>{fmtMoney(brief.toppingCost)}/phần</small>
                 </Stepper>
               ))}
-            </div>
+            </div></div>
             {brief.toppingCost !== CONFIG.supplies.toppingCost && (
               <p className="hint hint--warn">Topping "giá sốc" chỉ {fmtMoney(brief.toppingCost)}/phần… nguồn gốc thì đừng hỏi.</p>
             )}
@@ -296,7 +296,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                 const owned = run.upgrades.includes(u);
                 const on = local.upgrade === u;
                 return (
-                  <button key={u} type="button" aria-pressed={on} disabled={owned}
+                  <button key={u} type="button" aria-pressed={on} disabled={owned} title={upgradeLine(u)}
                     className={cx('upgrade', on && 'is-on', owned && 'is-owned')}
                     onClick={() => edit({ upgrade: on ? null : u })}>
                     <span className="upgrade__icon" aria-hidden="true">{UPGRADE_ICONS[u]}</span>
@@ -340,7 +340,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             trà {fmtMoney(cost.tea)} · topping {fmtMoney(cost.toppings)}{cost.upgrade > 0 && ` · nâng cấp ${fmtMoney(cost.upgrade)}`}
           </div>
           <div className="money__row">
-            <span>Tiền {fmtMoney(brief.cash)} →</span>
+            <span className="money__from">Tiền {fmtMoney(brief.cash)}&nbsp;→</span>
             <b className={cost.cashAfter < 0 ? 'fx--bad' : ''}>{fmtMoney(cost.cashAfter)}</b>
           </div>
           {cost.cashAfter < 0 && issues.every(i => i !== 'credit') && (

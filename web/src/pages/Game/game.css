@@ -269,8 +269,9 @@ html.game-lock #root { min-height: 0; }
 
 /* Stepper */
 .stepper { display: grid; gap: 4px; min-width: 0; }
-.stepper__label { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-weight: 700; font-size: 14px; }
-.stepper__label small { color: var(--ink-faint); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.stepper__label { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; font-weight: 700; font-size: 14px; }
+.stepper__label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stepper__label small { flex: none; color: var(--ink-faint); font-weight: 600; font-size: 12px; }
 .stepper__ctl {
   display: flex; align-items: center; justify-content: space-between; gap: 4px;
   padding: 4px; border-radius: var(--r-pill); background: var(--milk);
@@ -324,9 +325,16 @@ html.game-lock #root { min-height: 0; }
 .tea__opt--skimp.is-on { border-color: var(--strawberry); background: var(--strawberry-soft); box-shadow: 0 3px 0 var(--strawberry-deep); }
 .tea__opt--premium.is-on { border-color: var(--matcha); background: var(--matcha-soft); box-shadow: 0 3px 0 var(--matcha-deep); }
 
-.stock { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; margin-top: 8px; }
-.stock .stepper__ctl { padding: 3px; }
-.stock .stepper__value { font-size: 18px; }
+.stock-wrap { container-type: inline-size; margin-top: 8px; }
+.stock { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+.stock .stepper__ctl { padding: 3px; gap: 0; }
+.stock .stepper__value { font-size: 17px; }
+/* too narrow for two controls side by side (a 5-digit tea value between 44 px buttons): one row per item */
+@container (max-width: 310px) {
+  .stock { grid-template-columns: 1fr; gap: 4px; }
+  .stock .stepper { grid-template-columns: minmax(0, 1fr) 172px; align-items: center; column-gap: 8px; }
+  .stock .stepper__label { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.2; }
+}
 
 .upgrades { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .upgrade__price {
@@ -356,7 +364,8 @@ html.game-lock #root { min-height: 0; }
 
 /* Footer: cost, cash, capacity, open */
 .money { display: grid; gap: 0; min-width: 0; font-size: 14px; }
-.money__row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.money__row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.money__row > span { white-space: nowrap; }
 .money__row b { display: inline-block; font-family: var(--font-display); font-size: 18px; font-variant-numeric: tabular-nums; }
 .money__parts { font-size: 12px; color: var(--ink-faint); line-height: 1.3; }
 .capacity { font-size: 13px; color: var(--ink-soft); padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
@@ -447,10 +456,6 @@ html.game-lock #root { min-height: 0; }
   .quick__btn b { font-size: 15px; }
   .tea__opt, .upgrade { padding: 5px 4px 6px; }
   .tea__icon, .upgrade__icon { font-size: 18px; }
-  /* stock steppers as rows: name, then the control */
-  .stock { grid-template-columns: 1fr; gap: 4px; }
-  .stock .stepper { grid-template-columns: minmax(0, 1fr) 158px; align-items: center; column-gap: 8px; }
-  .stock .stepper__label { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.2; font-size: 13px; }
 }
 
 /* ---------- Morning: computer, a centred frame over the street ----------
@@ -472,14 +477,21 @@ html.game-lock #root { min-height: 0; }
     transform: translateX(-50%) scale(var(--s)); transform-origin: top center;
     grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.42fr);
     grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-areas: 'news plan' 'foot plan';
+    grid-template-areas: 'news plan' 'news foot';
     gap: 12px; padding: 12px;
     background: rgba(255, 246, 234, 0.55); border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: var(--r-xl); box-shadow: var(--shadow-lg);
     -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   }
   .morning__news { padding: 18px 20px; align-self: stretch; }
-  .morning__foot { padding: 12px 16px; }
+  .morning__foot {
+    padding: 10px 16px; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 18px;
+    grid-template-areas: 'cap money btn' 'issue issue issue';
+  }
+  .morning__foot > .capacity { grid-area: cap; border: 0; padding: 0; max-width: 11em; }
+  .morning__foot > .money { grid-area: money; }
+  .morning__foot > .issue { grid-area: issue; }
+  .morning__foot .open-btn { grid-area: btn; }
   .morning__plan {
     display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto auto 1fr; grid-template-areas: 'price stock' 'tea stock' 'upgrade stock';
@@ -500,6 +512,55 @@ html.game-lock #root { min-height: 0; }
   .morning__plan .upgrade small { grid-column: 2; }
   .morning__plan .upgrade__price { grid-column: 3; grid-row: 1 / span 2; align-self: center; margin-top: 0; }
   .stepper--big .stepper__value { font-size: 34px; }
+  .morning__plan .tea__opt { padding: 5px 4px 6px; }
+  .morning__plan .tea__icon { font-size: 18px; }
+  .morning__plan .upgrade small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .morning__plan .upgrade { padding: 5px 12px; }
+}
+/* laptop screens with little height (a 1366x768 laptop shows about 1366x657): tighter margins, a smaller shelf and
+   a touch of scale-down so the whole plan fits */
+@media (min-width: 1100px) and (min-height: 620px) and (max-height: 760px) {
+  .game { --s: 0.94; --top: 10px; --hud-h: 40px; }
+  .morning { height: calc((100dvh - var(--frame-top) - 10px) / var(--s)); }
+  .shelf { max-width: 230px; }
+  .morning__plan .field-block { padding: 8px 14px 10px; }
+  .morning__plan .block__title { margin-bottom: 6px; }
+  .price__meta { font-size: 12px; }
+  /* upgrades as three tiles in a row (the effect line moves to the tooltip) */
+  .morning__plan .upgrades { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .morning__plan .upgrade { grid-template-columns: 1fr; grid-template-rows: none; justify-items: center; text-align: center;
+    row-gap: 1px; padding: 5px 4px 6px; }
+  .morning__plan .upgrade__icon, .morning__plan .upgrade b, .morning__plan .upgrade__price { grid-column: auto; grid-row: auto; }
+  .morning__plan .upgrade__icon { font-size: 20px; align-self: auto; }
+  .morning__plan .upgrade small { display: none; }
+  .morning__plan .upgrade__price { margin-top: 2px; }
 }
 @media (min-width: 1580px) and (min-height: 860px) { .game { --s: 1.12; } }
 @media (min-width: 1860px) and (min-height: 1000px) { .game { --s: 1.3; } }
+@media (min-width: 1100px) and (min-height: 620px) and (max-height: 650px) { .game { --s: 0.88; } }
+
+/* ---------- Phones held upright: narrow and short (last, so they win over the base rules) ---------- */
+@media (orientation: portrait) and (max-width: 380px) {
+  .morning__foot { column-gap: 8px; }
+  .morning__foot .open-btn { min-width: 116px; font-size: 19px; padding: 0.85em 1em; }
+  .money { font-size: 13px; }
+  .money__row b { font-size: 16px; }
+}
+/* short phones held upright: no street peek, a tighter bulletin and till, so the price shows in the first view */
+@media (orientation: portrait) and (max-height: 700px) {
+  .morning__body { padding-top: 8px; gap: 8px; -webkit-mask-image: none; mask-image: none; }
+  .morning__news { padding: 10px 14px 12px; }
+  .news__mast { font-size: 10.5px; padding-bottom: 4px; margin-bottom: 6px; }
+  .news__headline { font-size: 21px; }
+  .news__rules { margin-top: 4px; gap: 2px; font-size: 12.5px; line-height: 1.3; }
+  .news__entry, .news__mail li, .news__first { font-size: 12.5px; line-height: 1.3; padding: 6px 10px; margin-top: 6px; }
+  .news__mail { margin-top: 6px; gap: 4px; }
+  .street { margin-top: 6px; }
+  .street__toggle { min-height: 40px; padding: 5px 30px 5px 10px; }
+  .street__toggle b { font-size: 13.5px; }
+  .street__sum { font-size: 12px; }
+  .blk-price .block__title { margin-bottom: 4px; }
+  .morning__foot { padding-top: 8px; row-gap: 4px; }
+  .morning__foot .capacity { padding-bottom: 4px; font-size: 12px; }
+  .morning__foot .money__parts { display: none; }
+}
