@@ -42,6 +42,8 @@ export interface PlayView {
   rank: number | null;
   /** A run of the current session is saved on this phone, or its game has been on screen. */
   hasRun: boolean;
+  /** Reports not answered yet (the outbox): "Chơi lại (solo)" waits for them to go out (final review Minor 10). */
+  unsent: number;
 }
 
 export interface PlayOptions {
@@ -76,7 +78,7 @@ export class PlayController {
     const local = parseLocalSession(store.get(PLAY_KEYS.session));
     const saved = local ? this.savedRun(local.code) : null;
     this.runRef = saved;
-    this.outbox = createOutbox({
+    const box = createOutbox({
       store,
       send: (item: QueueItem) => item.kind === 'day'
         ? this.client.day({ code: item.code, ...item.payload })
@@ -85,10 +87,18 @@ export class PlayController {
       onReply: (item, reply) => {
         const rank = (reply as { rank?: unknown }).rank;
         if (item.kind === 'day' && reply.ok && typeof rank === 'number') this.setRank(item.payload.summary.day, rank);
+        this.syncUnsent();
       },
       resync: (runId, from) => summariesFrom(this.currentRun(), runId, from),
       retryMs: opts.retryMs,
     });
+    // Every change to the queue's length passes here or through `onReply` (an answered report), so `unsent` follows.
+    this.outbox = {
+      setCode: code => { box.setCode(code); this.syncUnsent(); },
+      push: (kind, payload) => { box.push(kind, payload); this.syncUnsent(); },
+      online: on => { box.online(on); this.syncUnsent(); },
+      pending: () => box.pending(),
+    };
     this.rankNote = local ? parseRankRecord(store.get(PLAY_KEYS.rank), local.code) : null;
     const after = readJson(store.get(PLAY_KEYS.afterVote));
     if (after && typeof after.code === 'string' && typeof after.runId === 'string'
@@ -103,6 +113,7 @@ export class PlayController {
       vote: local ? parseVoteRecord(store.get(PLAY_KEYS.vote), local.code) : null,
       rank: this.rankNote?.rank ?? null,
       hasRun: saved !== null,
+      unsent: 0,
     };
     if (local) this.outbox.setCode(local.code);
   }
@@ -324,4 +335,11 @@ export class PlayController {
 
   /** Reports not answered yet. */
   pending(): number { return this.outbox.pending(); }
+
+  private syncUnsent() {
+    // the outbox is made before the view
+    if (this.view === undefined) return;
+    const n = this.outbox.pending();
+    if (n !== this.view.unsent) this.set({ unsent: n });
+  }
 }

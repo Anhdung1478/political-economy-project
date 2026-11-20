@@ -228,7 +228,9 @@ function StreetSection({ r, run, delay }: { r: DayReport; run: RunState; delay: 
             </g>
           )}
           <text x={0} y={H + 15} className="pchart__x">Mở cửa</text>
-          <text x={W * mid} y={H + 15} className="pchart__x" textAnchor="middle">Giây 45</text>
+          <text x={W * mid} y={H + 15} className="pchart__x" textAnchor="middle">
+            Giây {Math.round((CONFIG.rumor.inspectionTick * CONFIG.rush.tickMs) / 1000)}
+          </text>
           <text x={W} y={H + 15} className="pchart__x" textAnchor="end">Đóng cửa</text>
           {selling.map((row, i) => (
             <motion.path key={row.id} d={trailPath(row.trail, scale, W, H)}

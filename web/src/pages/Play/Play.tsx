@@ -77,7 +77,7 @@ export default function Play() {
         <ConnectionBadge connected={online} />
         <Suspense fallback={<Boot />}>
           <Game key={code} mode="class" seed={seed} runId={runId} sessionCode={code} persistKey={KEYS.class(code)}
-            rank={myRank ?? null} awaitingAwards={!awardsOut} onNewRun={goSolo}
+            rank={myRank ?? null} awaitingAwards={!awardsOut} onNewRun={goSolo} unsent={view.unsent}
             onDayReport={(_, run) => ctl.reportDay(run)} onReporterVote={c => ctl.reporterVote(c)} onPhase={onPhase} />
         </Suspense>
         {strip && (

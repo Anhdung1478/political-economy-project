@@ -216,12 +216,15 @@ describe('PlayController', () => {
     p.ctl.reportProgress(1, 'rush');
     await pause(100);
     expect(p.ctl.pending()).toBe(1);
+    // the view follows the queue, so the end screen can hold "Chơi lại (solo)" until it is empty
+    expect(p.view().unsent).toBe(1);
     expect(member().days).toHaveLength(0);
 
     p.socket.connect();
     await until(() => member().days.length === 1, 'the day after reconnect and resume');
     await until(() => member().progress?.phase === 'rush', 'progress after resume');
     await until(() => p.ctl.pending() === 0, 'an empty queue');
+    await until(() => p.view().unsent === 0, 'the view to see the empty queue');
   });
 
   it('after a host reset: a new session code drops the old run, vote and rank and goes back to the lobby', async () => {

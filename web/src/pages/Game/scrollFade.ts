@@ -1,6 +1,8 @@
 // A scroll affordance for panels that may overflow (report and end-screen columns): the element gets
 // `data-fade="top" | "bottom" | "both"` while there is hidden content above or below, which the CSS turns into a
-// fading edge and a "còn nữa ↓" hint. No re-render: the attribute is written straight to the element.
+// fading edge and a "còn nữa ↓" hint. No re-render: the attribute is written straight to the element. It is written in
+// the next animation frame, never inside a ResizeObserver callback: the hint it shows changes the layout the observer
+// watches, which within the same frame raised "ResizeObserver loop completed with undelivered notifications".
 import { useCallback, useRef } from 'react';
 
 const EDGE = 4;
@@ -19,8 +21,11 @@ export function useScrollFade(): (el: HTMLElement | null) => void {
     cleanup.current?.();
     cleanup.current = null;
     if (el === null) return;
-    const on = () => update(el);
-    on();
+    let raf = 0;
+    const on = () => {
+      if (raf === 0) raf = requestAnimationFrame(() => { raf = 0; update(el); });
+    };
+    update(el);
     el.addEventListener('scroll', on, { passive: true });
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(on);
     ro?.observe(el);
@@ -36,6 +41,7 @@ export function useScrollFade(): (el: HTMLElement | null) => void {
       mo?.disconnect();
       window.clearInterval(t);
       window.clearTimeout(stop);
+      cancelAnimationFrame(raf);
     };
   }, []);
 }

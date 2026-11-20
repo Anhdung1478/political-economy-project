@@ -258,12 +258,37 @@ export function loadBest(store: KeyValueStore, key: string): number | null {
   }
 }
 
-/** Keeps `total` if it beats the stored best; returns the best after. */
-export function recordBest(store: KeyValueStore, key: string, total: number): number {
+/** Where the best as it stood before a run was recorded is kept, with that run's id. */
+const beforeKey = (key: string) => `${key}.before`;
+
+/**
+ * Keeps `total` if it beats the stored best; returns the best after. With `runId`, it also keeps the best as it stood
+ * before this run was recorded (null: none yet), for `bestBefore`.
+ */
+export function recordBest(store: KeyValueStore, key: string, total: number, runId?: string): number {
   const best = loadBest(store, key);
+  if (runId !== undefined) {
+    try { store.set(beforeKey(key), JSON.stringify({ runId, best })); } catch { /* ignore */ }
+  }
   if (best !== null && best >= total) return best;
   try { store.set(key, String(total)); } catch { /* ignore */ }
   return total;
+}
+
+/**
+ * The best before run `runId` was recorded, so the end screen can say "Kỷ lục mới!" only when this run beat it, even
+ * after a reload: null when this run was the first one recorded. A run recorded without its id (or not at all) gets
+ * the stored best, which already counts it: never a new record.
+ */
+export function bestBefore(store: KeyValueStore, key: string, runId: string): number | null {
+  try {
+    const raw = store.get(beforeKey(key));
+    const rec = raw === null ? null : JSON.parse(raw) as { runId?: unknown; best?: unknown } | null;
+    if (typeof rec === 'object' && rec !== null && rec.runId === runId) {
+      return typeof rec.best === 'number' && Number.isFinite(rec.best) ? rec.best : null;
+    }
+  } catch { /* unreadable: as if not kept */ }
+  return loadBest(store, key);
 }
 
 export interface PersistOpts {
@@ -285,6 +310,6 @@ export function afterTransition(store: KeyValueStore, p: PersistOpts, prev: RunS
   if (prev.run === next.run && !draftEdited) return;
   if (p.key !== null) save(store, p.key, next, { sessionCode: p.sessionCode });
   if (p.bestKey && next.run.phase === 'end' && prev.run.phase !== 'end') {
-    recordBest(store, p.bestKey, score(next.run, cfg).total);
+    recordBest(store, p.bestKey, score(next.run, cfg).total, next.run.runId);
   }
 }

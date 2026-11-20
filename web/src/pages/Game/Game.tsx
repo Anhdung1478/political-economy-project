@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { morningBrief } from '../../../../shared/sim/day';
 import type { Choice, Day, DaySummary, Phase, RunState } from '../../../../shared/sim/types';
-import { KEYS, loadBest, startRun, type Intent, type PersistOpts, type RunStoreState } from '../../game/runStore';
+import { bestBefore, KEYS, startRun, type Intent, type PersistOpts, type RunStoreState } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { resumeOrStart, useRun } from '../../game/useRun';
 import type { TimeOfDay } from '../../scene/lighting';
@@ -52,6 +52,8 @@ export interface GameProps {
   onReporterVote?: (choice: Choice) => void;
   /** Class mode: the day and phase the run is in, on mount and at every change (progress for the host board). */
   onPhase?: (day: Day, phase: Phase) => void;
+  /** Class mode: reports not delivered yet; the end screen's way out to solo waits until they are. */
+  unsent?: number;
 }
 
 function persistFor(p: GameProps): PersistOpts {
@@ -222,8 +224,8 @@ export default function Game(props: GameProps) {
     screen = (
       <motion.div key={`end-${run.runId}`} className="game__screen" {...screenMotion}>
         <EndScreen run={run} mode={props.mode} onNewRun={newRun} rank={props.rank}
-          best={persist.bestKey ? loadBest(storage, persist.bestKey) : null}
-          awaitingAwards={props.awaitingAwards} onReporterVote={props.onReporterVote} />
+          best={persist.bestKey ? bestBefore(storage, persist.bestKey, run.runId) : null}
+          awaitingAwards={props.awaitingAwards} onReporterVote={props.onReporterVote} unsent={props.unsent} />
       </motion.div>
     );
   }

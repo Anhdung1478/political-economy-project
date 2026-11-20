@@ -4,7 +4,7 @@ import { planCost, quickFill } from '../../../shared/sim/day';
 import { newRun, score } from '../../../shared/sim/run';
 import type { Choice, RunState } from '../../../shared/sim/types';
 import {
-  KEYS, SAVE_VERSION, afterTransition, load, loadBest, recordBest, reduce, save, startRun, transition,
+  KEYS, SAVE_VERSION, afterTransition, bestBefore, load, loadBest, recordBest, reduce, save, startRun, transition,
   type Intent, type RunStoreState,
 } from './runStore';
 import { memoryStore, webStore, type KeyValueStore } from './storage';
@@ -329,6 +329,23 @@ describe('best score', () => {
     expect(loadBest(store, KEYS.best)).toBeNull();
     expect(recordBest(store, KEYS.best, -20)).toBe(-20);
   });
+
+  it('remembers the best as it stood before a run was recorded, for that run only (final review Minor 12)', () => {
+    const store = memoryStore();
+    recordBest(store, KEYS.best, 500, 'run-1');
+    // the very first run: no best before it, so no "Kỷ lục mới!"
+    expect(bestBefore(store, KEYS.best, 'run-1')).toBeNull();
+    recordBest(store, KEYS.best, 500, 'run-2');
+    // a tie: the best before is the same total, so not a new record
+    expect(bestBefore(store, KEYS.best, 'run-2')).toBe(500);
+    recordBest(store, KEYS.best, 650, 'run-3');
+    expect(bestBefore(store, KEYS.best, 'run-3')).toBe(500);
+    expect(loadBest(store, KEYS.best)).toBe(650);
+    // another run's end screen (or one recorded before this was kept) gets the stored best, which counts it
+    expect(bestBefore(store, KEYS.best, 'run-2')).toBe(650);
+    store.set(`${KEYS.best}.before`, '{broken');
+    expect(bestBefore(store, KEYS.best, 'run-3')).toBe(650);
+  });
 });
 
 describe('afterTransition', () => {
@@ -382,6 +399,7 @@ describe('afterTransition', () => {
       s = next;
     }
     expect(loadBest(store, KEYS.best)).toBe(score(s.run).total);
+    expect(bestBefore(store, KEYS.best, s.run.runId)).toBeNull();
     expect(load(store, KEYS.solo)?.run.phase).toBe('end');
   });
 

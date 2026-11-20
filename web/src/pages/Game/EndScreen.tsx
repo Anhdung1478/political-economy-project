@@ -23,7 +23,7 @@ import './afternoon.css';
 export interface EndScreenProps {
   run: RunState;
   mode: 'solo' | 'class';
-  /** Solo: the best total stored on this device (after this run was recorded), or null. */
+  /** Solo: the best total on this device before this run was recorded; null when this run is the first. */
   best?: number | null;
   onNewRun?: () => void;
   /** Class mode: the player's rank on the board. */
@@ -32,6 +32,8 @@ export interface EndScreenProps {
   awaitingAwards?: boolean;
   /** The reporter card answered on the end screen by a player who lost before day 5 (§7 last line). */
   onReporterVote?: (choice: Choice) => void;
+  /** Class mode: reports not delivered yet. Leaving for solo would strand them, so "Chơi lại (solo)" waits. */
+  unsent?: number;
 }
 
 function ProfitChart({ profits, delay }: { profits: number[]; delay: number }) {
@@ -98,7 +100,7 @@ function Shutter() {
   );
 }
 
-export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onReporterVote }: EndScreenProps) {
+export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onReporterVote, unsent = 0 }: EndScreenProps) {
   const reduced = useReducedMotion() ?? false;
   const end = useMemo(() => ending(run), [run]);
   const sc = score(run);
@@ -109,7 +111,8 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
   const lost = end.outcome === 'lostTrust';
   const needsVote = lost && run.flags.reporter === null;
   const [vote, setVote] = useState<Choice | null>(null);
-  const newBest = best != null && sc.total >= best;
+  // Only a run that beat the best before it; never a tie, never the first run (nothing to beat).
+  const newBest = best != null && sc.total > best;
   // Upgrades and card money move cash but are not in any day's profit (§16 row 13).
   const outside = sc.profit - end.profitByDay.reduce((a, b) => a + b, 0);
   const fadeA = useScrollFade();
@@ -239,7 +242,11 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
                 {rank != null && <span className="rchip rchip--rank">🏆 Hạng <b>#{rank}</b></span>}
                 <span>{awaitingAwards === false ? 'Xem bảng giải trên màn hình lớn!' : 'Chờ thầy cô trao giải…'}</span>
               </p>
-              {onNewRun && <Button variant="secondary" size="md" block onClick={onNewRun}>Chơi lại (solo)</Button>}
+              {onNewRun && (
+                <Button variant="secondary" size="md" block onClick={onNewRun} disabled={unsent > 0} aria-busy={unsent > 0}>
+                  {unsent > 0 ? 'Đang gửi kết quả…' : 'Chơi lại (solo)'}
+                </Button>
+              )}
             </>
           )}
       </footer>
