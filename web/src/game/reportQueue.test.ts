@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { daySummary } from '../../../shared/protocol.fixtures';
 import type { Ack } from '../../../shared/protocol';
 import type { Day, DaySummary } from '../../../shared/sim/types';
@@ -19,6 +19,8 @@ function drain(q: ReportQueue): { q: ReportQueue; sent: QueueItem[] } {
   }
   return { q, sent };
 }
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('report queue', () => {
   it('sends items in order, one at a time, tagged with the session code', () => {
@@ -371,7 +373,10 @@ describe('outbox', () => {
   it('gives up after MAX_RESYNCS requests for the same day, waiting the retry delay between them', async () => {
     const reports = [1, 2, 3].map(d => daySummary({ day: d as Day }));
     const RETRY = 60;
-    const { sent, box, tick } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from), RETRY);
+    // Fake timers: the retry delay is crossed by advancing the clock, never by a wall-clock sleep that CPU load can skew.
+    vi.useFakeTimers();
+    const { sent, box } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from), RETRY);
+    const tick = () => vi.advanceTimersByTimeAsync(0);
     box.setCode('ABCD');
     box.online(true);
     box.push('day', day(3));
@@ -386,7 +391,7 @@ describe('outbox', () => {
         box.online(true);
         await tick();
         expect(sent).toHaveLength(before);
-        await new Promise(r => setTimeout(r, RETRY + 20));
+        await vi.advanceTimersByTimeAsync(RETRY);
       }
       if (k < MAX_RESYNCS) {
         expect(sent).toHaveLength(before + 1);
