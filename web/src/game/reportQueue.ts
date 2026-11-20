@@ -23,9 +23,18 @@ export interface ReportQueue {
   inFlight: string | null;
   /** The days already answered (`runId:day`), so a day queued again is not sent twice. */
   sent: string[];
+  /** The days refused for good (`runId:day`, any refusal but `notNext`): never resent, and the later days of that
+   *  run are not sent either (the server would only answer them `notNext`). */
+  refused: string[];
+  /** How many times the server asked for each day again (`runId:day`), capped at `MAX_RESYNCS`. */
+  resyncs: Record<string, number>;
 }
 
-export const emptyQueue = (code: string | null = null): ReportQueue => ({ code, seq: 0, items: [], inFlight: null, sent: [] });
+export const emptyQueue = (code: string | null = null): ReportQueue =>
+  ({ code, seq: 0, items: [], inFlight: null, sent: [], refused: [], resyncs: {} });
+
+/** A day the server asks for again more often than this is given up (a bug or a server that keeps losing it). */
+export const MAX_RESYNCS = 3;
 
 /** The one storage key of the queue; the session code is inside, so an old session's queue is overwritten. */
 export const QUEUE_KEY = 'pts.queue';
@@ -34,6 +43,10 @@ export const QUEUE_KEY = 'pts.queue';
 const RETRY_ERRORS: readonly string[] = ['unknownPlayer'];
 
 const dayKey = (p: DayPayload) => `${p.runId}:${p.summary.day}`;
+const keyOf = (runId: string, day: number) => `${runId}:${day}`;
+/** A day of this run before `day` was refused for good, so `day` can never be accepted. */
+const blocked = (q: ReportQueue, runId: string, day: number) =>
+  q.refused.some(k => { const i = k.lastIndexOf(':'); return k.slice(0, i) === runId && Number(k.slice(i + 1)) < day; });
 
 /** The same queue for `code`, or an empty one when the code changed. */
 export function setCode(q: ReportQueue, code: string): ReportQueue {
@@ -50,6 +63,7 @@ export function enqueue<K extends QueueKind>(q: ReportQueue, code: string, kind:
   if (item.kind === 'day') {
     const key = dayKey(item.payload);
     if (q.sent.includes(key) || q.items.some(i => i.kind === 'day' && dayKey(i.payload) === key)) return q;
+    if (blocked(q, item.payload.runId, item.payload.summary.day)) return q;
   } else {
     const v = item.payload;
     const same = [...q.items].reverse().find(i => i.kind === 'vote' && i.payload.when === v.when);
@@ -68,28 +82,39 @@ export function next(q: ReportQueue): { queue: ReportQueue; item: QueueItem } | 
   return { queue: { ...q, inFlight: item.id }, item };
 }
 
-/** The server answered item `id` (ok or not): drop it. */
-export function ack(q: ReportQueue, id: string): ReportQueue {
+/**
+ * The server answered item `id` (ok or not): drop it. A day refused for good (any refusal but `notNext`, given as
+ * `reply`) is remembered, and the queued later days of its run are dropped too: they can only be refused `notNext`.
+ */
+export function ack(q: ReportQueue, id: string, reply?: Ack): ReportQueue {
   const item = q.items.find(i => i.id === id);
   if (!item) return q;
+  const final = item.kind === 'day' && reply !== undefined && !reply.ok && notNextExpected(reply) === undefined;
+  const hopeless = (i: QueueItem) => final && item.kind === 'day' && i.kind === 'day'
+    && i.payload.runId === item.payload.runId && i.payload.summary.day > item.payload.summary.day;
   return {
     ...q,
-    items: q.items.filter(i => i !== item),
+    items: q.items.filter(i => i !== item && !hopeless(i)),
     inFlight: q.inFlight === id ? null : q.inFlight,
     sent: item.kind === 'day' ? [...q.sent, dayKey(item.payload)] : q.sent,
+    refused: final && item.kind === 'day' ? [...q.refused, dayKey(item.payload)] : q.refused,
   };
 }
 
 /**
  * Item `id` (a day) was refused `notNext` because the server waits for day `expected`, an earlier one: puts the days
  * of the same run from `expected` on, taken from `summaries` (any order; only the unbroken stretch from `expected`),
- * at the front in day order, replacing queued copies, and forgets they were answered. Null when `summaries` lacks
- * day `expected` (nothing can be resent).
+ * at the front in day order, replacing queued copies, and forgets they were answered. Null (nothing to resend) when
+ * `summaries` lacks day `expected`, when that day was refused for good (resending it would loop), or when it was
+ * already asked for `MAX_RESYNCS` times.
  */
 export function resync(q: ReportQueue, id: string, summaries: readonly DaySummary[], expected: Day): ReportQueue | null {
   const item = q.items.find(i => i.id === id);
   if (item?.kind !== 'day') return null;
   const { runId } = item.payload;
+  const key = keyOf(runId, expected);
+  const count = q.resyncs[key] ?? 0;
+  if (q.refused.includes(key) || blocked(q, runId, expected) || count >= MAX_RESYNCS) return null;
   const byDay = new Map(summaries.map(s => [s.day, s]));
   const fresh: DaySummary[] = [];
   for (let d = expected; byDay.has(d); d++) fresh.push(byDay.get(d)!);
@@ -104,6 +129,7 @@ export function resync(q: ReportQueue, id: string, summaries: readonly DaySummar
     items: [...front, ...q.items.filter(i => !replaced(i))],
     inFlight: q.inFlight === id ? null : q.inFlight,
     sent: q.sent.filter(k => !fresh.some(s => k === dayKey({ runId, summary: s }))),
+    resyncs: { ...q.resyncs, [key]: count + 1 },
   };
 }
 
@@ -113,7 +139,8 @@ export function timeout(q: ReportQueue, id: string): ReportQueue {
 }
 
 export function serialize(q: ReportQueue): string {
-  return JSON.stringify({ v: 1, code: q.code, seq: q.seq, items: q.items, sent: q.sent });
+  return JSON.stringify({ v: 1, code: q.code, seq: q.seq, items: q.items, sent: q.sent, refused: q.refused,
+    resyncs: q.resyncs });
 }
 
 function restoreItem(x: unknown, code: string): QueueItem | null {
@@ -141,7 +168,11 @@ export function restore(text: string | null, code: string): ReportQueue {
       || !Array.isArray(o.sent) || !o.sent.every(s => typeof s === 'string')) return emptyQueue(code);
     const items = o.items.map(i => restoreItem(i, code));
     if (items.some(i => i === null)) return emptyQueue(code);
-    return { code, seq: o.seq as number, items: items as QueueItem[], inFlight: null, sent: o.sent as string[] };
+    // `refused` and `resyncs` came later: a queue saved without them (or with garbage) starts them empty.
+    const refused = Array.isArray(o.refused) && o.refused.every(s => typeof s === 'string') ? o.refused as string[] : [];
+    const resyncs = typeof o.resyncs === 'object' && o.resyncs !== null && !Array.isArray(o.resyncs)
+      && Object.values(o.resyncs).every(n => Number.isInteger(n)) ? o.resyncs as Record<string, number> : {};
+    return { code, seq: o.seq as number, items: items as QueueItem[], inFlight: null, sent: o.sent as string[], refused, resyncs };
   } catch {
     return emptyQueue(code);
   }
@@ -183,9 +214,12 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   const save = () => { if (q.code !== null) opts.store.set(QUEUE_KEY, serialize(q)); };
+  const later = () => {
+    if (retry === null) retry = setTimeout(() => { retry = null; pump(); }, retryMs);
+  };
   const retryLater = (id: string) => {
     q = timeout(q, id);
-    if (retry === null) retry = setTimeout(() => { retry = null; pump(); }, retryMs);
+    later();
   };
   const pump = () => {
     if (!isOnline) return;
@@ -204,9 +238,15 @@ export function createOutbox(opts: OutboxOptions): Outbox {
             return null;
           }
         })();
-        if (fixed) { q = fixed; save(); pump(); return; }
+        if (fixed) {
+          q = fixed;
+          save();
+          // The first time at once; a day asked for again waits the normal retry delay.
+          if ((fixed.resyncs[keyOf(item.payload.runId, expected)] ?? 0) > 1) later(); else pump();
+          return;
+        }
       }
-      q = ack(q, item.id);
+      q = ack(q, item.id, r);
       save();
       try { opts.onReply?.(item, r); } catch (err) { console.error('[reportQueue] onReply failed', err); }
       pump();

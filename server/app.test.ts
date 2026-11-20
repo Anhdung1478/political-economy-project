@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { io as connect, type Socket } from 'socket.io-client';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { Ack, HostBoard, SessionSnapshot } from '../shared/protocol';
 import { daySummary } from '../shared/protocol.fixtures';
 import type { Day } from '../shared/sim/types';
@@ -296,6 +296,18 @@ describe('class session over sockets', () => {
     result = 'ok';
     // The phone resends; the duplicate is answered once the save works.
     expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 1 });
+  });
+
+  it('answers durable: false when the save hangs past the timeout', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await start({ persistNow: () => new Promise<boolean>(() => {}), persistTimeoutMs: 50 });
+    const c = client();
+    const t0 = Date.now();
+    const j = await c.emit<Ack<{ playerId: string }>>('player:join', { nickname: 'An' });
+    expect(j).toMatchObject({ ok: true, durable: false });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
   });
 
   it('a server killed right after an ack keeps that day (saver flushed per ack)', async () => {

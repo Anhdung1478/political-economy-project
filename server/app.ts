@@ -30,11 +30,14 @@ export interface AppOptions {
    * it answered (spec §11 "Server khởi động lại"). Default: nothing to save, always true.
    */
   persistNow?: () => Promise<boolean>;
+  /** A `persistNow` slower than this answers as not saved (`durable: false`) and is logged. Default 5 s. */
+  persistTimeoutMs?: number;
 }
 
 /** Bursts of changes (200 phones sending a day at once) go out as one `state`. */
 const STATE_COALESCE_MS = 100;
 const BOARD_THROTTLE_MS = 1000;
+const PERSIST_TIMEOUT_MS = 5000;
 const HOSTS = 'hosts';
 
 type Reply = (r: Ack<object>) => void;
@@ -48,7 +51,17 @@ export function createApp(opts: AppOptions) {
   const io = new Server<ClientToServer, ServerToClient, object, SocketData>(http, { pingInterval: 5000, pingTimeout: 5000 });
   const session = opts.session ?? new Session();
   const boardThrottle = opts.boardThrottleMs ?? BOARD_THROTTLE_MS;
-  const persistNow = opts.persistNow ?? (() => Promise.resolve(true));
+  const persistTimeout = opts.persistTimeoutMs ?? PERSIST_TIMEOUT_MS;
+  const rawPersist = opts.persistNow ?? (() => Promise.resolve(true));
+  /** `persistNow` that never rejects and gives up after `persistTimeout` (a hung disk must not hold every answer). */
+  const persistNow = () => new Promise<boolean>(res => {
+    const t = setTimeout(() => {
+      console.error(`[session] the session file took over ${persistTimeout} ms to save; answering as not saved`);
+      res(false);
+    }, persistTimeout);
+    const done = (saved: boolean) => { clearTimeout(t); res(saved); };
+    try { rawPersist().then(done, () => done(false)); } catch { done(false); }
+  });
   /**
    * Answers an accepted request once the session file holds it. A failed save still answers (the change is in
    * memory and cannot be taken back) but with `durable: false`, so the phone keeps the report and sends it again;
@@ -56,7 +69,7 @@ export function createApp(opts: AppOptions) {
    */
   const replyWhenSaved = (reply: Reply, r: { ok: true }) => {
     const unsaved: ReportAck = { ...r, durable: false };
-    persistNow().catch(() => false).then(saved => reply(saved ? r : unsaved), () => {});
+    void persistNow().then(saved => reply(saved ? r : unsaved));
   };
 
   app.use(compression());
@@ -117,7 +130,7 @@ export function createApp(opts: AppOptions) {
       fn();
       changed();
       // No ack to hold back, but write at once: a phase lost in a crash would get every day refused.
-      void persistNow().catch(() => false);
+      void persistNow();
     };
 
     socket.on('player:join', (p, ack) => handle(ack, reply => {

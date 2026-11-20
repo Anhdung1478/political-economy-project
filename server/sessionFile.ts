@@ -88,6 +88,9 @@ export function createSaver(file: string, delayMs: number, log: Log = defaultLog
       text = JSON.stringify(p.get());
     } catch (err) {
       log(`cannot serialize the session for ${file}`, err);
+      // Kept pending (not re-armed, so no log storm): the next `save` or `flush` tries again, and a `flush` turns
+      // true again once the state serializes.
+      if (pending === null) pending = { get: p.get, gen: p.gen };
       return;
     }
     try {

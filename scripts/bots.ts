@@ -52,6 +52,8 @@ export function chooseStrategy(rnd: () => number): Strategy {
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+/** A day the server asks for again more often than this is given up (as in the phone's report queue). */
+const MAX_RESYNCS = 3;
 /**
  * An ack-ed emit; `timeout` when no answer comes in time or the connection drops first (a killed server never
  * answers). Never sent while disconnected: socket.io would flush it before `player:resume` after the reconnect.
@@ -177,6 +179,9 @@ export function startBot(o: BotOptions): Bot {
     /** The day to send next is `reports[i]`; it steps back when the server lost days (`notNext`, lower `expected`). */
     let i = 0;
     let resent = false;
+    /** Days refused for good (never resent: that would loop) and how often the server asked for each day again. */
+    const refusedDays = new Set<number>();
+    const resyncs = new Map<number, number>();
     while (i < reports.length) {
       if (!resent) await sleep(o.delay[0] + rnd() * (o.delay[1] - o.delay[0]));
       resent = false;
@@ -194,15 +199,20 @@ export function startBot(o: BotOptions): Bot {
           continue;
         }
         const expected = notNextExpected(r);
+        if (expected === undefined) refusedDays.add(summary.day);
         const back = expected == null ? -1 : reports.findIndex(x => x.summary.day === expected);
-        if (expected != null && expected < summary.day && back >= 0) {
+        const tries = expected == null ? 0 : resyncs.get(expected) ?? 0;
+        if (expected != null && expected < summary.day && back >= 0 && !refusedDays.has(expected)
+          && tries < MAX_RESYNCS) {
           say(`day ${summary.day}: the server lost days, resending from day ${expected}`);
+          resyncs.set(expected, tries + 1);
           accepted -= i - back;
-          i = back; resent = true;
+          i = back; resent = tries === 0; // a day asked for again waits the normal delay
           break;
         }
         refused++; say(`day ${summary.day} refused: ${r.error}`);
-        i++;
+        // After a day refused for good, the later days can only be refused `notNext`: stop sending this run.
+        i = refusedDays.size > 0 ? reports.length : i + 1;
         break;
       }
     }

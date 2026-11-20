@@ -155,6 +155,17 @@ describe('createSaver', () => {
     expect(log).toHaveBeenCalledOnce();
   });
 
+  it('retries a state that could not be serialized, so flush is not stuck at false', async () => {
+    const file = path.join(dir, 's.json');
+    let bad = true;
+    const saver = createSaver(file, 60_000, () => {});
+    saver.save(() => { if (bad) throw new Error('bad state'); return { ok: 1 }; });
+    expect(await saver.flush()).toBe(false);
+    bad = false;
+    expect(await saver.flush()).toBe(true);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ok: 1 });
+  });
+
   it('flush tells whether every change saved so far is on disk', async () => {
     const file = path.join(dir, 's.json');
     let fail = true;

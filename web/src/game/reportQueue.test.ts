@@ -3,7 +3,7 @@ import { daySummary } from '../../../shared/protocol.fixtures';
 import type { Ack } from '../../../shared/protocol';
 import type { Day, DaySummary } from '../../../shared/sim/types';
 import {
-  ack, createOutbox, emptyQueue, enqueue, next, QUEUE_KEY, restore, resync, serialize, setCode, timeout,
+  ack, createOutbox, emptyQueue, enqueue, MAX_RESYNCS, next, QUEUE_KEY, restore, resync, serialize, setCode, timeout,
   type QueueItem, type ReportQueue,
 } from './reportQueue';
 import { memoryStore } from './storage';
@@ -327,5 +327,63 @@ describe('outbox', () => {
     expect(box.pending()).toBe(0);
     expect(replies.map(r => r[1])).toEqual([
       { ok: false, error: 'notNext', expected: 4 }, { ok: false, error: 'notNext', expected: 1 }]);
+  });
+
+  it('never loops on a day refused for good: day 2 badSummary, day 3 notNext(2) is dropped, later days too', async () => {
+    const reports = [1, 2, 3, 4].map(d => daySummary({ day: d as Day }));
+    const { sent, replies, box, tick, store } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from));
+    box.setCode('ABCD');
+    box.online(true);
+    box.push('day', day(1));
+    sent[0].reply({ ok: true, rank: 1 } as Ack);
+    await tick();
+    box.push('day', day(2));
+    box.push('day', day(3));
+    box.push('day', day(4));
+    sent[1].reply({ ok: false, error: 'badSummary' });
+    await tick();
+    // Days 3 and 4 can only be refused notNext now: dropped without being sent.
+    expect(sent).toHaveLength(2);
+    expect(box.pending()).toBe(0);
+    box.push('day', day(5)); // the Play screen goes on: ignored too
+    expect(box.pending()).toBe(0);
+    expect(JSON.parse(store.get(QUEUE_KEY)!).refused).toEqual(['r1:2']);
+    expect(replies.map(r => r[1])).toEqual([{ ok: true, rank: 1 }, { ok: false, error: 'badSummary' }]);
+  });
+
+  it('drops a notNext whose expected day was refused for good instead of resending it (restored queue)', async () => {
+    const reports = [1, 2, 3].map(d => daySummary({ day: d as Day }));
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(2));
+    const n = next(q)!;
+    q = ack(n.queue, n.item.id, { ok: false, error: 'badSummary' });
+    // A day 3 that was already in flight elsewhere (e.g. queued before a reload) gets notNext(2).
+    q = { ...q, items: [{ id: 'ABCD-9', kind: 'day', code: 'ABCD', payload: day(3) }] };
+    const { sent, box, tick } = setup({ [QUEUE_KEY]: serialize(q) }, undefined, (_r, from) => reports.filter(r => r.day >= from));
+    box.setCode('ABCD');
+    box.online(true);
+    sent[0].reply({ ok: false, error: 'notNext', expected: 2 } as Ack);
+    await tick();
+    await tick();
+    expect(sent).toHaveLength(1);
+    expect(box.pending()).toBe(0);
+  });
+
+  it('gives up after MAX_RESYNCS requests for the same day, waiting the retry delay between them', async () => {
+    const reports = [1, 2, 3].map(d => daySummary({ day: d as Day }));
+    const { sent, box, tick } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from));
+    box.setCode('ABCD');
+    box.online(true);
+    box.push('day', day(3));
+    for (let k = 0; k < MAX_RESYNCS + 1; k++) {
+      // A broken server that keeps losing day 2: it is accepted, then day 3 is refused notNext(2).
+      sent[sent.length - 1].reply({ ok: false, error: 'notNext', expected: 2 } as Ack);
+      await tick();
+      if (k < MAX_RESYNCS) {
+        sent[sent.length - 1].reply({ ok: true, rank: 1 } as Ack); // day 2
+        await tick();
+      }
+    }
+    expect(sent.map(x => (x.item.kind === 'day' ? x.item.payload.summary.day : 0))).toEqual([3, 2, 3, 2, 3, 2, 3]);
+    expect(box.pending()).toBe(0);
   });
 });

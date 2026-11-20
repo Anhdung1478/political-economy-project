@@ -85,6 +85,24 @@ describe('bots against the server', () => {
     expect(board.members[0].days).toEqual(playRun(board.seed, STRATEGIES.reasonable).reports.map(r => r.summary));
   }, 60000);
 
+  it('a day refused for good is not resent in a loop: the bot stops sending that run and finishes', async () => {
+    const url = await start();
+    const real = app.session.submitDay.bind(app.session);
+    let calls = 0;
+    app.session.submitDay = (id, code, runId, raw) => {
+      calls++;
+      return (raw as { day?: number } | null)?.day === 2 ? { ok: false, error: 'badSummary' } : real(id, code, runId, raw);
+    };
+    bots = await runBots(1, { url, delay: [0, 20], strategy: STRATEGIES.reasonable });
+    await wait(300);
+    await hostCommand(url, 'k', 'host:open');
+    await bots[0].whenDone();
+    await wait(200);
+    expect(calls).toBe(2); // day 1, day 2; days 3-5 could only be refused notNext
+    expect(bots[0].stats()).toEqual({ accepted: 1, refused: 1 });
+    expect(app.session.board().members[0].vote.after).not.toBeNull();
+  }, 20000);
+
   it('host commands reject a wrong key and an unreachable server', async () => {
     const url = await start();
     await expect(hostCommand(url, 'wrong', 'host:open')).rejects.toThrow(/host:auth refused/);
