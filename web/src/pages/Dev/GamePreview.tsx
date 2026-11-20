@@ -1,17 +1,18 @@
 // /dev/game (dev builds only): the real game screens on a run a bot has played up to the chosen day and phase, then
 // handed over to the UI. Nothing is saved. For screenshots (scripts/shoot.ts):
 //   /dev/game?seed=7&day=3&phase=morning&strategy=reasonable&title=1
-// `phase` = morning | rush | cards | report | end; `title` = 1 (plays, the default) | 0 (skipped on the first morning)
+// `phase` = morning | rush | cards | report | end; `card=N` answers the first N afternoon cards; `strategy` may be a
+// story combo (`reasonable+cartel-keep+shock-B+black-B+tax-A+inspect-B`); `title` = 1 (plays, the default) | 0 (skipped on the first morning)
 // | hold (stays on screen); `scroll=plan` scrolls the morning's plan into view (phone upright); `autoopen=MS` presses
 // "Mở cửa" MS ms after the morning shows (to film the delivery van).
 import { useEffect, useMemo } from 'react';
 import type { Day } from '../../../../shared/sim/types';
 import Game from '../Game/Game';
-import { DEV_PHASES, gameAt, type DevPhase } from './gameAt';
+import { DEV_PHASES, gameAt, strategyOf, type DevPhase } from './gameAt';
 import { strategyIds } from './replay';
 import './scenePreview.css';
 
-interface Params { seed: number; day: Day; phase: DevPhase; strategy: string; title: 'auto' | 'hold' | 'skip' }
+interface Params { seed: number; day: Day; phase: DevPhase; strategy: string; title: 'auto' | 'hold' | 'skip'; card: number }
 
 function readParams(): Params {
   const q = new URLSearchParams(location.search);
@@ -20,11 +21,12 @@ function readParams(): Params {
     return Number.isInteger(n) ? Math.min(hi, Math.max(lo, n)) : def;
   };
   const phase = (DEV_PHASES as readonly string[]).includes(q.get('phase') ?? '') ? q.get('phase') as DevPhase : 'morning';
-  const strategy = strategyIds().includes(q.get('strategy') ?? '') ? q.get('strategy')! : 'reasonable';
+  const asked = q.get('strategy') ?? '';
+  const strategy = strategyIds().includes(asked) || strategyOf(asked) !== undefined ? asked : 'reasonable';
   const t = q.get('title');
   return {
     seed: int('seed', 7, 0, 2 ** 31 - 1), day: int('day', 1, 1, 5) as Day, phase, strategy,
-    title: t === 'hold' ? 'hold' : t === '0' ? 'skip' : 'auto',
+    title: t === 'hold' ? 'hold' : t === '0' ? 'skip' : 'auto', card: int('card', 0, 0, 3),
   };
 }
 
@@ -32,7 +34,7 @@ export default function GamePreview() {
   const p = useMemo(readParams, []);
   const start = useMemo(() => {
     try {
-      return { state: gameAt(p.seed, p.day, p.phase, p.strategy), error: null };
+      return { state: gameAt(p.seed, p.day, p.phase, p.strategy, p.card), error: null };
     } catch (e) {
       return { state: null, error: e instanceof Error ? e.message : String(e) };
     }

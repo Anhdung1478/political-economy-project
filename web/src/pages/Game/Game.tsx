@@ -9,8 +9,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { morningBrief } from '../../../../shared/sim/day';
-import type { DaySummary, Phase, RunState } from '../../../../shared/sim/types';
-import { KEYS, startRun, type PersistOpts, type RunStoreState } from '../../game/runStore';
+import type { Choice, DaySummary, Phase, RunState } from '../../../../shared/sim/types';
+import { KEYS, loadBest, startRun, type PersistOpts, type RunStoreState } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { resumeOrStart, useRun } from '../../game/useRun';
 import type { TimeOfDay } from '../../scene/lighting';
@@ -20,7 +20,9 @@ import { PHASE_LABELS, hudMoney } from './copy';
 import { DayTitle } from './DayTitle';
 import { MorningScreen } from './MorningScreen';
 import { ruleLines } from './morning';
-import { CardsPlaceholder, EndPlaceholder, ReportPlaceholder } from './Placeholders';
+import { CardScreen } from './CardScreen';
+import { EndScreen } from './EndScreen';
+import { ReportScreen } from './ReportScreen';
 import { RushScreen } from './RushScreen';
 import { afternoonStreet, morningStreet } from './street';
 import './game.css';
@@ -44,6 +46,10 @@ export interface GameProps {
   titleMode?: 'auto' | 'hold' | 'skip';
   /** Solo: start a new run from the end screen. */
   onNewRun?: () => void;
+  /** Class mode: the awards are still to come (the end screen says "chờ trao giải"). */
+  awaitingAwards?: boolean;
+  /** The reporter card answered on the end screen by a player who lost before day 5 (§7). */
+  onReporterVote?: (choice: Choice) => void;
 }
 
 function persistFor(p: GameProps): PersistOpts {
@@ -190,19 +196,22 @@ export default function Game(props: GameProps) {
   } else if (phase === 'cards') {
     screen = (
       <motion.div key={`cards-${run.runId}-${day}-${run.cardIndex}`} className="game__screen" {...screenMotion}>
-        <CardsPlaceholder run={run} dispatch={dispatch} />
+        <CardScreen run={run} dispatch={dispatch} />
       </motion.div>
     );
   } else if (phase === 'report') {
     screen = (
       <motion.div key={`report-${run.runId}-${day}`} className="game__screen" {...screenMotion}>
-        <ReportPlaceholder run={run} dispatch={dispatch} />
+        <ReportScreen run={run} dispatch={dispatch}
+          rank={props.mode === 'class' && props.rank != null ? { rank: props.rank } : null} />
       </motion.div>
     );
   } else if (phase === 'end') {
     screen = (
       <motion.div key={`end-${run.runId}`} className="game__screen" {...screenMotion}>
-        <EndPlaceholder run={run} onNewRun={newRun} />
+        <EndScreen run={run} mode={props.mode} onNewRun={newRun} rank={props.rank}
+          best={persist.bestKey ? loadBest(storage, persist.bestKey) : null}
+          awaitingAwards={props.awaitingAwards} onReporterVote={props.onReporterVote} />
       </motion.div>
     );
   }

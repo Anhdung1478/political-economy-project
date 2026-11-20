@@ -21,6 +21,16 @@ describe('gameAt', () => {
     expect(s.run.reports).toHaveLength(3);
   });
 
+  it('answers the first cards, plays story combos and ends on a lost run (Task 21 shots)', () => {
+    const s = gameAt(7, 1, 'cards', 'reasonable', 1);
+    expect(s.run.cardIndex).toBe(1);
+    expect(s.run.cards[1]).toBe('cartel');
+    const kept = gameAt(7, 2, 'report', 'reasonable+cartel-keep+shock-B+black-B+tax-A+inspect-B');
+    expect(kept.run.reports[1].lesson.id).toBe('cartelKept');
+    const lost = gameAt(7, 1, 'end', 'plainS');
+    expect(lost.run).toMatchObject({ phase: 'end', outcome: 'lostTrust' });
+  });
+
   it('rejects an unknown strategy', () => {
     expect(() => gameAt(7, 1, 'morning', 'nope')).toThrow(/no strategy/);
   });
