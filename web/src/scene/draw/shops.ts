@@ -22,7 +22,7 @@ import type { ShopView } from '../director';
 import type { Rect, ShopSlot, StreetLayout } from '../layout';
 import type { Palette, RenderContext } from '../Scene';
 import { hash01 } from '../schedule';
-import { blit, SpriteCache } from '../sprites';
+import { blit } from '../sprites';
 import { clamp, easeOutBack, easeOutCubic, progress } from '../tween';
 import {
   awning, box, bulbs, disc, DISPLAY, fe, line, oval, plant, poly, rr, shade, shadow, text, type Ctx,
@@ -60,6 +60,8 @@ export interface ShopLook {
   /** 0..1 into the current yawn or wipe. */
   ownerK: number;
   grand: boolean;
+  /** Sold out: the shelves stand empty. */
+  empty: boolean;
   badge: 'certified' | 'named' | null;
   /** The badge popping on, 0..1. */
   badgePop: number;
@@ -72,7 +74,7 @@ export interface ShopLook {
 
 export const newShopLook = (): ShopLook => ({
   base: 'open', shutter: 0, label: null, sign: null, signPrev: null, signFlip: 1, owner: null, ownerK: 0,
-  grand: false, badge: null, badgePop: 1, rumor: false, priceFlip: 1, priceFlash: 0, priceUp: false,
+  grand: false, empty: false, badge: null, badgePop: 1, rumor: false, priceFlip: 1, priceFlash: 0, priceUp: false,
 });
 
 /** Seconds of the yawn and wipe cycles (the gesture takes the first part). */
@@ -144,6 +146,7 @@ export function shopLook(v: ShopView, now: number, calm: boolean, out: ShopLook 
     }
   }
   out.grand = v.grandOpening && out.base === 'open';
+  out.empty = v.status === 'soldOut' && out.base === 'open';
   out.badge = v.certified ? 'certified' : v.named ? 'named' : null;
   out.badgePop = calm || !Number.isFinite(v.badgeSince) ? 1 : progress(v.badgeSince, v.badgeSince + BADGE_TICKS, now);
   out.rumor = v.rumor && !v.certified;
@@ -154,9 +157,9 @@ export function shopLook(v: ShopView, now: number, calm: boolean, out: ShopLook 
   return out;
 }
 
-/** The sprite signature of a state: the base, the grand opening, the label (closed early or resting). */
-export function shopSig(l: Pick<ShopLook, 'base' | 'grand' | 'label'>): number {
-  return BASES.indexOf(l.base) * 8 + (l.grand ? 4 : 0) + (l.label === 'ĐÓNG CỬA' ? 2 : 0);
+/** The sprite signature of a state: the base, the grand opening, the label (closed early or resting), empty shelves. */
+export function shopSig(l: Pick<ShopLook, 'base' | 'grand' | 'label' | 'empty'>): number {
+  return BASES.indexOf(l.base) * 16 + (l.grand ? 8 : 0) + (l.label === 'ĐÓNG CỬA' ? 4 : 0) + (l.empty ? 2 : 0);
 }
 
 // ── Geometry ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -178,8 +181,8 @@ interface Geo {
   backRect: Rect; frontRect: Rect; boardRect: Rect; signRect: Rect; neonRect: Rect;
   /** The keeper's feet, and the box their figure and marks (z's, sweat) fit in. */
   ownerFeet: number; ownerRect: Rect;
-  /** Where the badge, its words and the "named" stamp fit. */
-  badgeRect: Rect;
+  /** Where the badge fits (top row: with its words and the "named" stamp); the bottom row's counter-face sticker. */
+  badgeRect: Rect; stickerRect: Rect;
 }
 
 function geoOf(L: StreetLayout, slot: ShopSlot): Geo {
@@ -193,7 +196,7 @@ function geoOf(L: StreetLayout, slot: ShopSlot): Geo {
   const ctrBase = y + u * 0.32;
   const bw = boardW(top, w, u);
   const sw = u * 0.95;
-  const sx = top ? x + w * 0.5 : x + w * 0.78;
+  const sx = signX(top, x, w, u);
   const sy = top ? storeTop + u * 0.22 : y - u * 0.18 + u * 0.22;
   const g0 = {
     backRect: top
@@ -205,16 +208,15 @@ function geoOf(L: StreetLayout, slot: ShopSlot): Geo {
     boardRect: { x: slot.board.x - bw / 2 - u * 0.1, y: slot.board.y - u * 0.36, w: bw + u * 0.2, h: u * (top ? 0.72 : 1.1) },
     signRect: { x: sx - sw / 2 - u * 0.05, y: sy - u * 0.62, w: sw + u * 0.1, h: u * 0.85 },
     neonRect: { x, y, w, h: u * 2 },
-    badgeRect: top
-      ? { x: x - u * 0.4, y: awnTop - u * 0.6 - u * 0.6, w: w + u * 0.8, h: u * 2.1 }
-      : { x: x - u * 0.3, y: y - u * 2.3, w: w + u * 0.6, h: u * 2.8 },
+    badgeRect: { x: 0, y: 0, w: 0, h: 0 },
+    stickerRect: { x: x, y: y - u * 0.5, w: u * 1.75, h: u * 0.85 },
     ownerFeet: top ? ground - u * 0.3 : y + u * 0.8,
     ownerRect: {
       x: slot.counter.x + u * (top ? 0.55 : 0.5) - u * 0.8, y: (top ? ground - u * 0.3 : y + u * 0.8) - u * 1.7,
       w: u * 1.6, h: u * 1.85,
     },
   };
-  return {
+  const g: Geo = {
     ...g0,
     id: slot.id, top, x, y, w, h, u, cx: slot.counter.x, bx: slot.board.x, by: slot.board.y,
     ground, counterTop, storeTop, awnTop, signTop: awnTop - u * 0.6,
@@ -222,6 +224,18 @@ function geoOf(L: StreetLayout, slot: ShopSlot): Geo {
     zone0: slot.counter.x + (L.queueSlots - 1) * L.queueGap + u * 0.36, zone1: x + w - u * 0.05,
     ox: slot.counter.x + u * (top ? 0.55 : 0.5),
   };
+  const at = badgePos(g);
+  g.badgeRect = top
+    ? { x: x - u * 0.3, y: Math.min(at.y, g.signTop) - u * 0.45, w: w + u * 0.6,
+      h: Math.max(at.y, g.awnTop) - Math.min(at.y, g.signTop) + u * 1.0 }
+    : { x: at.x - u * 0.45, y: at.y - u * 0.42, w: u * 0.9, h: u * 1.0 };
+  return g;
+}
+
+/** The hanging "ĐANG BÁN" sign's centre x: middle of a narrow front; right of middle on a wide one (room for the
+ * badge's words on its left); on the bottom row's counter face, right of the queue head. */
+function signX(top: boolean, x: number, w: number, u: number): number {
+  return top ? x + w * (w > u * 3 ? 0.62 : 0.5) : x + w * 0.78;
 }
 
 // ── Per-shop styles ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -245,7 +259,6 @@ const STYLE: Record<ShopId, Style> = {
 
 // ── The renderer ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-const sprites = new SpriteCache();
 const looks = new Map<ShopId, ShopLook>();
 const geos = new WeakMap<ShopSlot, Geo>();
 
@@ -256,6 +269,7 @@ const SIGN = 3;
 const NEON = 4;
 const OWNER = 5;
 const BADGE = 6;
+const STICKER = 7;
 /** The keeper's sprite is redrawn this often (ms). */
 const OWNER_FRAME_MS = 83;
 const OWNER_ACTS: readonly OwnerAct[] = ['serve', 'idle', 'yawn', 'sweat'];
@@ -293,8 +307,8 @@ export function drawShopWith(rc: RenderContext, v: ShopView, slot: ShopSlot, twe
   const sig = shopSig(look);
   const u = g.u;
   const l = look;
-  const back = sprites.peek(slot, BACK, g.backRect, rc.grid, sig)
-    ?? sprites.get(slot, BACK, g.backRect, rc.grid, sig, c => (g.top ? paintTopBack : paintBottomBack)(c, g, l, p));
+  const back = rc.sprites.peek(slot, BACK, g.backRect, rc.grid, sig)
+    ?? rc.sprites.get(slot, BACK, g.backRect, rc.grid, sig, c => (g.top ? paintTopBack : paintBottomBack)(c, g, l, p));
   blit(ctx, back, rc.grid);
 
   const sec = rc.wall / 1000;
@@ -305,13 +319,13 @@ export function drawShopWith(rc: RenderContext, v: ShopView, slot: ShopSlot, twe
     const osig = step * 8 + OWNER_ACTS.indexOf(l.owner);
     const act = l.owner;
     const ok = l.ownerK;
-    const os = sprites.peek(slot, OWNER, g.ownerRect, rc.grid, osig)
-      ?? sprites.get(slot, OWNER, g.ownerRect, rc.grid, osig, c => drawOwner(c, v.id, act, g.ox, g.ownerFeet, u * 0.98,
+    const os = rc.sprites.peek(slot, OWNER, g.ownerRect, rc.grid, osig)
+      ?? rc.sprites.get(slot, OWNER, g.ownerRect, rc.grid, osig, c => drawOwner(c, v.id, act, g.ox, g.ownerFeet, u * 0.98,
         g.top ? 'front' : 'back', sec, ok, rc.reducedMotion));
     blit(ctx, os, rc.grid);
   }
-  const front = sprites.peek(slot, FRONT, g.frontRect, rc.grid, sig)
-    ?? sprites.get(slot, FRONT, g.frontRect, rc.grid, sig, c => (g.top ? paintTopFront : paintBottomFront)(c, g, l, p));
+  const front = rc.sprites.peek(slot, FRONT, g.frontRect, rc.grid, sig)
+    ?? rc.sprites.get(slot, FRONT, g.frontRect, rc.grid, sig, c => (g.top ? paintTopFront : paintBottomFront)(c, g, l, p));
   blit(ctx, front, rc.grid);
 
   drawLive(rc, v, slot, g, l, sec);
@@ -325,8 +339,8 @@ function drawLive(rc: RenderContext, v: ShopView, slot: ShopSlot, g: Geo, l: Sho
   if (l.base === 'open') {
     if (g.id === 'giare' && neonOn(sec, calm)) {
       // The lit tubes, from a sprite (text strokes are costly to draw every frame).
-      const s = sprites.peek(slot, NEON, g.neonRect, rc.grid, 1)
-        ?? sprites.get(slot, NEON, g.neonRect, rc.grid, 1, c => neon(c, g));
+      const s = rc.sprites.peek(slot, NEON, g.neonRect, rc.grid, 1)
+        ?? rc.sprites.get(slot, NEON, g.neonRect, rc.grid, 1, c => neon(c, g));
       blit(ctx, s, rc.grid);
     }
     if (g.id === 'luotsong') ticker(ctx, g, sec, calm);
@@ -336,8 +350,8 @@ function drawLive(rc: RenderContext, v: ShopView, slot: ShopSlot, g: Geo, l: Sho
   if (l.sign !== null) {
     if (l.signFlip >= 1) {
       const sig = l.sign === 'HẾT HÀNG' ? 2 : 1;
-      const s = sprites.peek(slot, SIGN, g.signRect, rc.grid, sig)
-        ?? sprites.get(slot, SIGN, g.signRect, rc.grid, sig, c => hangingSign(c, g, l));
+      const s = rc.sprites.peek(slot, SIGN, g.signRect, rc.grid, sig)
+        ?? rc.sprites.get(slot, SIGN, g.signRect, rc.grid, sig, c => hangingSign(c, g, l));
       blit(ctx, s, rc.grid);
     } else {
       hangingSign(ctx, g, l);
@@ -348,8 +362,8 @@ function drawLive(rc: RenderContext, v: ShopView, slot: ShopSlot, g: Geo, l: Sho
     if (l.priceFlip >= 1 && l.priceFlash <= 0) {
       // A board at rest: from a sprite of its price.
       const sig = Math.round(v.price * 10);
-      const s = sprites.peek(slot, BOARD, g.boardRect, rc.grid, sig)
-        ?? sprites.get(slot, BOARD, g.boardRect, rc.grid, sig, c => priceBoard(c, g, v, l));
+      const s = rc.sprites.peek(slot, BOARD, g.boardRect, rc.grid, sig)
+        ?? rc.sprites.get(slot, BOARD, g.boardRect, rc.grid, sig, c => priceBoard(c, g, v, l));
       blit(ctx, s, rc.grid);
     } else {
       priceBoard(ctx, g, v, l);
@@ -358,14 +372,22 @@ function drawLive(rc: RenderContext, v: ShopView, slot: ShopSlot, g: Geo, l: Sho
   if (l.grand) balloons(ctx, g, sec, calm, rc.palette);
   if (l.badge !== null) {
     if (l.badgePop >= 1) {
-      // A badge at rest, from a sprite.
+      // A badge at rest, from small sprites: the top row's mark with its words; the bottom row's rosette over the
+      // sign, and the words (or the stamp) on a sticker on the counter's face.
       const bsig = l.badge === 'certified' ? 1 : 2;
       const b = l.badge;
-      const s = sprites.peek(slot, BADGE, g.badgeRect, rc.grid, bsig)
-        ?? sprites.get(slot, BADGE, g.badgeRect, rc.grid, bsig, c => badge(c, g, b, 1));
-      blit(ctx, s, rc.grid);
+      if (g.top || b === 'certified') {
+        const s = rc.sprites.peek(slot, BADGE, g.badgeRect, rc.grid, bsig)
+          ?? rc.sprites.get(slot, BADGE, g.badgeRect, rc.grid, bsig, c => badge(c, g, b, 1, g.top ? 'all' : 'mark'));
+        blit(ctx, s, rc.grid);
+      }
+      if (!g.top) {
+        const s = rc.sprites.peek(slot, STICKER, g.stickerRect, rc.grid, bsig)
+          ?? rc.sprites.get(slot, STICKER, g.stickerRect, rc.grid, bsig, c => badge(c, g, b, 1, 'words'));
+        blit(ctx, s, rc.grid);
+      }
     } else {
-      badge(ctx, g, l.badge, l.badgePop);
+      badge(ctx, g, l.badge, l.badgePop, 'all');
     }
   }
   else if (l.rumor) flies(ctx, g, sec, calm);
@@ -390,7 +412,7 @@ function priceBoard(ctx: Ctx, g: Geo, v: ShopView, l: ShopLook): void {
   box(ctx, x - u * 0.05, y - u * 0.05, bw + u * 0.1, bh + u * 0.1, u * 0.1, edgeCol, 0);
   box(ctx, x, y, bw, bh, u * 0.07, bg, 0);
   const now = `${v.price}k`;
-  const font = g.id === 'luotsong' || g.id === 'tapdoan' ? DISPLAY : g.id === 'batu' || g.id === 'cochap' ? DISPLAY : DISPLAY;
+  const font = DISPLAY;
   const size = u * 0.36;
   const cy = y + bh / 2;
   if (l.priceFlip >= 1 || v.prevPrice === null) {
@@ -440,7 +462,7 @@ function hangingSign(ctx: Ctx, g: Geo, l: ShopLook): void {
   const u = g.u;
   const w = u * 0.95;
   const h = u * 0.3;
-  const cx = g.top ? g.x + g.w * 0.5 : g.x + g.w * 0.78;
+  const cx = signX(g.top, g.x, g.w, u);
   const cy = g.top ? g.storeTop + u * 0.22 : g.ctrFace + u * 0.22;
   if (g.top) {
     line(ctx, cx - w * 0.3, g.storeTop - u * 0.02, cx, cy - h / 2, 'rgba(42,29,21,0.6)', u * 0.02);
@@ -515,14 +537,17 @@ function labelPaper(ctx: Ctx, cx: number, cy: number, s: string, u: number, red:
 function balloons(ctx: Ctx, g: Geo, sec: number, calm: boolean, p: Palette): void {
   const u = g.u;
   const cols = [p.strawberry, p.tea, '#7fb8e0', p.matcha, '#f07ab4'];
-  const spots: [number, number, number][] = g.top
-    ? [[g.x + u * 0.12, g.storeTop + u * 0.5, -1], [g.x + g.w - u * 0.12, g.storeTop + u * 0.5, 1]]
-    : [[g.zone1 - u * 0.15, g.ctrFace, 1]];
-  for (const [ax, ay, side] of spots) {
+  // Two clusters: the top row's at both corners of its front, leaning outward so the strings stay off the sign; the
+  // bottom row's at its left edge (straight up, over nobody's head) and at its right edge, outside the sign or totem.
+  for (let c = 0; c < 2; c++) {
+    const side = c === 0 ? -1 : 1;
+    const ax = g.top ? (c === 0 ? g.x + u * 0.12 : g.x + g.w - u * 0.12) : c === 0 ? g.x + u * 0.08 : g.x + g.w + u * 0.02;
+    const ay = g.top ? g.storeTop + u * 0.5 : g.ctrFace;
+    const lean = g.top || c === 1 ? 1 : 0.25;
     for (let i = 0; i < 5; i++) {
       const bob = calm ? 0 : Math.sin(sec * 1.6 + i * 1.3 + ax) * u * 0.06;
-      const bx = ax + side * (i % 2 === 0 ? 0.05 : -0.22) * u + (i - 2) * u * 0.13;
-      const by = ay - u * (g.top ? 1.05 : 2.35) - (i % 3) * u * 0.28 + bob;
+      const bx = ax + side * lean * (0.06 + (i % 3) * 0.15) * u + (lean < 1 ? (i - 2) * u * 0.05 : 0);
+      const by = ay - u * (g.top ? 1.05 : 2.35) - (i % 3) * u * 0.28 - (i > 2 ? u * 0.15 : 0) + bob;
       ctx.strokeStyle = 'rgba(42, 29, 21, 0.4)';
       ctx.lineWidth = u * 0.015;
       ctx.beginPath();
@@ -539,14 +564,35 @@ function balloons(ctx: Ctx, g: Geo, sec: number, calm: boolean, p: Palette): voi
 }
 
 /** The certified rosette popping on, or the "named" stamp slamming down. */
-function badge(ctx: Ctx, g: Geo, kind: 'certified' | 'named', k: number): void {
+function badge(ctx: Ctx, g: Geo, kind: 'certified' | 'named', k: number, part: 'all' | 'mark' | 'words'): void {
   const u = g.u;
   const at = badgePos(g);
   if (kind === 'certified') {
     const s = easeOutBack(k);
     if (s <= 0) return;
+    if (part !== 'words') rosette(ctx, at.x, at.y, u, s, k);
+    if (k < 1 || part === 'mark') return;
+    // The words: beside the rosette on the top row; on a sticker on the counter's face on the bottom row (nothing
+    // over the queue).
+    if (g.top) {
+      text(ctx, 'ĐÃ KIỂM ĐỊNH', at.x + u * 0.34, at.y + u * 0.02, u * 0.14, '#3e6a27',
+        { stroke: '#fffcf7', strokeW: u * 0.06, maxW: u * 1.0, align: 'left' });
+    } else {
+      const sx = g.x + u * 0.12;
+      box(ctx, sx, g.ctrFace + u * 0.06, u * 1.15, u * 0.26, u * 0.06, '#5b8f3e', u * 0.025, '#3e6a27');
+      text(ctx, '✓ ĐÃ KIỂM ĐỊNH', sx + u * 0.575, g.ctrFace + u * 0.195, u * 0.14, '#fffcf7', { maxW: u * 1.05 });
+    }
+    return;
+  }
+  if (part === 'mark') return;
+  stamp(ctx, g, k);
+}
+
+/** The scalloped green rosette with its ribbon tails and a tick, popping on (scale s, progress k). */
+function rosette(ctx: Ctx, x: number, y: number, u: number, s: number, k: number): void {
+  {
     ctx.save();
-    ctx.translate(at.x, at.y);
+    ctx.translate(x, y);
     ctx.scale(s, s);
     ctx.rotate((1 - k) * -1.2);
     // Ribbon tails, the scalloped rosette, the tick.
@@ -574,19 +620,13 @@ function badge(ctx: Ctx, g: Geo, kind: 'certified' | 'named', k: number): void {
     ctx.lineTo(u * 0.1, -u * 0.07);
     ctx.stroke();
     ctx.restore();
-    if (k >= 1) {
-      // The words: under the rosette on the top row; on a sticker on the counter's face on the bottom row (nothing
-      // over the queue).
-      if (g.top) {
-        text(ctx, 'ĐÃ KIỂM ĐỊNH', at.x + u * 0.3, at.y + u * 0.5, u * 0.15, '#3e6a27',
-          { stroke: '#fffcf7', strokeW: u * 0.06, maxW: u * 1.3 });
-      } else {
-        const sx = g.x + u * 0.12;
-        box(ctx, sx, g.ctrFace + u * 0.06, u * 1.15, u * 0.26, u * 0.06, '#5b8f3e', u * 0.025, '#3e6a27');
-        text(ctx, '✓ ĐÃ KIỂM ĐỊNH', sx + u * 0.575, g.ctrFace + u * 0.195, u * 0.14, '#fffcf7', { maxW: u * 1.05 });
-      }
-    }
-  } else {
+  }
+}
+
+/** The "BỊ NÊU TÊN" stamp slamming down: over the top row's sign; on the bottom row's counter face. */
+function stamp(ctx: Ctx, g: Geo, k: number): void {
+  const u = g.u;
+  {
     // Slams down from big, with a little shake.
     const s = k < 1 ? 2.2 - 1.2 * easeOutCubic(k) : 1;
     ctx.save();
@@ -606,10 +646,26 @@ function badge(ctx: Ctx, g: Geo, kind: 'certified' | 'named', k: number): void {
   }
 }
 
-/** Where the badge sits (the same spot as `badgeAt` in particlesLayer.ts, which the confetti bursts from). */
+/** Where a shop's badge sits on the street (the inspection's confetti bursts from there). */
+export function badgeSpot(L: StreetLayout, slot: ShopSlot): { x: number; y: number } {
+  return badgePos(geoFor(L, slot));
+}
+
+/** Where the badge sits. */
 function badgePos(g: Geo): { x: number; y: number } {
   const u = g.u;
-  return g.top ? { x: g.x + u * 0.36, y: g.signTop + u * 0.06 } : { x: g.x + g.w - u * 0.32, y: g.y - u * 1.75 };
+  if (g.top) {
+    // Portrait: on the wall above the sign band; landscape (no wall above): the front's upper left, under the awning.
+    return g.signTop - g.y >= u * 1.25 ? { x: g.x + u * 0.36, y: g.signTop - u * 0.36 }
+      : { x: g.x + u * 0.38, y: g.storeTop + u * 0.34 };
+  }
+  // Bottom row: on top of the roof sign (or the totem), clear of its lettering and logo.
+  if (g.id === 'tapdoan') {
+    const t = totemRect(g);
+    return { x: t.x + t.w / 2, y: t.y - u * 0.3 };
+  }
+  const wide = g.zone1 - g.zone0 > u * 0.9;
+  return { x: (g.zone0 + g.zone1) / 2, y: g.y - u * (wide ? 1.9 : 2.1) - u * 0.3 };
 }
 
 /** Shops still under the rumor: a faint grey whiff and two flies buzzing round. */
@@ -710,7 +766,9 @@ function gleam(ctx: Ctx, g: Geo, sec: number, calm: boolean): void {
 function totemRect(g: Geo): { x: number; y: number; w: number; h: number } {
   const u = g.u;
   const w = Math.min(g.zone1 - g.zone0, u * 0.62);
-  return { x: g.zone1 - w, y: g.y - u * 2.15, w, h: u * 2.15 + u * 0.35 };
+  // Shorter where the zone is narrow (portrait), leaving the bus corner's sky to the building site's board.
+  const tall = g.zone1 - g.zone0 > u * 0.9 ? 2.15 : 1.45;
+  return { x: g.zone1 - w, y: g.y - u * tall, w, h: u * tall + u * 0.35 };
 }
 
 // ── Top row: static art ────────────────────────────────────────────────────────────────────────────────────────────
@@ -727,7 +785,9 @@ function paintTopBack(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
   box(c, x, y, w, g.ground - y, u * 0.1, faded ? shade(wall, 0.9) : wall, u * 0.04);
   upperFloor(c, g, wall, l);
   if (l.base === 'lot') {
-    lotTop(c, g);
+    // Not a state the top row meets in the game (only Tập Đoàn opens late): a plain shutter with a notice.
+    shutterSlats(c, x + u * 0.12, g.storeTop, w - u * 0.24, g.ground - g.storeTop, u, '#c8c2b8');
+    labelPaper(c, x + w / 2, (g.storeTop + g.ground) / 2, 'SẮP MỞ', u, false);
     return;
   }
   signBand(c, g, faded);
@@ -736,7 +796,12 @@ function paintTopBack(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
   const iw = w - u * 0.24;
   if (l.base === 'open') {
     box(c, ix, g.storeTop, iw, g.counterTop - g.storeTop + u * 0.1, u * 0.06, interiorOf(id), 0);
-    interior(c, g, ix, iw);
+    interior(c, g, ix, iw, l.empty);
+    if (l.empty) {
+      // Sold out: the shelves bare, the front a little dim.
+      c.fillStyle = 'rgba(60, 50, 45, 0.18)';
+      c.fillRect(ix, g.storeTop, iw, g.counterTop - g.storeTop + u * 0.1);
+    }
   } else {
     shutterSlats(c, ix, g.storeTop, iw, g.ground - g.storeTop, u, faded ? '#b3aca1' : '#c8c2b8');
     if (faded) {
@@ -1052,7 +1117,7 @@ function cart(c: Ctx, g: Geo): void {
 }
 
 /** What shows inside each open front, behind the keeper. */
-function interior(c: Ctx, g: Geo, ix: number, iw: number): void {
+function interior(c: Ctx, g: Geo, ix: number, iw: number, empty: boolean): void {
   const u = g.u;
   const top = g.storeTop;
   const id = g.id;
@@ -1066,7 +1131,18 @@ function interior(c: Ctx, g: Geo, ix: number, iw: number): void {
       const jx = ix + u * 0.16 + i * ((iw - u * 0.32) / n);
       const col = id === 'giare' ? (i % 2 ? '#ffd23f' : '#de4f5a') : id === 'luotsong' ? (i % 2 ? '#9dbb6e' : '#fffcf7')
         : id === 'cochap' ? (i % 2 ? '#c9a24a' : '#e6dccb') : (i % 3 === 0 ? '#e9b872' : i % 3 === 1 ? '#f6e7d2' : '#c8945e');
-      box(c, jx, sy - u * 0.18, u * 0.14, u * 0.18, u * 0.04, col, u * 0.015);
+      if (empty) {
+        // Only the outline where a jar stood, and a lone one now and then.
+        if (i % 4 === 1) box(c, jx, sy - u * 0.18, u * 0.14, u * 0.18, u * 0.04, '#cfc8c0', u * 0.015);
+        else {
+          rr(c, jx, sy - u * 0.18, u * 0.14, u * 0.18, u * 0.04);
+          c.strokeStyle = 'rgba(42, 29, 21, 0.18)';
+          c.lineWidth = u * 0.015;
+          c.stroke();
+        }
+      } else {
+        box(c, jx, sy - u * 0.18, u * 0.14, u * 0.18, u * 0.04, col, u * 0.015);
+      }
     }
   }
   if (id === 'batu') {
@@ -1175,13 +1251,6 @@ function sangNhuong(c: Ctx, cx: number, cy: number, u: number, w: number): void 
   c.restore();
 }
 
-/** An empty lot in a top-row slot (not used by the game's days, kept for completeness). */
-function lotTop(c: Ctx, g: Geo): void {
-  const u = g.u;
-  box(c, g.x + u * 0.1, g.ground - u * 1.2, g.w - u * 0.2, u * 1.2, u * 0.04, '#d9cbb8', u * 0.03);
-  text(c, 'SẮP KHAI TRƯƠNG', g.x + g.w / 2, g.ground - u * 0.6, u * 0.2, '#6e5b4d', { maxW: g.w * 0.85 });
-}
-
 /** A grand opening on a top-row shop: the red banner over the sign, two flower stands. */
 function grandTop(c: Ctx, g: Geo, p: Palette): void {
   const u = g.u;
@@ -1217,8 +1286,12 @@ function paintBottomBack(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
     lotBottom(c, g);
     return;
   }
-  // The floor.
+  // The floor (dim behind a shutter: the lights are off).
   floor(c, g);
+  if (l.base === 'shut') {
+    c.fillStyle = 'rgba(42, 29, 21, 0.24)';
+    c.fillRect(x, g.ctrBase, w, h - (g.ctrBase - y));
+  }
   // Side walls, low: just a rim at the left and right edges.
   c.fillStyle = shade(wallOf(id), 0.9);
   c.fillRect(x, g.ctrBase, u * 0.08, h - (g.ctrBase - y));
@@ -1246,7 +1319,18 @@ function paintBottomBack(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
     line(c, cx0 + cw * 0.7, g.ctrTop, cx0 + cw * 0.7, g.ctrBase, '#e9d9b6', u * 0.025);
   }
   roofSign(c, g, l, p);
-  if (l.grand) wreath(c, g.zone1 - u * 0.25, g.ctrBase + u * 1.25, u * 1.1, p);
+  if (l.grand) {
+    // A festive valance along the counter top: red with gold scallops and the words, no higher than the counter.
+    const vw = g.zone0 - cx0 - u * 0.2;
+    box(c, cx0, g.ctrTop - u * 0.02, vw, u * 0.2, u * 0.04, '#c0323e', u * 0.02, '#8a2028');
+    c.fillStyle = '#ffd23f';
+    for (let sx = cx0 + u * 0.1; sx < cx0 + vw - u * 0.05; sx += u * 0.2) {
+      c.beginPath();
+      c.arc(sx, g.ctrTop + u * 0.18, u * 0.05, 0, Math.PI);
+      c.fill();
+    }
+    text(c, 'KHAI TRƯƠNG', cx0 + vw / 2, g.ctrTop + u * 0.08, u * 0.13, '#ffd23f', { maxW: vw - u * 0.2 });
+  }
 }
 
 /** Nearest us: the back counter with the machines and the shop's name, the bits on the floor in front of the keeper. */
@@ -1261,6 +1345,8 @@ function paintBottomFront(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
   const closed = l.base === 'closed';
   // In a deep shop (portrait), things on the floor between the keeper and the back counter.
   if (bt - g.ownerY > u * 1.6) floorProps(c, g, l, p);
+  // A grand opening's flower stand at the floor's left, clear of the price board and the keeper.
+  if (l.grand) wreath(c, x + u * 0.35, bt + u * 0.04, Math.min(u * 1.1, bt - g.ctrBase - u * 0.05), p);
   // Things standing on the back counter (behind its face): machines, cups, a laptop, plants.
   backCounterTop(c, g, l);
   box(c, x + u * 0.04, bt, w - u * 0.08, faceTop - bt + u * 0.04, u * 0.05, topCol, u * 0.03);
@@ -1449,7 +1535,12 @@ function counterDetails(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
   const u = g.u;
   const id = g.id;
   const face = g.ctrFace;
-  // Shelves on the staff side: cup stacks and bottles, under the counter top.
+  // Shelves on the staff side: cup stacks and bottles, under the counter top (bare when sold out).
+  if (l.empty) {
+    c.fillStyle = 'rgba(60, 50, 45, 0.2)';
+    c.fillRect(g.x + u * 0.05, face, g.w - u * 0.1, g.ctrBase - face);
+    return;
+  }
   const n = Math.max(2, Math.floor((g.zone0 - g.x) / (u * 0.4)));
   for (let i = 0; i < n; i++) {
     const sx = g.x + u * 0.22 + i * u * 0.4;
@@ -1497,7 +1588,7 @@ function roofSign(c: Ctx, g: Geo, l: ShopLook, p: Palette): void {
     c.fillRect(t.x + u * 0.05, t.y + u * 0.05, t.w * 0.18, t.h - u * 0.1);
     // The logo: a faceted diamond.
     const lx = t.x + t.w / 2;
-    const ly = t.y + u * 0.45;
+    const ly = t.y + u * 0.4;
     poly(c, [lx, ly - u * 0.24, lx + u * 0.2, ly, lx, ly + u * 0.24, lx - u * 0.2, ly]);
     fe(c, '#2f3446', 0);
     poly(c, [lx, ly - u * 0.24, lx + u * 0.2, ly, lx, ly]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deviceBox, SpriteCache, spriteFits, spriteStats } from './sprites';
+import { bumpFontEpoch, deviceBox, SpriteCache, spriteFits } from './sprites';
 
 describe('sprites on the device grid', () => {
   it('a logical rect covers whole device pixels with a pixel of bleed', () => {
@@ -30,15 +30,42 @@ describe('sprites on the device grid', () => {
     const b = {};
     const g = { k: 2, devX: 0, devY: 0 };
     const r = { x: 0, y: 0, w: 10, h: 10 };
-    const before = spriteStats.built;
+    const before = cache.built;
     const s1 = cache.get(a, 0, r, g, 1, () => {});
     expect(cache.get(a, 0, r, g, 1, () => {})).toBe(s1);
-    expect(spriteStats.built - before).toBe(1);
+    expect(cache.built - before).toBe(1);
     cache.get(a, 0, r, g, 2, () => {});
     cache.get(a, 0, r, { ...g, k: 1.5 }, 2, () => {});
-    expect(spriteStats.built - before).toBe(3);
+    expect(cache.built - before).toBe(3);
     cache.get(a, 1, r, { ...g, k: 1.5 }, 2, () => {});
     cache.get(b, 1, r, { ...g, k: 1.5 }, 2, () => {});
-    expect(spriteStats.built - before).toBe(5);
+    expect(cache.built - before).toBe(5);
+  });
+
+  it('text baked before the web fonts arrived is painted again once they do', () => {
+    const cache = new SpriteCache();
+    const owner = {};
+    const g = { k: 2, devX: 0, devY: 0 };
+    const r = { x: 0, y: 0, w: 10, h: 10 };
+    const s = cache.get(owner, 0, r, g, 1, () => {});
+    expect(cache.peek(owner, 0, r, g, 1)).toBe(s);
+    bumpFontEpoch();
+    expect(spriteFits(s, g, 1, r)).toBe(false);
+    expect(cache.peek(owner, 0, r, g, 1)).toBeUndefined();
+    const again = cache.get(owner, 0, r, g, 1, () => {});
+    expect(again).not.toBe(s);
+    expect(cache.built).toBe(2);
+  });
+
+  it("each scene's cache is its own and is emptied when the scene goes", () => {
+    const a = new SpriteCache();
+    const b = new SpriteCache();
+    const owner = {};
+    const g = { k: 1, devX: 0, devY: 0 };
+    const r = { x: 0, y: 0, w: 4, h: 4 };
+    a.get(owner, 0, r, g, 1, () => {});
+    expect(b.peek(owner, 0, r, g, 1)).toBeUndefined();
+    a.clear();
+    expect(a.peek(owner, 0, r, g, 1)).toBeUndefined();
   });
 });

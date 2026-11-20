@@ -5,10 +5,10 @@
 // the others (`Scene.setTimeOfDay`, `StreetCanvas timeOfDay`).
 //
 // `lightFor` is pure (tested); `drawLighting` paints it with cached gradients and, at evening, a glow sprite.
-import type { StreetLayout } from './layout';
-import { poleXs } from './draw/street';
+import type { Rect, StreetLayout } from './layout';
+import { backTrees, houseWindows, poleLampY, poleXs, SIDE_CROWN_UP, sideTrees } from './draw/street';
 import type { RenderContext } from './Scene';
-import { blit, SpriteCache } from './sprites';
+import { blit, LAYER } from './sprites';
 
 export type TimeOfDay = 'morning' | 'noon' | 'afternoon' | 'evening';
 export const TIMES_OF_DAY: readonly TimeOfDay[] = ['morning', 'noon', 'afternoon', 'evening'];
@@ -45,7 +45,6 @@ export function lightFor(t: TimeOfDay): Light {
 
 interface LightMemo { key: string; sun: CanvasGradient | null }
 
-const glowSprites = new SpriteCache();
 
 /** The `lighting` overlay. */
 export function drawLighting(rc: RenderContext): void {
@@ -83,16 +82,17 @@ export function drawLighting(rc: RenderContext): void {
   }
   if (light.glow > 0) {
     const L = rc.layout;
-    const s = glowSprites.get(L, 0, v, rc.grid, 1, c => paintGlows(c, L));
+    // Which shops are lit: the ones selling (a shut, closed or empty shop stays dark).
+    let lit = 0;
+    for (const sh of rc.director.shops) {
+      if (sh.status === 'open' || sh.status === 'soldOut') lit |= 1 << (L.shops.findIndex(x => x.id === sh.id) + 1);
+    }
+    const s = rc.sprites.peek(L, LAYER.glow, v, rc.grid, lit)
+      ?? rc.sprites.get(L, LAYER.glow, v, rc.grid, lit, c => paintGlows(c, L, v, lit));
     ctx.globalCompositeOperation = 'lighter';
     blit(ctx, s, rc.grid);
     ctx.globalCompositeOperation = 'source-over';
   }
-}
-
-/** The lamp head's height on the poles (draw/props.ts paints the lamps there). */
-function poleLampY(L: StreetLayout): number {
-  return (L.kind === 'portrait' ? -24 : -10) + L.actorH * 1.13;
 }
 
 function glowAt(c: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, a: number): void {
@@ -103,14 +103,25 @@ function glowAt(c: CanvasRenderingContext2D, x: number, y: number, r: number, co
   c.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
-/** Street lamps on the poles and every shop front, as warm pools of light. */
-function paintGlows(c: CanvasRenderingContext2D, L: StreetLayout): void {
+/** Which of the houses' visible windows are lit at evening (about two in five). */
+export function litWindows(L: StreetLayout, v: Rect): Rect[] {
+  // Not the ones hidden behind the tree crowns in front of the houses either.
+  const u = L.actorH;
+  const crowns = [...backTrees(L), ...sideTrees(L).map(([x, y, r]) => [x, y - u * SIDE_CROWN_UP, u * r] as const)];
+  const hidden = (w: Rect) => crowns.some(([x, y, r]) =>
+    w.x < x + r * 1.5 && w.x + w.w > x - r * 1.5 && w.y < y + r * 1.1 && w.y + w.h > y - r * 1.1);
+  return houseWindows(L, v.x - 2, v.x + v.w + 2).filter((w, i) => ((i * 2654435761) >>> 0) % 5 < 2 && !hidden(w));
+}
+
+/** Street lamps on the poles, the shops that are selling (bit i + 1 of `lit`) and some windows, as warm light. */
+function paintGlows(c: CanvasRenderingContext2D, L: StreetLayout, v: Rect, lit: number): void {
   const u = L.actorH;
   for (const x of poleXs(L)) {
     glowAt(c, x + u * 0.43, poleLampY(L), u * 0.5, '255, 236, 180', 0.95);
     glowAt(c, x + u * 0.43, L.road.y0 + u * 0.5, u * 2.4, '255, 190, 110', 0.42);
   }
   for (const s of L.shops) {
+    if ((lit & (1 << (s.index + 1))) === 0) continue;
     const r = s.rect;
     if (s.row === 'top') {
       glowAt(c, r.x + r.w / 2, r.y + r.h - u * 1.1, Math.max(r.w, u * 2) * 0.7, '255, 196, 110', 0.6);
@@ -119,12 +130,7 @@ function paintGlows(c: CanvasRenderingContext2D, L: StreetLayout): void {
       glowAt(c, r.x + r.w / 2, r.y + u * 0.4, Math.max(r.w, u * 2) * 0.65, '255, 196, 110', 0.55);
     }
   }
-  // Lit windows in the houses behind.
-  c.fillStyle = 'rgba(255, 214, 140, 0.35)';
-  const roof = L.shops[0].rect.y - u * 0.45;
-  for (let i = 0; i < 40; i++) {
-    const x = (i * 97) % Math.max(1, L.width + 200) - 100;
-    const y = L.back.y0 - u * 1.2 + ((i * 53) % 3) * u * 0.6;
-    if (y < roof) c.fillRect(x, y, u * 0.28, u * 0.32);
-  }
+  // Lit windows in the houses behind: their own panes, warm.
+  c.fillStyle = 'rgba(255, 210, 130, 0.55)';
+  for (const w of litWindows(L, v)) c.fillRect(w.x + u * 0.03, w.y + u * 0.03, w.w - u * 0.06, w.h - u * 0.06);
 }

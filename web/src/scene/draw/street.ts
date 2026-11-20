@@ -9,10 +9,9 @@
 import type { Rect, StreetLayout } from '../layout';
 import type { Palette, RenderContext } from '../Scene';
 import { hash01 } from '../schedule';
-import { blit, SpriteCache } from '../sprites';
+import { blit, LAYER } from '../sprites';
 import { box, disc, fe, line, oval, poly, rr, shade, type Ctx } from './kit';
 
-const sprites = new SpriteCache();
 
 const ROAD = '#b9ab9c';
 const ROAD_DARK = '#a99a8b';
@@ -25,6 +24,56 @@ const SKY_TOP = '#cfe6ef';
 const SKY_LOW = '#fbefdc';
 const HOUSES = ['#f3d9a4', '#cfe3c8', '#f2c6c2', '#efe6d8', '#c9dde8', '#f6dcc0', '#e3d3ef'];
 
+/** The top of the utility poles (above the view's top in portrait; the lamps and wires hang from it). */
+export function poleTop(L: StreetLayout): number {
+  return L.kind === 'portrait' ? -24 : -10;
+}
+
+/** The street lamp's head on each pole (props.ts paints it, lighting.ts lights it). */
+export function poleLampY(L: StreetLayout): number {
+  return poleTop(L) + L.actorH * 1.13;
+}
+
+/** The window rects of the houses behind the top row that the shops do not cover (evening lights a few of them). */
+export function houseWindows(L: StreetLayout, x0: number, x1: number): Rect[] {
+  const out: Rect[] = [];
+  const tops = L.shops.filter(s => s.row === 'top').map(s => s.rect);
+  for (const h of houseLayout(L, x0, x1)) {
+    for (const w of h.windows) {
+      const covered = tops.some(r => w.x < r.x + r.w && w.x + w.w > r.x && w.y + w.h > r.y);
+      if (!covered && w.y + w.h < L.sidewalkTop.y0) out.push(w);
+    }
+  }
+  return out;
+}
+
+interface House { x: number; w: number; top: number; col: string; i: number; rows: number; windows: Rect[] }
+
+/** The houses behind the top row, left to right across [x0, x1): their place, colour and windows. */
+function houseLayout(L: StreetLayout, x0: number, x1: number): House[] {
+  const u = L.actorH;
+  const base = L.sidewalkTop.y0;
+  const out: House[] = [];
+  let x = x0 - hash01(3) * u;
+  let i = 0;
+  while (x < x1) {
+    const w = u * (1.1 + hash01(i * 3 + 1) * 0.8);
+    const top = L.back.y0 - u * (0.3 + hash01(i * 3 + 2) * 0.9) + (L.kind === 'landscape' ? u * 0.05 : 0);
+    const col = HOUSES[Math.floor(hash01(i * 3 + 3) * HOUSES.length)];
+    const rows = Math.max(1, Math.floor((base - top - u * 0.4) / (u * 0.75)));
+    const windows: Rect[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let k = 0; k < 2; k++) {
+        windows.push({ x: x + w * (k === 0 ? 0.1 : 0.54), y: top + u * 0.3 + r * u * 0.75, w: w * 0.36, h: u * 0.42 });
+      }
+    }
+    out.push({ x, w, top, col, i, rows, windows });
+    x += w;
+    i++;
+  }
+  return out;
+}
+
 /** Where the utility poles stand: in the gaps between top-row shops. */
 export function poleXs(L: StreetLayout): number[] {
   const top = L.shops.filter(s => s.row === 'top');
@@ -34,52 +83,45 @@ export function poleXs(L: StreetLayout): number[] {
 }
 
 /** Tree crowns behind the top row (portrait), swaying: x, crown y, radius. */
+const sideMemo = new WeakMap<StreetLayout, readonly (readonly [number, number, number])[]>();
+
+/** Street trees on the sidewalks (landscape: at the street's ends): x, base y, crown radius in heights. */
+export function sideTrees(L: StreetLayout): readonly (readonly [number, number, number])[] {
+  let t = sideMemo.get(L);
+  if (t === undefined) {
+    t = L.kind === 'portrait' ? []
+      : [[12, L.sidewalkTop.y1 - 8, 0.68], [788, L.sidewalkTop.y1 - 8, 0.68], [34, L.sidewalkBottom.y1 - 6, 0.8]];
+    sideMemo.set(L, t);
+  }
+  return t;
+}
+
+/** A street tree's crown centre: 1.85 heights over its base (props.ts draws it there). */
+export const SIDE_CROWN_UP = 1.85;
+
+const treeMemo = new WeakMap<StreetLayout, readonly (readonly [number, number, number])[]>();
+
 export function backTrees(L: StreetLayout): readonly (readonly [number, number, number])[] {
-  if (L.kind !== 'portrait') return [];
-  const u = L.actorH;
-  return [[30, 12, u * 0.75], [150, 4, u * 0.62], [262, 14, u * 0.7], [366, 2, u * 0.66]];
+  let t = treeMemo.get(L);
+  if (t === undefined) {
+    const u = L.actorH;
+    t = L.kind !== 'portrait' ? [] : [[30, 12, u * 0.75], [150, 4, u * 0.62], [262, 14, u * 0.7], [366, 2, u * 0.66]];
+    treeMemo.set(L, t);
+  }
+  return t;
 }
 
 export function drawStreet(rc: RenderContext): void {
   const { ctx, layout: L, view, palette } = rc;
-  const s = sprites.get(L, 0, view, rc.grid, 1, c => paintStreet(c, L, view, palette));
+  const s = rc.sprites.peek(L, LAYER.street, view, rc.grid, 1)
+    ?? rc.sprites.get(L, LAYER.street, view, rc.grid, 1, c => paintStreet(c, L, view, palette));
   blit(ctx, s, rc.grid);
   const sway = rc.reducedMotion ? 0 : 1;
-  for (const [x, y, r] of backTrees(L)) swayingCrown(ctx, rc.pxPerUnit, x, y, r, Math.sin(rc.wall / 1300 + x) * 0.05 * sway, x);
-}
-
-const crowns = new Map<number, { k: number; canvas: HTMLCanvasElement | OffscreenCanvas | null }>();
-
-/**
- * A crown that sways: drawn once into a little canvas at the device scale `k` and blitted shifted by its lean each
- * frame (one drawImage instead of a dozen arcs).
- */
-export function swayingCrown(ctx: Ctx, k: number, x: number, y: number, r: number, lean: number, seed: number): void {
-  const key = Math.round(r * 100) * 4096 + (seed & 4095);
-  let hit = crowns.get(key);
-  if (hit === undefined || hit.k !== k) {
-    const side = Math.ceil(r * 3.2 * k);
-    let canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-    if (typeof OffscreenCanvas === 'function') canvas = new OffscreenCanvas(side, side);
-    else if (typeof document !== 'undefined') {
-      canvas = document.createElement('canvas');
-      canvas.width = side;
-      canvas.height = side;
-    }
-    const c = canvas?.getContext('2d') as Ctx | null | undefined;
-    if (c) {
-      c.scale(k, k);
-      crown(c, r * 1.6, r * 1.6, r, 0, seed);
-    }
-    hit = { k, canvas };
-    crowns.set(key, hit);
+  const trees = backTrees(L);
+  for (let i = 0; i < trees.length; i++) {
+    const [x, y, r] = trees[i];
+    crown(ctx, x, y, r, Math.sin(rc.wall / 1300 + x) * 0.05 * sway, x);
   }
-  if (hit.canvas === null) {
-    crown(ctx, x, y, r, lean, seed);
-    return;
-  }
-  const ox = Math.sin(lean) * r * 1.6;
-  ctx.drawImage(hit.canvas as CanvasImageSource, x + ox - r * 1.6, y - r * 1.6, r * 3.2, r * 3.2);
 }
 
 /** A round leafy crown at (x, y), radius r, leaning by `lean` radians about its trunk below. */
@@ -181,22 +223,16 @@ function clouds(c: Ctx, L: StreetLayout, v: Rect): void {
 function houses(c: Ctx, L: StreetLayout, x0: number, x1: number): void {
   const u = L.actorH;
   const base = L.sidewalkTop.y0;
-  let x = x0 - hash01(3) * u;
-  let i = 0;
-  while (x < x1) {
-    const w = u * (1.1 + hash01(i * 3 + 1) * 0.8);
-    const top = L.back.y0 - u * (0.3 + hash01(i * 3 + 2) * 0.9) + (L.kind === 'landscape' ? u * 0.05 : 0);
-    const col = HOUSES[Math.floor(hash01(i * 3 + 3) * HOUSES.length)];
+  for (const { x, w, top, col, i, rows, windows } of houseLayout(L, x0, x1)) {
     box(c, x, top, w + 1, base - top + 2, u * 0.06, col, u * 0.03);
     // A parapet, windows with shutters, sometimes a balcony.
     c.fillStyle = shade(col, 0.9);
     c.fillRect(x, top, w + 1, u * 0.12);
-    const rows = Math.max(1, Math.floor((base - top - u * 0.4) / (u * 0.75)));
     for (let r = 0; r < rows; r++) {
       const wy = top + u * 0.3 + r * u * 0.75;
       const ww = w * 0.36;
       for (let k = 0; k < 2; k++) {
-        const wx = x + w * (k === 0 ? 0.1 : 0.54);
+        const wx = windows[r * 2 + k].x;
         box(c, wx, wy, ww, u * 0.42, u * 0.05, '#7d9bb0', u * 0.025, '#5c7385');
         c.fillStyle = 'rgba(255, 255, 255, 0.35)';
         c.fillRect(wx + ww * 0.12, wy + u * 0.05, ww * 0.18, u * 0.3);
@@ -230,8 +266,6 @@ function houses(c: Ctx, L: StreetLayout, x0: number, x1: number): void {
     }
     // An air-conditioner box on the wall.
     if (hash01(i * 13 + 4) < 0.5) box(c, x + w * 0.62, top + u * 0.62, u * 0.34, u * 0.22, u * 0.03, '#f4f1ec', u * 0.02, '#b8b0a6');
-    x += w;
-    i++;
   }
   // Ground-floor shade behind the top row: the street side of the houses is in the shops' shadow.
   c.fillStyle = 'rgba(42, 29, 21, 0.08)';

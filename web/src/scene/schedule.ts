@@ -15,8 +15,12 @@ export const BUS = {
   doors: 5,
   /** Between two riders stepping off. */
   stagger: 4,
-  /** The longest a rider is let off before they would have come in on their own (they wait at the stop). */
-  maxWait: 110,
+  /**
+   * Riders whose latest step-off falls within this many ticks of a visit's first rider's share that visit. It is a
+   * grouping window, not a cap on waiting: when two visits would overlap they merge, and a rider of the merged visit
+   * may wait at the stop somewhat longer than this.
+   */
+  groupWindow: 110,
   /** From the stop out of the street. */
   driveOut: 26,
   /** Least time between one visit leaving and the next arriving. */
@@ -51,7 +55,7 @@ function visitOf(g: readonly { id: number; latest: number }[], o: BusTiming): Bu
 
 /**
  * The bus visits for the day's bus riders. `latest` is the latest tick each may step off to still reach the boards in
- * time. Riders whose latest falls within `maxWait` of a visit's first ride it together; visits that would overlap (or
+ * time. Riders whose latest falls within `groupWindow` of a visit's first ride it together; visits that would overlap (or
  * come closer than `rest`) merge. Every rider steps off at or before their latest (the 1.5 s lag rule is untouched:
  * they only come earlier).
  */
@@ -60,7 +64,7 @@ export function planBus(riders: readonly { id: number; latest: number }[], o: Bu
   const groups: { id: number; latest: number }[][] = [];
   for (const r of sorted) {
     const g = groups[groups.length - 1];
-    if (g !== undefined && r.latest <= g[0].latest + o.maxWait) g.push(r);
+    if (g !== undefined && r.latest <= g[0].latest + o.groupWindow) g.push(r);
     else groups.push([r]);
   }
   const kept: { id: number; latest: number }[][] = [];

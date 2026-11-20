@@ -45,6 +45,26 @@ export function poly(ctx: Ctx, pts: readonly number[]): void {
   ctx.closePath();
 }
 
+/** A triangle path (no array made). */
+export function tri(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, x2: number, y2: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.closePath();
+}
+
+/** A four-cornered path (no array made). */
+export function quad(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number,
+  y3: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.lineTo(x3, y3);
+  ctx.closePath();
+}
+
 export function disc(ctx: Ctx, x: number, y: number, r: number, fill: string, lw = 0, line?: string): void {
   ctx.beginPath();
   ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2);

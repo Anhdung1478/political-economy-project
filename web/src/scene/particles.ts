@@ -51,7 +51,23 @@ export class ParticlePool {
     this.items = Array.from({ length: capacity }, blank);
   }
 
+  /** A spec'd particle (tests, rare bursts); hot paths use `emit`, which takes no object. */
   spawn(s: SpawnSpec): Particle {
+    const p = this.emit(s.kind, s.x, s.y, s.vx ?? 0, s.vy ?? 0, s.life, s.size, s.color ?? '#000', s.gravity ?? 0,
+      s.drag ?? 0);
+    p.rot = s.rot ?? 0;
+    p.spin = s.spin ?? 0;
+    p.floor = s.floor ?? Infinity;
+    p.bounces = s.bounces ?? 0;
+    return p;
+  }
+
+  /**
+   * A particle from plain numbers (no object made); spin, rotation, floor and bounces start at rest and may be set on
+   * the returned particle.
+   */
+  emit(kind: ParticleKind, x: number, y: number, vx: number, vy: number, life: number, size: number, color: string,
+    gravity = 0, drag = 0): Particle {
     let p: Particle;
     if (this.count < this.capacity) {
       p = this.items[this.count++];
@@ -69,21 +85,21 @@ export class ParticlePool {
       }
       p = this.items[oldest];
     }
-    p.kind = s.kind;
-    p.x = s.x;
-    p.y = s.y;
-    p.vx = s.vx ?? 0;
-    p.vy = s.vy ?? 0;
+    p.kind = kind;
+    p.x = x;
+    p.y = y;
+    p.vx = vx;
+    p.vy = vy;
     p.age = 0;
-    p.life = s.life;
-    p.size = s.size;
-    p.rot = s.rot ?? 0;
-    p.spin = s.spin ?? 0;
-    p.gravity = s.gravity ?? 0;
-    p.drag = s.drag ?? 0;
-    p.color = s.color ?? '#000';
-    p.floor = s.floor ?? Infinity;
-    p.bounces = s.bounces ?? 0;
+    p.life = life;
+    p.size = size;
+    p.rot = 0;
+    p.spin = 0;
+    p.gravity = gravity;
+    p.drag = drag;
+    p.color = color;
+    p.floor = Infinity;
+    p.bounces = 0;
     return p;
   }
 

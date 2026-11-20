@@ -90,11 +90,18 @@ describe('a shop\'s state → what it shows', () => {
     expect(shopLook(view({ grandOpening: true }), 0, false).grand).toBe(true);
     expect(shopLook(view({ grandOpening: true, status: 'resting' }), 0, false).grand).toBe(false);
     const sigs = new Set([
-      shopSig({ base: 'open', grand: false, label: null }), shopSig({ base: 'open', grand: true, label: null }),
-      shopSig({ base: 'shut', grand: false, label: 'NGHỈ BÁN' }), shopSig({ base: 'shut', grand: false, label: 'ĐÓNG CỬA' }),
-      shopSig({ base: 'closed', grand: false, label: null }), shopSig({ base: 'lot', grand: false, label: null }),
+      shopSig({ base: 'open', grand: false, label: null, empty: false }),
+      shopSig({ base: 'open', grand: true, label: null, empty: false }),
+      shopSig({ base: 'open', grand: false, label: null, empty: true }),
+      shopSig({ base: 'shut', grand: false, label: 'NGHỈ BÁN', empty: false }),
+      shopSig({ base: 'shut', grand: false, label: 'ĐÓNG CỬA', empty: false }),
+      shopSig({ base: 'closed', grand: false, label: null, empty: false }),
+      shopSig({ base: 'lot', grand: false, label: null, empty: false }),
     ]);
-    expect(sigs.size).toBe(6);
+    expect(sigs.size).toBe(7);
+    // Sold out empties the shelves; nothing else does.
+    expect(shopLook(view({ status: 'soldOut' }), 0, false).empty).toBe(true);
+    expect(shopLook(view(), 0, false).empty).toBe(false);
   });
 });
 

@@ -18,7 +18,7 @@ import { drawStreet } from './draw/street';
 import { fitLayout, type Fit, type Rect, type ShopSlot, type StreetLayout } from './layout';
 import { drawLighting, type TimeOfDay } from './lighting';
 import { drawParticlesLayer } from './particlesLayer';
-import type { Grid } from './sprites';
+import { SpriteCache, watchFonts, type Grid } from './sprites';
 
 /** Device pixels per CSS pixel, at most (spec §9). */
 export const MAX_DPR = 2;
@@ -82,6 +82,8 @@ export interface RenderContext {
   grid: Grid;
   /** The light of the hour (the rush is at noon). */
   timeOfDay: TimeOfDay;
+  /** This scene's sprite cache (sprites.ts), dropped when the scene is destroyed. */
+  sprites: SpriteCache;
   /** prefers-reduced-motion: no ambience or particles; state changes still show. */
   reducedMotion: boolean;
   palette: Palette;
@@ -169,6 +171,7 @@ export class Scene {
   private forcedReduced: boolean | undefined;
   private tod: TimeOfDay;
   private readonly grid: Grid = { k: 1, devX: 0, devY: 0 };
+  private readonly sprites = new SpriteCache();
   private failures = 0;
   private readonly items: Item[] = [];
   private readonly shopsNow: ShopView[] = [];
@@ -182,6 +185,7 @@ export class Scene {
     this.palette = readPalette();
     this.forcedReduced = opts.reducedMotion;
     this.tod = opts.timeOfDay ?? 'noon';
+    watchFonts();
     this.media = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
     this.fit = fitLayout(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -230,6 +234,7 @@ export class Scene {
     this.stop();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.store.clear();
+    this.sprites.clear();
   }
 
   private halt(): void {
@@ -285,7 +290,7 @@ export class Scene {
     ctx.setTransform(k, 0, 0, k, g.devX, g.devY);
     const rc: RenderContext = {
       ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: wall - this.lastWall, pxPerUnit: k,
-      grid: g, timeOfDay: this.tod,
+      grid: g, timeOfDay: this.tod, sprites: this.sprites,
       reducedMotion: this.reducedMotion, palette: this.palette, bubbles: d.takeBubbles(), cues: d.takeCues(),
       store: this.store,
     };

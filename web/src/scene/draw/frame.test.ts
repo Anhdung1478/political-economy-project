@@ -8,6 +8,7 @@ import { Director } from '../director';
 import { LANDSCAPE, PORTRAIT, fitTo } from '../layout';
 import { TIMES_OF_DAY } from '../lighting';
 import { getRenderers, OVERLAY_LAYERS, type Palette, type RenderContext } from '../Scene';
+import { SpriteCache } from '../sprites';
 
 /** A context that accepts every call, counting them; gradients and text metrics are stand-ins. */
 function stubContext(count: { n: number }): CanvasRenderingContext2D {
@@ -21,7 +22,8 @@ function stubContext(count: { n: number }): CanvasRenderingContext2D {
       if (key in t) return t[key];
       return (...args: unknown[]) => {
         count.n++;
-        for (const a of args) if (typeof a === 'number' && !Number.isFinite(a) && key !== 'arc') throw new Error(`${key}(${String(args)})`);
+        // A non-finite number anywhere (a coordinate, a size, an angle) is a bug.
+        for (const a of args) if (typeof a === 'number' && !Number.isFinite(a)) throw new Error(`${key}(${String(args)})`);
       };
     },
     set(t, key: string, v) {
@@ -51,12 +53,14 @@ const PALETTE = {
   strawberrySoft: '#fbdadc',
 } satisfies Palette;
 
+const sprites = new SpriteCache();
+
 function frame(d: Director, store: Map<string, unknown>, wall: number, reduced: boolean, tod = TIMES_OF_DAY[1]): void {
   const fit = fitTo(d.layout, d.layout === PORTRAIT ? 390 : 844, d.layout === PORTRAIT ? 844 : 390);
   const ctx = stubContext(count);
   const rc: RenderContext = {
     ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: 16, pxPerUnit: fit.scale * 2,
-    grid: { k: fit.scale * 2, devX: fit.ox * 2, devY: fit.oy * 2 }, timeOfDay: tod, reducedMotion: reduced,
+    grid: { k: fit.scale * 2, devX: fit.ox * 2, devY: fit.oy * 2 }, timeOfDay: tod, sprites, reducedMotion: reduced,
     palette: PALETTE, bubbles: d.takeBubbles(), cues: d.takeCues(), store,
   };
   const r = getRenderers();
@@ -90,9 +94,9 @@ describe('whole frames draw without throwing', () => {
     });
   }
 
-  it('every shop status and every light of the day', () => {
+  for (const L of [PORTRAIT, LANDSCAPE]) it(`every shop status and every light of the day, ${L.kind}`, () => {
     const r = replayOf(7, 2, 'reasonable');
-    const d = new Director(PORTRAIT);
+    const d = new Director(L);
     d.reset(r.rush);
     const store = new Map<string, unknown>();
     const statuses: ShopStatus[] = ['open', 'soldOut', 'resting', 'closed', 'notYet', 'closedEarly'];

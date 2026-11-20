@@ -25,7 +25,7 @@ describe('the bus plan', () => {
     [100, 104, 130, 170, 400, 420, 700].forEach((l, id) => expect(offs.get(id)).toBeLessThanOrEqual(l));
   });
 
-  it('groups riders within maxWait of a visit\'s first into one bus; buses never overlap', () => {
+  it('groups riders within groupWindow of a visit\'s first into one bus; buses never overlap', () => {
     const visits = planBus(riders([100, 104, 130, 170, 400, 420, 700]));
     expect(visits.map(v => v.riders.map(r => r.id))).toEqual([[0, 1, 2, 3], [4, 5], [6]]);
     for (let i = 1; i < visits.length; i++) expect(visits[i].arrive).toBeGreaterThanOrEqual(visits[i - 1].depart + BUS.rest);
@@ -33,7 +33,7 @@ describe('the bus plan', () => {
 
   it('merges a visit that would come too soon after the last into it', () => {
     // With a short wait, 125 is past the first group's window but its bus would arrive before the first one left.
-    const visits = planBus(riders([100, 125]), { ...BUS, maxWait: 20 });
+    const visits = planBus(riders([100, 125]), { ...BUS, groupWindow: 20 });
     expect(visits).toHaveLength(1);
     expect(visits[0].riders.map(r => r.id)).toEqual([0, 1]);
     expect(visits[0].riders[1].off).toBeLessThanOrEqual(125);

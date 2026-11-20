@@ -10,6 +10,7 @@ import type { Director, ShopView } from '../../scene/director';
 import { drawShopWith, type ShopLook } from '../../scene/draw/shops';
 import { LANDSCAPE, PORTRAIT, queuePoint, type ShopSlot, type StreetLayout } from '../../scene/layout';
 import { readPalette, type RenderContext } from '../../scene/Scene';
+import { SpriteCache, watchFonts } from '../../scene/sprites';
 
 interface StateRow {
   id: string;
@@ -113,6 +114,8 @@ export default function ShopSheet() {
     if (ctx === null) return;
     const k = zoom * dpr;
     const store = new Map<string, unknown>();
+    const sprites = new SpriteCache();
+    watchFonts();
     const palette = readPalette();
     let raf = 0;
     let last = performance.now();
@@ -124,7 +127,7 @@ export default function ShopSheet() {
       ctx.fillStyle = '#f3e6d3';
       ctx.fillRect(0, 0, w, h);
       const rc: RenderContext = {
-        ctx, director: null as unknown as Director, layout: L, view: { x: 0, y: 0, w, h }, now: NOW, wall,
+        ctx, director: null as unknown as Director, layout: L, view: { x: 0, y: 0, w, h }, now: NOW, wall, sprites,
         dt: now - last, pxPerUnit: k, grid: { k, devX: 0, devY: 0 }, timeOfDay: 'noon', reducedMotion: reduced,
         palette, bubbles: [], cues: [], store,
       };
