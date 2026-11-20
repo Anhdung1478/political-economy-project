@@ -15,6 +15,7 @@
 import { hashSeed } from '../../../shared/sim/rng';
 import type { Day, K, ShopId, StockItem } from '../../../shared/sim/types';
 import type { BubbleRequest, BubbleTopic } from './director';
+import type { TimeOfDay } from './lighting';
 import type { Rect } from './layout';
 
 /**
@@ -129,36 +130,45 @@ export const LINES: Readonly<Record<Exclude<Situation, 'chat'>, readonly string[
  * What walkers say on the ambient street (title, lobby, projector, morning): flavour only. No shop, price, queue or
  * stock (the screen could contradict it), just weather, cravings, school and choosing.
  */
-export const AMBIENT_LINES: readonly string[] = [
-  'Trời nóng quá, làm ly đá thôi.',
-  'Trân châu hôm nay có dai không ta?',
-  'Đi học muộn rồi mà vẫn phải ghé.',
-  'Hôm nay uống gì ta, phân vân quá.',
-  'Thèm trà sữa từ sáng giờ.',
-  'Ít đá, ít ngọt, nhớ nha!',
-  'Trời mà mưa là hỏng buổi đi chơi.',
-  'Mai kiểm tra mà giờ còn la cà.',
-  'Uống xong mới có sức học bài.',
-  'Gió mát ghê, đi dạo xíu rồi về.',
-  'Đi một mình cũng phải uống trà sữa.',
-  'Bạn rủ đi mà mình lại đến sớm.',
-  'Tuần này uống mấy ly rồi nhỉ…',
-  'Mùi trà thơm quá trời.',
-  'Thêm thạch được không ta?',
-  'Ôi, nắng chang chang.',
-  'Cuối tuần là phải đi dạo phố.',
-  'Giờ này chưa ăn gì, đói quá.',
-  'Một ly thôi, hứa là một ly thôi.',
-  'Uống ly trà cho tỉnh ngủ.',
-  'Chọn quán nào bây giờ nhỉ?',
-  'Ngày đẹp trời, đi dạo thôi.',
-  'Hôm nay trà đào hay trà sữa nhỉ?',
-  'Mình hợp trân châu hơn.',
-  'Chờ bạn mãi chưa thấy tới.',
-  'Ước gì được nghỉ học hôm nay.',
+/** Each ambient line with the hours it fits (sun and heat only in the morning and at noon); no tag: any hour. */
+const AMBIENT: readonly { text: string; tods?: readonly TimeOfDay[] }[] = [
+  { text: 'Trời nóng quá, làm ly đá thôi.', tods: ['morning', 'noon'] },
+  { text: 'Trân châu hôm nay có dai không ta?' },
+  { text: 'Đi học muộn rồi mà vẫn phải ghé.', tods: ['morning'] },
+  { text: 'Hôm nay uống gì ta, phân vân quá.' },
+  { text: 'Thèm trà sữa từ sáng giờ.', tods: ['noon', 'afternoon'] },
+  { text: 'Ít đá, ít ngọt, nhớ nha!' },
+  { text: 'Trời mà mưa là hỏng buổi đi chơi.' },
+  { text: 'Mai kiểm tra mà giờ còn la cà.', tods: ['afternoon', 'evening'] },
+  { text: 'Uống xong mới có sức học bài.', tods: ['noon', 'afternoon', 'evening'] },
+  { text: 'Gió mát ghê, đi dạo xíu rồi về.', tods: ['afternoon', 'evening'] },
+  { text: 'Đi một mình cũng phải uống trà sữa.' },
+  { text: 'Bạn rủ đi mà mình lại đến sớm.' },
+  { text: 'Tuần này uống mấy ly rồi nhỉ…' },
+  { text: 'Mùi trà thơm quá trời.' },
+  { text: 'Thêm thạch được không ta?' },
+  { text: 'Ôi, nắng chang chang.', tods: ['morning', 'noon'] },
+  { text: 'Cuối tuần là phải đi dạo phố.', tods: ['noon', 'afternoon', 'evening'] },
+  { text: 'Giờ này chưa ăn gì, đói quá.', tods: ['noon', 'afternoon'] },
+  { text: 'Một ly thôi, hứa là một ly thôi.' },
+  { text: 'Uống ly trà cho tỉnh ngủ.', tods: ['morning'] },
+  { text: 'Chọn quán nào bây giờ nhỉ?' },
+  { text: 'Ngày đẹp trời, đi dạo thôi.', tods: ['morning', 'noon', 'afternoon'] },
+  { text: 'Hôm nay trà đào hay trà sữa nhỉ?' },
+  { text: 'Mình hợp trân châu hơn.' },
+  { text: 'Chờ bạn mãi chưa thấy tới.', tods: ['afternoon', 'evening'] },
+  { text: 'Ước gì được nghỉ học hôm nay.', tods: ['morning', 'noon'] },
 ];
 
-const linesOf = (s: Situation): readonly string[] => (s === 'chat' ? AMBIENT_LINES : LINES[s]);
+export const AMBIENT_LINES: readonly string[] = AMBIENT.map(x => x.text);
+
+/** The ambient lines that fit this light (the title, lobby, projector and street each use their own hour's). */
+export function ambientLinesFor(tod: TimeOfDay): readonly string[] {
+  return AMBIENT.filter(x => x.tods === undefined || x.tods.includes(tod)).map(x => x.text);
+}
+
+const linesOf = (s: Situation, tod?: TimeOfDay): readonly string[] =>
+  (s === 'chat' ? (tod === undefined ? AMBIENT_LINES : ambientLinesFor(tod)) : LINES[s]);
 
 /** `outOfStock` when the sim did not say what ran out. */
 const OUT_GENERIC = ['Hết hàng rồi à…', 'Ơ, bán hết rồi sao?', 'Hết sạch rồi, tiếc ghê.'] as const;
@@ -216,9 +226,9 @@ export function lineIndex(daySeedV: number, customer: number, s: Situation, n: n
 }
 
 /** The words: the chosen line with what ran out and the price filled in; `avoid` skips a line already on screen. */
-export function wordsFor(s: Situation, index: number, o: { missing?: StockItem; price?: K | null },
+export function wordsFor(s: Situation, index: number, o: { missing?: StockItem; price?: K | null; tod?: TimeOfDay },
   avoid?: (text: string) => boolean): string {
-  const list = s === 'outOfStock' && o.missing === undefined ? OUT_GENERIC : linesOf(s);
+  const list = s === 'outOfStock' && o.missing === undefined ? OUT_GENERIC : linesOf(s, o.tod);
   const fill = (i: number) => {
     let t = list[i % list.length];
     if (t.includes('{item}')) t = t.replace('{item}', ITEM[o.missing ?? 'tea']);
@@ -325,6 +335,8 @@ export interface AdmitContext {
   canStart?(customer: number): boolean;
   /** The price on a shop's board now (for "{price}k"). */
   priceOf(shop: ShopId | null): K | null;
+  /** The light of the hour: ambient chatter picks from the lines that fit it (default: any). */
+  tod?: TimeOfDay;
 }
 
 /**
@@ -393,9 +405,9 @@ export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: A
       }
       pushOut(low);
     }
-    const n = k.situation === 'outOfStock' && k.missing === undefined ? OUT_GENERIC.length : linesOf(k.situation).length;
+    const n = k.situation === 'outOfStock' && k.missing === undefined ? OUT_GENERIC.length : linesOf(k.situation, c.tod).length;
     const text = wordsFor(k.situation, lineIndex(c.daySeed, k.customer, k.situation, n),
-      { missing: k.missing, price: c.priceOf(k.shop) }, t => next.some(b => b.text === t));
+      { missing: k.missing, price: c.priceOf(k.shop), tod: c.tod }, t => next.some(b => b.text === t));
     next.push({
       customer: k.customer, situation: k.situation, text, tone: TONE[k.situation], player: k.player, shop: k.shop,
       born: c.now, until: c.now + lifeOf(text), opt: -1, lines: null, w: 0, h: 0, unit: 0, epoch: -1, lastX: NaN,
@@ -541,6 +553,10 @@ export const AMBIENT_FEW = 3;
 /** The gap never goes under this (ticks, 1.5 s) nor over AMBIENT_GAP_MAX (10 s), whatever the crowd. */
 export const AMBIENT_GAP_MIN = 15;
 export const AMBIENT_GAP_MAX = 100;
+/** `AmbientVoice` remembers at most this many speakers (the older half is forgotten when it fills). */
+export const SPOKEN_MAX = 200;
+/** Directors whose ambient speech is off (the street is covered by a screen): bubbles there pop out and none start. */
+export const AMBIENT_MUTED = new WeakSet<object>();
 
 /**
  * Who says something on the ambient street, and when: a calm rhythm (about one new word every AMBIENT_GAP ticks with
@@ -551,7 +567,7 @@ export class AmbientVoice {
   private nextAt = NaN;
   private count = 0;
   /** Walkers who have spoken: each says one thing on its way. */
-  private readonly spoken = new Set<number>();
+  private spoken = new Set<number>();
 
   constructor(private readonly daySeedV: number) {}
 
@@ -579,6 +595,8 @@ export class AmbientVoice {
     const fresh = eligible.filter(id => !this.spoken.has(id));
     if (fresh.length === 0) return null;
     const customer = fresh[this.hash(0x7f4a7c15) % fresh.length];
+    // Ids only grow on a street left on for hours: forget the oldest speakers (long gone) past the cap.
+    if (this.spoken.size >= SPOKEN_MAX) this.spoken = new Set([...this.spoken].slice(SPOKEN_MAX / 2));
     this.spoken.add(customer);
     this.count++;
     this.nextAt = now + this.gap(visible);

@@ -11,7 +11,7 @@
 import { CONFIG } from '../../../../shared/sim/config';
 import type { ShopId } from '../../../../shared/sim/types';
 import {
-  admit, AMBIENT_DIRECTORS, AmbientVoice, candidates, daySeed, MAX_BUBBLES, placeBubbles, popOf, tailTip, type AvoidRect, type Candidate, type Placed,
+  admit, AMBIENT_DIRECTORS, AMBIENT_MUTED, AmbientVoice, candidates, daySeed, MAX_BUBBLES, placeBubbles, popOf, tailTip, type AvoidRect, type Candidate, type Placed,
   type Placing, type Shown,
 } from '../bubbles';
 import type { RenderContext } from '../Scene';
@@ -148,10 +148,12 @@ export function drawSpeech(rc: RenderContext): void {
   const now = rc.now;
   let sales: { shop: ShopId; customer: number; correct: boolean; t: number }[] | null = null;
   const ambient = AMBIENT_DIRECTORS.has(d);
+  // Muted (a screen covers the street): nobody may speak, so bubbles still up pop out and none start.
+  const muted = ambient && AMBIENT_MUTED.has(d);
   // The ambient street says nothing of the sim: the director's requests and cues are not used there.
   if (!ambient) for (const c of rc.cues) if (c.kind === 'sale') (sales ??= []).push(c);
   let chat: Candidate[] = [];
-  if (ambient) {
+  if (ambient && !muted) {
     const live = st.shown.filter(b => b.until > now);
     const eligible: number[] = [];
     let visible = 0;
@@ -169,8 +171,10 @@ export function drawSpeech(rc: RenderContext): void {
     const res = admit(st.shown, chat.length > 0 ? chat : requests.length > 0 || sales !== null
       ? candidates(requests, sales ?? [], st.daySeed) : [], {
       now, daySeed: st.daySeed,
-      canSpeak: id => canSpeak(rc, id),
-      canStart: id => canStart(rc, id),
+      canSpeak: id => !muted && canSpeak(rc, id),
+      // The edge inset is for ambient chatter only: a live rush word near the edge is shifted in by the layout.
+      canStart: ambient ? id => canStart(rc, id) : undefined,
+      tod: rc.timeOfDay,
       priceOf: shop => (shop === null ? null : d.shops.find(s => s.id === shop)?.price ?? null),
     }, st.waiting);
     st.shown = res.shown;

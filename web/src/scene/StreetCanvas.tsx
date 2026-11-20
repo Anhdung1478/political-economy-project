@@ -15,7 +15,7 @@ import {
 } from 'react';
 import type { RushState, SimEvent } from '../../../shared/sim/types';
 import { AmbientClock, AmbientDriver, ambientStreet } from './ambient';
-import { AMBIENT_DIRECTORS } from './bubbles';
+import { AMBIENT_DIRECTORS, AMBIENT_MUTED } from './bubbles';
 import { Director } from './director';
 import { fitLayout } from './layout';
 import type { TimeOfDay } from './lighting';
@@ -55,6 +55,8 @@ export interface StreetCanvasProps {
    * ambient street when there is no `snapshot`) come from it. Default 1.
    */
   seed?: number;
+  /** Ambient chatter on (default) or off: off while a screen covers the street (cards, report, end). */
+  chatter?: boolean;
   className?: string;
   ref?: Ref<StreetCanvasHandle>;
 }
@@ -66,7 +68,7 @@ const AMBIENT_WARM = 220;
 const AMBIENT_FPS = 30;
 
 export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reducedMotion, timeOfDay, onFps, fallback,
-  seed = 1, className, ref }: StreetCanvasProps) {
+  seed = 1, chatter = true, className, ref }: StreetCanvasProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const director = useRef<Director | null>(null);
@@ -180,6 +182,12 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
     ambient.current?.driver.setPace(timeOfDay ?? 'noon', scene.current?.reducedMotion ?? false);
   }, [timeOfDay]);
   useEffect(() => { scene.current?.setSeed(seed); }, [seed]);
+  useEffect(() => {
+    const d = director.current;
+    if (d === null) return;
+    if (chatter) AMBIENT_MUTED.delete(d);
+    else AMBIENT_MUTED.add(d);
+  }, [chatter]);
 
   return (
     <div ref={box} className={className} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>

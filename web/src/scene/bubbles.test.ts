@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BubbleRequest } from './director';
 import {
-  admit, AMBIENT_GAP_MIN, AMBIENT_LINES, AmbientVoice, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, MIN_SHOW, placeBubbles, popOf, POP_OUT,
+  admit, AMBIENT_GAP_MIN, AMBIENT_LINES, ambientLinesFor, SPOKEN_MAX, AmbientVoice, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, MIN_SHOW, placeBubbles, popOf, POP_OUT,
   rankOf, situationOf, tailTip, WAIT_TICKS, wordsFor, type AdmitContext, type Candidate, type Placing, type Shown, type Situation,
 } from './bubbles';
 
@@ -362,5 +362,44 @@ describe('where they go', () => {
     const t = tailTip({ x: 0, y: 0 }, { x: 30, y: 40 }, 10);
     expect(t.x).toBeCloseTo(6);
     expect(t.y).toBeCloseTo(8);
+  });
+});
+
+describe('the ambient pool by the hour', () => {
+  const SUN = /nắng|nóng/i;
+  it('sun and heat lines only in the morning and at noon; every hour has a pool', () => {
+    for (const tod of ['afternoon', 'evening'] as const) {
+      expect(ambientLinesFor(tod).filter(l => SUN.test(l))).toEqual([]);
+      expect(ambientLinesFor(tod).length).toBeGreaterThanOrEqual(10);
+    }
+    for (const tod of ['morning', 'noon'] as const) expect(ambientLinesFor(tod).some(l => SUN.test(l))).toBe(true);
+    expect(ambientLinesFor('evening')).not.toContain('Đi học muộn rồi mà vẫn phải ghé.');
+  });
+
+  it('a chat word picks from the pool of its hour', () => {
+    for (let c = 0; c < 60; c++) {
+      const r = admit([], [{ customer: c, situation: 'chat', player: false, shop: null, t: 0 }], ctx({ tod: 'evening' }));
+      expect(ambientLinesFor('evening')).toContain(r.shown[0].text);
+    }
+  });
+});
+
+describe('AmbientVoice memory', () => {
+  it('stays bounded over a long run: old speakers are forgotten past the cap', () => {
+    const voice = new AmbientVoice(3);
+    let t = 0;
+    let again = false;
+    for (let id = 0; id < SPOKEN_MAX * 3; id++) {
+      for (let k = 0; k < 200; k++) {
+        const c = voice.pick(t++, [id], 1, 0);
+        if (c !== null) break;
+      }
+    }
+    // Id 0 spoke long ago and is forgotten; the latest is not.
+    for (let k = 0; k < 400 && !again; k++) again = voice.pick(t++, [0], 1, 0) !== null;
+    expect(again).toBe(true);
+    let latest = false;
+    for (let k = 0; k < 400 && !latest; k++) latest = voice.pick(t++, [SPOKEN_MAX * 3 - 1], 1, 0) !== null;
+    expect(latest).toBe(false);
   });
 });

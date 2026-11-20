@@ -234,7 +234,8 @@ export default function Game(props: GameProps) {
     <div className={cx('game', `game--${phase}`)} data-game="" data-phase={phase} data-tod={tod}>
       <div className="game__street" aria-hidden={phase !== 'rush'}>
         <StreetCanvas ref={canvas} snapshot={snapshot} mode={r.opening ? 'live' : 'ambient'} simTime={r.simTime}
-          timeOfDay={tod} seed={run.seed} />
+          timeOfDay={tod} seed={run.seed}
+          chatter={phase !== 'cards' && phase !== 'report' && phase !== 'end'} />
       </div>
       {phase !== 'rush' && !showTitle && (
         <header className="hud" aria-label="Tình hình quán">
