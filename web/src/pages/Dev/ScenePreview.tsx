@@ -3,11 +3,14 @@
 // scripts/shoot.ts) opens the same street:
 //   /dev/scene?day=3&seed=7&strategy=reasonable&speed=1&autoplay=1&t=300&hud=1&reduced=0
 // `t` starts at that tick (the street rebuilt from the state there), `hud=0` hides the controls, `reduced=1|0` forces
-// reduced motion on or off.
+// reduced motion on or off, `tod=morning|noon|afternoon|evening` sets the light. `sheet=shops` shows the shop sheet
+// instead (every shop in every state, ShopSheet.tsx).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Day } from '../../../../shared/sim/types';
+import { TIMES_OF_DAY, type TimeOfDay } from '../../scene/lighting';
 import { StreetCanvas, type StreetCanvasHandle } from '../../scene/StreetCanvas';
 import { replayOf, stateAt, strategyIds, type Replay } from './replay';
+import ShopSheet from './ShopSheet';
 import './scenePreview.css';
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -20,6 +23,7 @@ const TAIL = 60;
 interface Params {
   day: Day; seed: number; strategy: string; speed: number; autoplay: boolean; t: number; hud: boolean;
   reduced: boolean | undefined;
+  tod: TimeOfDay;
 }
 
 function readParams(): Params {
@@ -40,10 +44,15 @@ function readParams(): Params {
     t: int('t', 0, 0, END),
     hud: q.get('hud') !== '0',
     reduced: reduced === null ? undefined : reduced === '1',
+    tod: (TIMES_OF_DAY as readonly string[]).includes(q.get('tod') ?? '') ? q.get('tod') as TimeOfDay : 'noon',
   };
 }
 
 export default function ScenePreview() {
+  return new URLSearchParams(location.search).get('sheet') === 'shops' ? <ShopSheet /> : <StreetPreview />;
+}
+
+function StreetPreview() {
   const initial = useMemo(readParams, []);
   const [day, setDay] = useState<Day>(initial.day);
   const [seed, setSeed] = useState(initial.seed);
@@ -127,7 +136,7 @@ export default function ScenePreview() {
   return (
     <div className="scene-dev">
       <StreetCanvas ref={handle} snapshot={snapshot} mode="live" simTime={() => clock.current.t}
-        reducedMotion={initial.reduced} onFps={setFps} />
+        reducedMotion={initial.reduced} timeOfDay={initial.tod} onFps={setFps} />
       {initial.hud && (
         <div className="scene-dev__hud">
           <div className="scene-dev__bar">

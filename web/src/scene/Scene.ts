@@ -4,13 +4,21 @@
 // prefers-reduced-motion, and measures frames per second (`window.__sceneFps` in dev).
 //
 // What is drawn comes from a renderer registry: the street, each shop, each customer, the props, then the named
-// overlay layers in order (lighting, particles, bubbles, hud). The customers are draw/characters.ts (Task 15);
-// placeholder art fills the rest (draw/placeholder.ts) until Tasks 16–17 plug in theirs with `registerRenderers`. A
-// renderer that keeps throwing stops the scene and calls `onFail` (the street then falls back to its list, spec §13).
+// overlay layers in order (lighting, particles, bubbles, hud). The customers are draw/characters.ts (Task 15); the
+// street, shops, props, light and particles are Task 16's (draw/street.ts, draw/shops.ts, draw/props.ts, lighting.ts,
+// particles.ts); the bubbles are still a placeholder (draw/placeholder.ts) until Task 17 plugs in its own with
+// `registerRenderers`. A renderer that keeps throwing stops the scene and calls `onFail` (the street then falls back
+// to its list, spec §13).
 import type { Actor, BubbleRequest, Cue, Director, ShopView } from './director';
 import { drawCustomer } from './draw/characters';
-import { placeholderRenderers } from './draw/placeholder';
+import { drawBubbles } from './draw/placeholder';
+import { drawProp, props } from './draw/props';
+import { drawShop } from './draw/shops';
+import { drawStreet } from './draw/street';
 import { fitLayout, type Fit, type Rect, type ShopSlot, type StreetLayout } from './layout';
+import { drawLighting, type TimeOfDay } from './lighting';
+import { drawParticlesLayer } from './particlesLayer';
+import type { Grid } from './sprites';
 
 /** Device pixels per CSS pixel, at most (spec §9). */
 export const MAX_DPR = 2;
@@ -42,10 +50,17 @@ export function readPalette(): Palette {
   return out;
 }
 
-/** Things on the street that are neither shops nor customers, depth-sorted with them. Task 16 adds its own. */
+/** The street's own furniture and the day's props (draw/props.ts), each one kind of art. */
+export type ArtKind =
+  | 'poles' | 'tree' | 'shelter' | 'site' | 'bus' | 'van' | 'moto' | 'cat' | 'officer';
+
+/**
+ * Things on the street that are neither shops nor customers, depth-sorted with them at `y`: a folded queue's "+n",
+ * and art (`x` and `i` are the art's own: which tree, which motorbike stream).
+ */
 export type Prop =
   | { kind: 'overflow'; x: number; y: number; shop: ShopView['id']; n: number }
-  | { kind: 'busStop'; x: number; y: number };
+  | { kind: 'art'; art: ArtKind; x: number; y: number; i: number };
 
 /** Everything a renderer gets for one frame. Coordinates are logical units (the layout's). */
 export interface RenderContext {
@@ -63,6 +78,10 @@ export interface RenderContext {
   dt: number;
   /** Device pixels per logical unit (hairlines: 1 / pxPerUnit). */
   pxPerUnit: number;
+  /** Logical → device pixels (k = pxPerUnit), for sprites blitted on the device grid (sprites.ts). */
+  grid: Grid;
+  /** The light of the hour (the rush is at noon). */
+  timeOfDay: TimeOfDay;
   /** prefers-reduced-motion: no ambience or particles; state changes still show. */
   reducedMotion: boolean;
   palette: Palette;
@@ -97,8 +116,11 @@ export interface Renderers {
 /** What a task plugs in: any of the draw functions, and any overlay layers (merged layer by layer). */
 export type RendererPatch = Partial<Omit<Renderers, 'overlays'>> & { overlays?: Partial<Record<OverlayLayer, Overlay>> };
 
-/** Placeholder art (Task 14) with the real customers (Task 15); Tasks 16–17 plug in the rest. */
-let registry: Renderers = { ...placeholderRenderers, drawCustomer };
+/** The street, shops, props, light and particles (Task 16), the customers (Task 15), placeholder bubbles (Task 17's). */
+let registry: Renderers = {
+  drawStreet, drawShop, drawCustomer, props, drawProp,
+  overlays: { lighting: drawLighting, particles: drawParticlesLayer, bubbles: drawBubbles },
+};
 
 /**
  * Plugs renderers in (Tasks 15–17): `registerRenderers({ drawCustomer })` replaces only that one;
@@ -125,6 +147,8 @@ export interface SceneOptions {
   onFail?: (error: unknown) => void;
   /** Forces reduced motion on or off; undefined follows prefers-reduced-motion. */
   reducedMotion?: boolean;
+  /** The light of the hour; noon by default (the rush). */
+  timeOfDay?: TimeOfDay;
 }
 
 interface Item { depth: number; kind: 0 | 1 | 2; i: number }
@@ -143,6 +167,8 @@ export class Scene {
   private fpsFrames = 0;
   private fpsSince = 0;
   private forcedReduced: boolean | undefined;
+  private tod: TimeOfDay;
+  private readonly grid: Grid = { k: 1, devX: 0, devY: 0 };
   private failures = 0;
   private readonly items: Item[] = [];
   private readonly shopsNow: ShopView[] = [];
@@ -155,6 +181,7 @@ export class Scene {
     this.ctx = ctx;
     this.palette = readPalette();
     this.forcedReduced = opts.reducedMotion;
+    this.tod = opts.timeOfDay ?? 'noon';
     this.media = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
     this.fit = fitLayout(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -162,6 +189,8 @@ export class Scene {
 
   get reducedMotion(): boolean { return this.forcedReduced ?? this.media?.matches ?? false; }
   setReducedMotion(v: boolean | undefined): void { this.forcedReduced = v; }
+  get timeOfDay(): TimeOfDay { return this.tod; }
+  setTimeOfDay(t: TimeOfDay): void { this.tod = t; }
 
   /** The canvas box is `w × h` CSS pixels: backing store at up to 2 device pixels each, the layout refitted. */
   resize(w: number, h: number): void {
@@ -249,9 +278,14 @@ export class Scene {
     const r = registry;
     const { ctx, fit } = this;
     const k = fit.scale * this.dpr;
-    ctx.setTransform(k, 0, 0, k, fit.ox * this.dpr, fit.oy * this.dpr);
+    const g = this.grid;
+    g.k = k;
+    g.devX = fit.ox * this.dpr;
+    g.devY = fit.oy * this.dpr;
+    ctx.setTransform(k, 0, 0, k, g.devX, g.devY);
     const rc: RenderContext = {
       ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: wall - this.lastWall, pxPerUnit: k,
+      grid: g, timeOfDay: this.tod,
       reducedMotion: this.reducedMotion, palette: this.palette, bubbles: d.takeBubbles(), cues: d.takeCues(),
       store: this.store,
     };

@@ -12,6 +12,7 @@ import {
 import type { RushState, SimEvent } from '../../../shared/sim/types';
 import { Director } from './director';
 import { fitLayout } from './layout';
+import type { TimeOfDay } from './lighting';
 import { Scene } from './Scene';
 
 export interface StreetCanvasHandle {
@@ -37,6 +38,8 @@ export interface StreetCanvasProps {
   tickMs?: number;
   /** Forces reduced motion; default: prefers-reduced-motion. */
   reducedMotion?: boolean;
+  /** The light of the hour (default noon, the rush); Phase 3's morning and evening use the others. */
+  timeOfDay?: TimeOfDay;
   onFps?: (fps: number) => void;
   /** Shown when the canvas cannot start. */
   fallback?: ReactNode;
@@ -46,8 +49,8 @@ export interface StreetCanvasProps {
 
 const TICK_MS = 100;
 
-export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reducedMotion, onFps, fallback, className,
-  ref }: StreetCanvasProps) {
+export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reducedMotion, timeOfDay, onFps, fallback,
+  className, ref }: StreetCanvasProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const director = useRef<Director | null>(null);
@@ -123,6 +126,7 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
   }, [snapshot]);
 
   useEffect(() => { scene.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
+  useEffect(() => { scene.current?.setTimeOfDay(timeOfDay ?? 'noon'); }, [timeOfDay]);
 
   return (
     <div ref={box} className={className} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
