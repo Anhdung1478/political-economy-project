@@ -110,7 +110,7 @@ describe('PlayController', () => {
 
     p.ctl.reportDay(atReport(2));
     await until(() => member().days.length === 2, 'two days');
-    expect(p.view().rank).toBe(1);
+    await until(() => p.view().rank === 1, 'the rank from the ack'); // the ack follows the server's own update
     expect(p.store.get(PLAY_KEYS.rank)).toContain('"day":2');
     p.ctl.reportDay(atReport(3));
     await until(() => member().days.length === 3, 'three days');
@@ -118,7 +118,7 @@ describe('PlayController', () => {
     p.ctl.reportDay(withReporter(full, 'B'));
     await until(() => member().days.length === 5 && member().vote.after === 'visible', 'the run and the after vote');
     expect(member().finished).toBe(true);
-    expect(p.ctl.pending()).toBe(0);
+    await until(() => p.ctl.pending() === 0, 'an empty queue');
   });
 
   it('sends the reporter vote of an early loser', async () => {
@@ -147,7 +147,7 @@ describe('PlayController', () => {
     const p = await phone(url, store);
     await until(() => member().days.length === 5, 'five days after the reload');
     await until(() => p.ctl.pending() === 0, 'an empty queue');
-    expect(p.view().rank).toBe(1);
+    await until(() => p.view().rank === 1, 'the rank');
     expect(member().finished).toBe(true);
   });
 
@@ -190,7 +190,7 @@ describe('PlayController', () => {
     p.socket.connect();
     await until(() => member().days.length === 1, 'the day after reconnect and resume');
     await until(() => member().progress?.phase === 'rush', 'progress after resume');
-    expect(p.ctl.pending()).toBe(0);
+    await until(() => p.ctl.pending() === 0, 'an empty queue');
   });
 
   it('after a host reset: a new session code drops the old run, vote and rank and goes back to the lobby', async () => {
