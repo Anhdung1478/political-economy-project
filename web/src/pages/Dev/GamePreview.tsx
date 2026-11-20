@@ -1,0 +1,69 @@
+// /dev/game (dev builds only): the real game screens on a run a bot has played up to the chosen day and phase, then
+// handed over to the UI. Nothing is saved. For screenshots (scripts/shoot.ts):
+//   /dev/game?seed=7&day=3&phase=morning&strategy=reasonable&title=1
+// `phase` = morning | rush | cards | report | end; `title` = 1 (plays, the default) | 0 (skipped on the first morning)
+// | hold (stays on screen); `scroll=plan` scrolls the morning's plan into view (phone upright); `autoopen=MS` presses
+// "Mở cửa" MS ms after the morning shows (to film the delivery van).
+import { useEffect, useMemo } from 'react';
+import type { Day } from '../../../../shared/sim/types';
+import Game from '../Game/Game';
+import { DEV_PHASES, gameAt, type DevPhase } from './gameAt';
+import { strategyIds } from './replay';
+import './scenePreview.css';
+
+interface Params { seed: number; day: Day; phase: DevPhase; strategy: string; title: 'auto' | 'hold' | 'skip' }
+
+function readParams(): Params {
+  const q = new URLSearchParams(location.search);
+  const int = (k: string, def: number, lo: number, hi: number) => {
+    const n = Number(q.get(k) ?? def);
+    return Number.isInteger(n) ? Math.min(hi, Math.max(lo, n)) : def;
+  };
+  const phase = (DEV_PHASES as readonly string[]).includes(q.get('phase') ?? '') ? q.get('phase') as DevPhase : 'morning';
+  const strategy = strategyIds().includes(q.get('strategy') ?? '') ? q.get('strategy')! : 'reasonable';
+  const t = q.get('title');
+  return {
+    seed: int('seed', 7, 0, 2 ** 31 - 1), day: int('day', 1, 1, 5) as Day, phase, strategy,
+    title: t === 'hold' ? 'hold' : t === '0' ? 'skip' : 'auto',
+  };
+}
+
+export default function GamePreview() {
+  const p = useMemo(readParams, []);
+  const start = useMemo(() => {
+    try {
+      return { state: gameAt(p.seed, p.day, p.phase, p.strategy), error: null };
+    } catch (e) {
+      return { state: null, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [p]);
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('scroll') !== 'plan') return;
+    const t = window.setInterval(() => {
+      const plan = document.querySelector('.morning__plan');
+      if (plan === null) return;
+      plan.scrollIntoView({ block: 'start' });
+      window.clearInterval(t);
+    }, 200);
+    return () => window.clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const ms = Number(new URLSearchParams(location.search).get('autoopen'));
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    let pressed = false;
+    const t = window.setInterval(() => {
+      const btn = document.querySelector<HTMLButtonElement>('.open-btn');
+      if (btn === null || pressed) return;
+      pressed = true;
+      window.setTimeout(() => btn.click(), ms);
+      window.clearInterval(t);
+    }, 100);
+    return () => window.clearInterval(t);
+  }, []);
+  if (start.state === null) return <div className="scene-dev"><p className="scene-dev__error">{start.error}</p></div>;
+  const state = start.state;
+  return (
+    <Game mode="solo" seed={p.seed} runId={state.run.runId} persistKey={null} initial={() => state} titleMode={p.title}
+      onDayReport={(summary) => console.info('[dev/game] day report', summary)} />
+  );
+}
