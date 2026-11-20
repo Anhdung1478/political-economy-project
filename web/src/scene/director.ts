@@ -92,6 +92,10 @@ export interface Actor {
   cause: LeaveCause | null;
   /** A cup in hand. */
   carrying: boolean;
+  /** The cup in hand is the wrong one (served wrong): they walk off grumbling. */
+  cupWrong: boolean;
+  /** Day 5: the rumor scared them off (`Customer.scared`); they whisper at the boards and hurry away. */
+  readonly scared: boolean;
   /** The queue they stand in, as the sim has it, and their place in it (0 at the counter); null / −1 otherwise. */
   shop: ShopId | null;
   slot: number;
@@ -488,7 +492,10 @@ export class Director {
           correct: e.correct });
         const a = this.leaveQueue(e.t, e.customer, e.shop, e.correct ? 'served' : 'wrongCup',
           e.correct ? SERVED_TICKS : WRONG_TICKS);
-        if (a !== null) a.carrying = true;
+        if (a !== null) {
+          a.carrying = true;
+          a.cupWrong = !e.correct;
+        }
         if (!e.correct) this.say(e.t, e.customer, 'wrongCup', e.shop);
         return;
       }
@@ -616,13 +623,16 @@ export class Director {
 
   private onLeave(t: Tick, id: number, outcome: CustomerOutcome, emptyHanded: boolean): void {
     const a = this.cast.get(id);
+    // Whatever they were holding for ends: the walk in, the endless read of the boards while browsing. Only a short
+    // last look (the pass-by's, from their consider) is kept before they go.
+    if (a !== undefined) a.plan = a.plan.filter(s => !s.hold || (s.to === null && Number.isFinite(s.ticks)));
     if (a !== undefined && a.shop !== null) {
       // Still queued at the end of the rush: they just go home.
       const v = this.shop(a.shop);
       const at = v.queue.indexOf(id);
       if (at >= 0) v.queue.splice(at, 1);
       a.lane = slotOf(this.L, a.shop).row === 'top' ? 0 : 1;
-      a.plan = a.plan.filter(s => !s.toQueue && !s.hold);
+      a.plan = a.plan.filter(s => !s.toQueue);
       a.shop = null;
       a.slot = -1;
       a.joinedAt = null;
@@ -666,7 +676,8 @@ export class Director {
     const dir: 1 | -1 = entry === 'left' ? 1 : -1;
     const a: ActorState = {
       id, look, entry, x: 0, y: 0, facing: dir, heading: dir > 0 ? 'right' : 'left', speed: 0, activity: 'idle',
-      since: this.t, gaze: null, cause: null, carrying: false, shop: null, slot: -1, joinedAt: null, leaving: false,
+      since: this.t, gaze: null, cause: null, carrying: false, cupWrong: false,
+      scared: this.customers[id]?.scared ?? false, shop: null, slot: -1, joinedAt: null, leaving: false,
       hidden: false, playerRelated: false,
       plan: [], lane: laneOf(look, entry), laneOffset: laneOffsetOf(look, this.L), dir, visits: 0,
     };

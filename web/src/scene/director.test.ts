@@ -195,6 +195,35 @@ describe('a customer joins the right queue at the right place', () => {
     play(d, 140);
     expect(d.actor(0)).toBeUndefined();
   });
+
+  it('a browsing walker told to leave without a consider (the rush ending) stops reading and walks off', () => {
+    const d = director();
+    at(d, 0, enter(0, 0, 'left'));
+    play(d, 40);
+    expect(actor(d, 0).activity).toBe('lookBoard');   // the endless browse hold
+    at(d, 40, leave(40, 0, 'rushEnd'));
+    play(d, 42);
+    expect(actor(d, 0).activity).toBe('walk');
+    expect(actor(d, 0).leaving).toBe(true);
+    play(d, 200);
+    expect(d.actor(0)).toBeUndefined();
+  });
+
+  it('a wrong cup is remembered on the walk off; a scared customer is marked scared', () => {
+    const d = director();
+    queueUp(d, 0, 0, 'batu');
+    play(d, 60);
+    at(d, 60, served(60, 0, 'batu', false), leave(60, 0, 'servedWrong'));
+    expect(actor(d, 0).carrying).toBe(true);
+    expect(actor(d, 0).cupWrong).toBe(true);
+    const s0 = day1();
+    const rush = quiet({ ...s0, customers: s0.customers.map(c => (c.id === 3 ? { ...c, scared: true } : c)) });
+    const e = new Director(PORTRAIT);
+    e.reset(rush);
+    at(e, 0, enter(0, 3), enter(0, 4));
+    expect(actor(e, 3).scared).toBe(true);
+    expect(actor(e, 4).scared).toBe(false);
+  });
 });
 
 describe('heading: which way they face, for the walk-cycle view', () => {
