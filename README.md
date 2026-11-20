@@ -38,7 +38,7 @@ docker build -t pho-tra-sua .
 docker run -d -p 3000:3000 -v pho-tra-sua-data:/app/.data -e HOST_KEY=mat-khau-host -e PUBLIC_URL=https://ten-mien-cua-ban pho-tra-sua
 ```
 
-`-v pho-tra-sua-data:/app/.data` giữ file buổi lớp (`SESSION_FILE`, mặc định `.data/session.json` trong `/app`) qua lần deploy lại container. Lưu ý: `docker build` chưa được chạy thử trên nhánh này (máy dev không bật Docker); hãy build một lần trước khi deploy thật.
+`-v pho-tra-sua-data:/app/.data` giữ file buổi lớp (`SESSION_FILE`, mặc định `.data/session.json` trong `/app`) qua lần deploy lại container.
 
 Sau reverse proxy (nginx) phải bật WebSocket (`proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). `GET /healthz` trả `ok`.
 
