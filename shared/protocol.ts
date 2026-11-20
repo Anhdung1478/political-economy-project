@@ -58,8 +58,10 @@ export interface BoardMember {
   progress: Progress | null;
   /** From the last day sent; null before any. */
   score: K | null; rep: number | null; lastPrice: K | null;
+  /** "Tổng lãi" (R51): the last day's cash − the starting cash, consistent with the score; null before any day. */
+  profit: K | null;
   /** Sums over the days sent. */
-  profit: K; cups: number; wrong: number; walkouts: number;
+  cups: number; wrong: number; walkouts: number;
   /** Every label of every day, once each, in the order of `CHOICE_LABELS`. */
   labels: ChoiceLabel[];
   vote: { before: VoteChoice | null; after: VoteChoice | null };
@@ -93,10 +95,12 @@ export type Ack<T extends object = object> = ({ ok: true } & T) | { ok: false; e
 export interface ClientToServer {
   'player:join': (p: { nickname: string }, ack: (r: Ack<{ playerId: string; token: string }>) => void) => void;
   'player:resume': (p: { token: string }, ack: (r: Ack<{ playerId: string; name: string }>) => void) => void;
-  'player:vote': (p: Vote, ack: (r: Ack) => void) => void;
+  /** `code`: the session the vote was queued in; a vote from before a reset is refused (`wrongSession`). */
+  'player:vote': (p: Vote & { code: string }, ack: (r: Ack) => void) => void;
   'player:progress': (p: Progress) => void;
-  /** Rank among the players who have finished that day (by that day's score). */
-  'player:day': (p: { runId: string; summary: DaySummary }, ack: (r: Ack<{ rank: number }>) => void) => void;
+  /** Rank among the players who have finished that day (by that day's score). `code`: the session the run was
+   *  played in; a run from before a reset (old seed) is refused (`wrongSession`). */
+  'player:day': (p: { code: string; runId: string; summary: DaySummary }, ack: (r: Ack<{ rank: number }>) => void) => void;
   'host:auth': (p: { key: string }, ack: (r: Ack) => void) => void;
   'host:open': () => void;
   'host:awards': () => void;

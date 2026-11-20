@@ -2,7 +2,7 @@
 // deterministic under the injected clock, random and uuid; `persist` is called after every change.
 import { randomUUID } from 'node:crypto';
 import {
-  type Ack, type AwardsResult, type BoardMember, CHOICE_LABELS, type HostBoard, LIMITS, type Progress,
+  AWARDS, type Ack, type AwardsResult, type BoardMember, CHOICE_LABELS, type HostBoard, LIMITS, type Progress,
   type SessionCounts, type SessionPhase, type SessionSnapshot, type Vote, type VoteChoice,
   parseDaySummary, parseProgress, parseVote,
 } from '../shared/protocol';
@@ -76,7 +76,8 @@ export class Session {
 
   join(raw: string): Ack<{ playerId: string; token: string }> {
     if (this.phase === 'awards') return { ok: false, error: 'Buổi đã kết thúc' };
-    const name = String(raw ?? '').trim().replace(/\s+/g, ' ');
+    if (typeof raw !== 'string') return { ok: false, error: `Tên phải từ 1 đến ${LIMITS.nickname} ký tự` };
+    const name = raw.trim().replace(/\s+/g, ' ');
     if (!name || name.length > LIMITS.nickname) return { ok: false, error: `Tên phải từ 1 đến ${LIMITS.nickname} ký tự` };
     if (this.players.size >= LIMITS.maxPlayers) return { ok: false, error: 'Phố đông quá, hết chỗ rồi 😭' };
     const id = `p${++this.seq}`;
@@ -104,16 +105,23 @@ export class Session {
     if (p) p.connected = connected;
   }
 
-  /** `before` in the lobby or while open; `after` while open or after the awards. */
-  vote(id: string, raw: Vote): void {
+  /**
+   * `before` in the lobby or while open; `after` while open or after the awards. `code` is the session the phone
+   * queued the vote in: a vote from before a reset is refused.
+   */
+  vote(id: string, code: string, raw: Vote): Ack {
     const p = this.players.get(id);
+    if (!p) return { ok: false, error: 'unknownPlayer' };
+    if (code !== this.code) return { ok: false, error: 'wrongSession' };
     const v = parseVote(raw);
-    if (!p || !v) return;
+    if (!v) return { ok: false, error: 'badVote' };
     const allowed = v.when === 'before' ? this.phase !== 'awards' : this.phase !== 'lobby';
-    if (!allowed || p.votes[v.when] === v.choice) return;
+    if (!allowed) return { ok: false, error: 'wrongPhase' };
+    if (p.votes[v.when] === v.choice) return { ok: true };
     p.votes[v.when] = v.choice;
     p.lastActive = this.now();
     this.changed();
+    return { ok: true };
   }
 
   /** Where the player is in their run; only once the market is open. */
@@ -121,6 +129,7 @@ export class Session {
     const p = this.players.get(id);
     const pr = parseProgress({ day, phase });
     if (!p || !pr || this.phase === 'lobby') return;
+    if (p.progress?.day === pr.day && p.progress.phase === pr.phase) return;
     p.progress = pr;
     p.lastActive = this.now();
     this.changed();
@@ -129,10 +138,12 @@ export class Session {
   /**
    * One day of a run. Only the player's first run id, only the next expected day; a day already stored is a
    * duplicate: ignored, answered with its rank. Accepted while open and after the awards (which stay frozen).
+   * `code` is the session the run was played in: a run from before a reset (an old seed) is refused.
    */
-  submitDay(id: string, runId: string, raw: DaySummary): Ack<{ rank: number }> {
+  submitDay(id: string, code: string, runId: string, raw: DaySummary): Ack<{ rank: number }> {
     const p = this.players.get(id);
     if (!p) return { ok: false, error: 'unknownPlayer' };
+    if (code !== this.code) return { ok: false, error: 'wrongSession' };
     if (this.phase === 'lobby') return { ok: false, error: 'notOpen' };
     if (typeof runId !== 'string' || runId === '' || runId.length > 100) return { ok: false, error: 'badRun' };
     if (p.runId !== null && p.runId !== runId) return { ok: false, error: 'otherRun' };
@@ -205,12 +216,12 @@ export class Session {
     this.changed();
   }
 
-  /** Players by score (none last), then total profit, then join order. */
+  /** Players by score (none last), then total profit (cash − start, R53), then join order. */
   private ranked(): { p: Player; score: number | null }[] {
     return [...this.players.values()]
       .map(p => ({ p, t: totals(p.days) }))
       .sort((a, b) => (b.t.score ?? -Infinity) - (a.t.score ?? -Infinity)
-        || (a.t.score === null ? 0 : b.t.profit - a.t.profit) || a.p.order - b.p.order)
+        || (b.t.profit ?? 0) - (a.t.profit ?? 0) || a.p.order - b.p.order)
       .map(({ p, t }) => ({ p, score: t.score }));
   }
 
@@ -277,18 +288,33 @@ export class Session {
 
   /** Throws when `data` is not a session written by `toJSON`. Every player comes back disconnected. */
   static fromJSON(data: unknown, opts: SessionOptions = {}): Session {
-    const d = data as Partial<SessionData> | null;
     const fail = (why: string): never => { throw new Error(`not a session file: ${why}`); };
-    if (typeof d !== 'object' || d === null || d.v !== 1) fail('version');
-    const v = d as SessionData;
-    if (typeof v.code !== 'string' || v.code === '') fail('code');
-    if (!Number.isInteger(v.seed) || !Number.isInteger(v.seq) || v.seq < 0) fail('seed');
+    const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+    const finite = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
+    const posInt = (x: unknown) => Number.isInteger(x) && (x as number) >= 1;
+    if (!isObj(data) || data.v !== 1) fail('version');
+    const v = data as unknown as SessionData;
+    if (typeof v.code !== 'string' || v.code === '' || v.code.length > 16) fail('code');
+    if (!Number.isInteger(v.seed) || v.seed < 0 || v.seed >= SEED_RANGE) fail('seed');
+    if (!Number.isInteger(v.seq) || v.seq < 0) fail('seq');
     if (!['lobby', 'open', 'awards'].includes(v.phase)) fail('phase');
-    if (!Array.isArray(v.players)) fail('players');
-    const a = v.awards as unknown;
-    if (a !== null && !(typeof a === 'object' && a !== null && Array.isArray((a as AwardsResult).awards)
-      && Array.isArray((a as AwardsResult).top) && typeof (a as AwardsResult).ranks === 'object')) fail('awards');
-    if (v.phase === 'awards' && a === null) fail('awards');
+    if (!Array.isArray(v.players) || v.players.length > LIMITS.maxPlayers) fail('players');
+    if ((v.phase === 'awards') !== (v.awards !== null)) fail('awards');
+    if (v.awards !== null) {
+      const a = v.awards as unknown;
+      const awardIds = AWARDS.map(x => x.id) as string[];
+      if (!isObj(a) || !Array.isArray(a.awards) || !Array.isArray(a.top) || a.top.length > TOP_COUNT || !isObj(a.ranks)) fail('awards');
+      const r = a as Record<string, unknown[]> & { ranks: Record<string, unknown> };
+      for (const x of r.awards) {
+        if (!isObj(x) || !awardIds.includes(x.id as string) || typeof x.emoji !== 'string' || typeof x.title !== 'string'
+          || typeof x.playerId !== 'string' || typeof x.name !== 'string' || !finite(x.value)) fail('award');
+      }
+      for (const x of r.top) {
+        if (!isObj(x) || typeof x.playerId !== 'string' || typeof x.name !== 'string' || !finite(x.score)
+          || !posInt(x.rank)) fail('top');
+      }
+      if (!Object.values(r.ranks).every(posInt)) fail('ranks');
+    }
 
     const s = new Session(opts);
     s.phase = v.phase;
@@ -298,11 +324,16 @@ export class Session {
     s.frozen = v.awards;
     const vote = (x: unknown) => (x === null || x === 'invisible' || x === 'visible' ? x : fail('vote'));
     for (const raw of v.players as unknown[]) {
-      const p = raw as Player;
-      if (typeof p !== 'object' || p === null || typeof p.id !== 'string' || typeof p.token !== 'string'
-        || typeof p.name !== 'string' || !Number.isInteger(p.order) || !Array.isArray(p.days)
-        || typeof p.votes !== 'object' || p.votes === null) fail('player');
-      if (p.runId !== null && typeof p.runId !== 'string') fail('runId');
+      if (!isObj(raw)) fail('player');
+      const p = raw as unknown as Player;
+      const num = typeof p.id === 'string' && /^p[1-9]\d*$/.test(p.id) ? Number(p.id.slice(1)) : fail('id');
+      if (num > v.seq || p.order !== num) fail('seq');
+      if (s.players.has(p.id)) fail('duplicate id');
+      if (typeof p.token !== 'string' || p.token === '' || s.byToken.has(p.token)) fail('token');
+      if (typeof p.name !== 'string' || p.name === '' || p.name.length > LIMITS.nickname) fail('name');
+      if (!Array.isArray(p.days) || !isObj(p.votes)) fail('player');
+      if (p.runId !== null && (typeof p.runId !== 'string' || p.runId === '')) fail('runId');
+      if (p.runId === null && p.days.length > 0) fail('runId');
       const days = p.days.map((x, i) => {
         const ds = parseDaySummary(x);
         return ds !== null && ds.day === i + 1 ? ds : fail('day');
@@ -311,7 +342,7 @@ export class Session {
       s.players.set(p.id, {
         id: p.id, token: p.token, name: p.name, order: p.order, connected: false, runId: p.runId, days,
         votes: { before: vote(p.votes.before), after: vote(p.votes.after) }, progress,
-        lastActive: Number.isFinite(p.lastActive) ? p.lastActive : 0,
+        lastActive: finite(p.lastActive) ? p.lastActive : 0,
       });
       s.byToken.set(p.token, p.id);
     }

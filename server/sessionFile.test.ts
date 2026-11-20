@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Session } from './session';
-import { DEFAULT_SESSION_FILE, createSaver, loadSession, sessionFilePath } from './sessionFile';
+import { DEFAULT_SESSION_FILE, type Saver, type SaverIo, createSaver, loadSession, sessionFilePath } from './sessionFile';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'pts-session-')); });
@@ -30,6 +31,9 @@ describe('loadSession', () => {
     const log = vi.fn();
     expect(loadSession(file, {}, log)).toBeNull();
     expect(log).toHaveBeenCalledOnce();
+    // Kept as <name>.corrupt so the next save does not destroy it.
+    expect(existsSync(file)).toBe(false);
+    expect(readFileSync(`${file}.corrupt`, 'utf8')).toBe('{not json');
   });
   it('logs and returns null for JSON that is not a session', () => {
     const file = path.join(dir, 's.json');
@@ -97,6 +101,50 @@ describe('createSaver', () => {
     saver.save(() => ({ next: 2 }));
     await saver.flush();
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ next: 2 });
+  });
+
+  it('keeps a failed state pending and writes it on the next flush (EPERM on rename)', async () => {
+    const file = path.join(dir, 's.json');
+    const log = vi.fn();
+    let failRename = true;
+    const io: SaverIo = {
+      mkdir: d => fsp.mkdir(d, { recursive: true }),
+      writeFile: (f, t) => fsp.writeFile(f, t, 'utf8'),
+      rename: async (a, b) => {
+        if (failRename) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        await fsp.rename(a, b);
+      },
+    };
+    const saver = createSaver(file, 60_000, log, io);
+    saver.save(() => ({ v: 'newest' }));
+    await saver.flush();
+    expect(log).toHaveBeenCalledOnce();
+    expect(existsSync(file)).toBe(false);
+    failRename = false;
+    await saver.flush();
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ v: 'newest' });
+  });
+
+  it('a newer state that arrived during a failed write wins over the failed one', async () => {
+    const file = path.join(dir, 's.json');
+    let failRename = true;
+    let saver: Saver | null = null;
+    const io: SaverIo = {
+      mkdir: d => fsp.mkdir(d, { recursive: true }),
+      writeFile: async (f, t) => {
+        await fsp.writeFile(f, t, 'utf8');
+        if (failRename) saver?.save(() => ({ v: 'newer' }));
+      },
+      rename: async (a, b) => {
+        if (failRename) { failRename = false; throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); }
+        await fsp.rename(a, b);
+      },
+    };
+    saver = createSaver(file, 60_000, () => {}, io);
+    saver.save(() => ({ v: 'old' }));
+    await saver.flush();
+    await saver.flush();
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ v: 'newer' });
   });
 
   it('logs a state that cannot be serialized instead of throwing', async () => {

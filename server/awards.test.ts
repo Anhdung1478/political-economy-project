@@ -10,12 +10,13 @@ function entry(playerId: string, days: Partial<DaySummary>[], order = Number(pla
 const winner = (awards: ReturnType<typeof computeAwards>, id: string) => awards.find(a => a.id === id)?.playerId ?? null;
 
 describe('totals', () => {
-  it('sums the day counts and takes score, rep and price from the last day', () => {
+  it('sums the day counts and takes score, rep, price and profit (cash − start, R51) from the last day', () => {
     const t = totals([
-      daySummary({ day: 1, profit: 100, wasteValue: 2, cups: 10, wrong: 1, walkouts: 3, score: 500, rep: 50, closePrice: 30 }),
-      daySummary({ day: 2, profit: -20, wasteValue: 3, cups: 12, wrong: 2, walkouts: 0, score: 600, rep: 60, closePrice: 32 }),
+      daySummary({ day: 1, profit: 100, cash: 400, wasteValue: 2, cups: 10, wrong: 1, walkouts: 3, score: 500, rep: 50, closePrice: 30 }),
+      daySummary({ day: 2, profit: -20, cash: 450, wasteValue: 3, cups: 12, wrong: 2, walkouts: 0, score: 600, rep: 60, closePrice: 32 }),
     ]);
-    expect(t).toMatchObject({ days: 2, profit: 80, waste: 5, cups: 22, wrong: 3, walkouts: 3, score: 600, rep: 60,
+    // Σ daily profit is 80, but the upgrade and card money also moved the cash: profit is 450 − 300 = 150.
+    expect(t).toMatchObject({ days: 2, profit: 150, waste: 5, cups: 22, wrong: 3, walkouts: 3, score: 600, rep: 60,
       lastPrice: 32, lost: false, finished: false });
   });
   it('is finished after day 5 or a lost day', () => {
@@ -24,7 +25,7 @@ describe('totals', () => {
     expect(totals(five)).toMatchObject({ finished: true, lost: false });
   });
   it('has no score for a player with no days', () => {
-    expect(totals([])).toMatchObject({ days: 0, score: null, rep: null, lastPrice: null, profit: 0 });
+    expect(totals([])).toMatchObject({ days: 0, score: null, rep: null, lastPrice: null, profit: null });
   });
 });
 
@@ -56,10 +57,10 @@ describe('computeAwards', () => {
     expect(winner(awards, 'hoarder')).toBe('p1');
   });
 
-  it('breaks a tycoon tie by higher total profit', () => {
+  it('breaks a tycoon tie by higher total profit, cash − start (R53), not the sum of daily profit', () => {
     const awards = computeAwards([
-      entry('p1', [{ score: 800, profit: 100 }]),
-      entry('p2', [{ score: 800, profit: 50 }, { score: 800, profit: 90 }]),
+      entry('p1', [{ score: 800, profit: 200, cash: 420 }]),
+      entry('p2', [{ score: 800, profit: 50, cash: 300 }, { score: 800, profit: 90, cash: 430 }]),
     ]);
     expect(winner(awards, 'tycoon')).toBe('p2');
   });

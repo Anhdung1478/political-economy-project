@@ -1,5 +1,6 @@
 // The four class awards and their tie rules (spec §11 "Giải"), and the per-player totals the board also shows.
 import { AWARDS, type Award, type AwardId } from '../shared/protocol';
+import { CONFIG } from '../shared/sim/config';
 import type { DaySummary, K } from '../shared/sim/types';
 
 /** Cups a player must have sold for 🎯 Bàn Tay Vàng. */
@@ -16,8 +17,10 @@ export interface Totals {
   days: number;
   /** From the last day sent; null before any. */
   score: K | null; rep: number | null; lastPrice: K | null;
+  /** "Tổng lãi" (R51): the last day's cash − the starting cash, the profit part of the score; null before any day. */
+  profit: K | null;
   /** Sums over the days sent. */
-  profit: K; waste: K; cups: number; wrong: number; walkouts: number;
+  waste: K; cups: number; wrong: number; walkouts: number;
   lost: boolean;
   /** Sent day 5, or lost trust (spec §11: a player who lost early counts as finished). */
   finished: boolean;
@@ -29,12 +32,12 @@ export function totals(days: readonly DaySummary[]): Totals {
   const lost = days.some(d => d.lost);
   return {
     days: days.length, score: last?.score ?? null, rep: last?.rep ?? null, lastPrice: last?.closePrice ?? null,
-    profit: sum(d => d.profit), waste: sum(d => d.wasteValue), cups: sum(d => d.cups), wrong: sum(d => d.wrong),
+    profit: last === null ? null : last.cash - CONFIG.run.startCash, waste: sum(d => d.wasteValue), cups: sum(d => d.cups), wrong: sum(d => d.wrong),
     walkouts: sum(d => d.walkouts), lost, finished: lost || last?.day === 5,
   };
 }
 
-interface Row { e: AwardEntry; t: Totals & { score: K; rep: number } }
+interface Row { e: AwardEntry; t: Totals & { score: K; rep: number; profit: K } }
 /** Higher first on each key in turn, then lower join order. */
 function best(rows: Row[], keys: ((r: Row) => number)[]): Row | null {
   let top: Row | null = null;
@@ -52,7 +55,9 @@ export function computeAwards(entries: readonly AwardEntry[]): Award[] {
   const rows: Row[] = [];
   for (const e of entries) {
     const t = totals(e.days);
-    if (t.score !== null && t.rep !== null) rows.push({ e, t: { ...t, score: t.score, rep: t.rep } });
+    if (t.score !== null && t.rep !== null && t.profit !== null) {
+      rows.push({ e, t: { ...t, score: t.score, rep: t.rep, profit: t.profit } });
+    }
   }
   const wrongShare = (r: Row) => r.t.wrong / r.t.cups;
   const winners: Record<AwardId, [Row | null, (r: Row) => number]> = {
