@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../../../../shared/sim/config';
-import { craftInput, craftTick } from '../../../../shared/sim/rush';
-import type { CraftState, Cup, Order } from '../../../../shared/sim/types';
+import { craftInput, craftTick, step } from '../../../../shared/sim/rush';
+import type { Action, CraftState, Cup, Order, RushState } from '../../../../shared/sim/types';
+import { gameAt } from '../Dev/gameAt';
 import {
-  buttonStates, bufferLabels, counterRow, fmtMl, handOver, inputOf, leaveKind, orderLabel, outcomeOf, patienceLook,
+  buttonStates, bufferLabels, counterRow, dropTarget, fmtMl, projectCraft, handOver, inputOf, leaveKind, orderLabel, outcomeOf, patienceLook,
   patienceUsed, practiceLine, practiceNext, PRACTICE_ORDER, priceImpact, priceLines, projectCup, rejectText,
   stepProgress, stepTicks, stockView, type Departure, type LiveSlot,
 } from './rush';
@@ -217,5 +218,100 @@ describe('the counter row', () => {
     expect(leaveKind({ type: 'customerServed', correct: false })).toBe('wrong');
     expect(leaveKind({ type: 'customerAbandon', cause: 'patience' })).toBe('angry');
     expect(leaveKind({ type: 'customerAbandon', cause: 'stockOut' })).toBe('gone');
+  });
+});
+
+describe('the counter as the sim will see it (pending actions folded in)', () => {
+  const rushAt = (day: 1 | 2 | 3 = 2): RushState => {
+    const r = gameAt(7, day, 'rush').rush;
+    if (r === null) throw new Error('no rush');
+    return r;
+  };
+
+  it('equals what the sim makes of the same actions on its next tick', () => {
+    const rush = rushAt();
+    const actions: Action[] = [
+      { type: 'craft', input: { k: 'size', size: 'M' } }, { type: 'craft', input: { k: 'ice' } },
+      { type: 'craft', input: { k: 'tea' } },
+    ];
+    const p = projectCraft(rush.player.craft, rush.player.stock, actions, rush.tick, rush.player.machine);
+    const s = step(rush, actions).state;
+    expect(p.craft).toEqual(s.player.craft);
+    expect(p.stock).toEqual(s.player.stock);
+  });
+
+  it('lights the next step at once, so a second press inside one tick is taken', () => {
+    const rush = rushAt();
+    const one = projectCraft(rush.player.craft, rush.player.stock, [{ type: 'craft', input: { k: 'size', size: 'M' } }],
+      rush.tick, false);
+    expect(lit(one.craft, one.stock)).toEqual(['ice']);
+    const keys: Action[] = (['M', 'ice', 'tea', 'pearl'] as const).map(id => ({ type: 'craft', input: inputOf(id) }));
+    const all = projectCraft(rush.player.craft, rush.player.stock, keys, rush.tick, false);
+    expect(all.craft.buffer.map(b => b.k)).toEqual(['ice', 'tea', 'topping']);
+    expect(lit(all.craft, all.stock)).toEqual([]);   // the buffer is full: the 5th press waits, as in the sim
+  });
+
+  it('empties the counter after a pending trash, as the sim does', () => {
+    const rush = rushAt();
+    const ready = runTo(press(empty(), 'S', 'ice', 'tea'), 40);
+    const withCup: RushState = { ...rush, player: { ...rush.player, craft: ready } };
+    const p = projectCraft(ready, rush.player.stock, [{ type: 'trash' }], rush.tick, false);
+    expect(p.craft).toEqual(step(withCup, [{ type: 'trash' }]).state.player.craft);
+    // after a hand-over the next size can already be pressed ahead
+    const d = projectCraft(ready, rush.player.stock, [{ type: 'deliver', customer: 0 }], 10, false);
+    expect(d.craft.anim).toEqual({ step: 'deliver', endsAt: 10 + CONFIG.craft.deliverTicks });
+    expect(lit(d.craft)).toEqual(['S', 'M', 'L']);
+  });
+});
+
+describe('drop target', () => {
+  const rects = [
+    { id: 4, left: 0, top: 100, right: 90, bottom: 200 },
+    { id: 7, left: 96, top: 100, right: 186, bottom: 200 },
+  ];
+  it('is the card under the cup (its centre above the finger), read from fresh boxes', () => {
+    expect(dropTarget(rects, 140, 180)).toBe(7);
+    expect(dropTarget(rects, 40, 230)).toBe(4);
+    expect(dropTarget(rects, 140, 400)).toBeNull();
+    // the row slid left: the same point is now over another card
+    const slid = rects.map(r => ({ ...r, left: r.left - 96, right: r.right - 96 }));
+    expect(dropTarget(slid, 40, 180)).toBe(7);
+  });
+  it('takes the nearest centre where the margins overlap', () => {
+    expect(dropTarget(rects, 93, 150)).toBe(4);
+    expect(dropTarget(rects, 94, 150)).toBe(7);
+  });
+});
+
+describe('previews agree with the sim', () => {
+  it('price change: gouging and the steep cut match what setPrice records', () => {
+    const rush = gameAt(7, 2, 'rush').rush!;
+    const m = rush.player.morningPrice;
+    for (const next of [m - 12, m - 7, m - 6, m - 1, m + 1, m + 5, m + 6, m + 9]) {
+      if (next < CONFIG.pricing.min || next > CONFIG.pricing.max) continue;
+      const after = step(rush, [{ type: 'setPrice', price: next }]).state.player;
+      const imp = priceImpact(m, m, next, false, rush.rules.ceiling);
+      expect(imp.kind === 'gouge').toBe(after.gouged);
+      expect(imp.kind === 'steep').toBe(after.dropPermille > 0);
+      if (after.dropPermille > 0) {
+        const pc = CONFIG.priceChange;
+        expect(imp.scareShare).toBeCloseTo(Math.min(1, (after.dropPermille - pc.discountPermille) * pc.skepticSlopeTenths / 10000));
+      }
+    }
+  });
+
+  it('step durations match the sim for every step, size and machine', () => {
+    for (const machine of [false, true]) {
+      for (const size of ['S', 'M', 'L'] as const) {
+        let c = craftInput(empty(), { k: 'size', size }, null, 0, machine).craft;
+        expect(c.anim!.endsAt).toBe(stepTicks('size', size, machine));
+        c = runTo(c, 10);
+        c = craftInput(c, { k: 'ice' }, null, 11, machine).craft;
+        expect(c.anim!.endsAt - 11).toBe(stepTicks('ice', size, machine));
+        for (let t = 12; t <= 30; t++) c = craftTick(c, null, t, machine).craft;
+        c = craftInput(c, { k: 'tea' }, null, 31, machine).craft;
+        expect(c.anim!.endsAt - 31).toBe(stepTicks('tea', size, machine));
+      }
+    }
   });
 });

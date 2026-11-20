@@ -4,7 +4,6 @@
 // crossed, fuming), and a leaving customer cheers, frowns at a wrong cup or stomps off. Every portrait on the screen
 // is drawn by one shared, throttled animation loop; nothing re-renders per frame.
 import { memo, useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
-import { CONFIG } from '../../../../shared/sim/config';
 import type { Order, Tick, ToppingId } from '../../../../shared/sim/types';
 import {
   characterPose, drawCharacterAt, shade, traitsOf, type FigureFx, type Traits,
@@ -17,12 +16,15 @@ import { orderLabel, patienceLook, patienceUsed, type LeaveKind } from './rush';
 
 // ── The shared portrait loop ────────────────────────────────────────────────────────────────────────────────────────
 
-type Painter = (wall: number) => void;
+/** Draws one portrait; returns whether it is in a quick motion (a hop, a stomp) that wants the full frame rate. */
+type Painter = (wall: number) => boolean;
 const painters = new Set<Painter>();
 let raf = 0;
 let last = 0;
-/** Portraits redraw at about 25 fps: enough for breathing and blinking, well under half the cost. */
+/** Portraits redraw at about 25 fps while someone reacts, and at about 12 fps at rest (breathing and blinking). */
 const FRAME_MS = 40;
+const IDLE_FRAME_MS = 83;
+let busy = true;
 
 let paused = false;
 
@@ -31,9 +33,11 @@ export function setPortraitsPaused(p: boolean): void { paused = p; }
 
 function loop(wall: number): void {
   raf = painters.size > 0 ? requestAnimationFrame(loop) : 0;
-  if (paused || wall - last < FRAME_MS) return;
+  if (paused || wall - last < (busy ? FRAME_MS : IDLE_FRAME_MS)) return;
   last = wall;
-  painters.forEach(p => p(wall));
+  let any = false;
+  painters.forEach(p => { if (p(wall)) any = true; });
+  busy = any;
 }
 
 function addPainter(p: Painter): () => void {
@@ -66,6 +70,9 @@ function paintPortrait(ctx: CanvasRenderingContext2D, w: number, h: number, dpr:
   const s = Math.min(h * 1.5, w * 1.75) * tr.height;
   drawCharacterAt(ctx, tr, w / 2, h * 0.07 + s, s, 1, 'front', target, sk, fx, null);
 }
+
+/** One-shot clips that move fast. */
+const QUICK: ReadonlySet<Clip> = new Set<Clip>(['happy', 'puzzled', 'stomp', 'shrug']);
 
 export interface PortraitState {
   clip: Clip;
@@ -106,6 +113,7 @@ export function Portrait({ look, state, reduced, className, traits }: {
     const off = addPainter(wall => {
       const st = latest.current.state(wall);
       paintPortrait(ctx, size.w, size.h, size.dpr, tr, st.clip, st.mood, st.t, wall / 1000, latest.current.reduced, st.cup);
+      return QUICK.has(st.clip) && st.t < 1.6;
     });
     return () => {
       off();
@@ -268,4 +276,3 @@ export function staffLook(): { look: number; traits: Traits } {
   return { look: staffTraits.look, traits: staffTraits };
 }
 
-export const PATIENCE_TICKS = CONFIG.rush.patienceTicks;

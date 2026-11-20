@@ -14,7 +14,7 @@ import {
   CounterCustomer, Portrait, SizeIcon, staffLook, ToppingIcon, type PortraitState,
 } from './CounterCustomer';
 import {
-  bufferLabels, buttonStates, fmtMl, stockView, type ButtonState, type CounterItem,
+  bufferLabels, buttonStates, dropTarget, fmtMl, stockView, type ButtonState, type CounterItem,
   type CraftButtonId,
 } from './rush';
 
@@ -40,13 +40,37 @@ export interface CraftPanelProps {
   /** A message from the screen (a refused input); a new `id` shows it again. */
   notice: { id: number; text: string } | null;
   open: boolean;
-  onInput: (id: CraftButtonId) => void;
-  onTrash: () => void;
-  onDeliver: (customer: number) => void;
+  /** Each returns why it was refused (shown in the message line), or null when sent. */
+  onInput: (id: CraftButtonId) => string | null;
+  onTrash: () => string | null;
+  onDeliver: (customer: number) => string | null;
   onClose: () => void;
 }
 
 const DRAG_START_PX = 8;
+
+let ghostSeq = 0;
+/**
+ * A copied SVG still points at the live cup's gradient and clip (`url(#id)`), which unmount as soon as the counter
+ * empties; the copy gets ids of its own.
+ */
+function renameIds(root: Element): void {
+  ghostSeq += 1;
+  const map = new Map<string, string>();
+  root.querySelectorAll('[id]').forEach(el => {
+    const fresh = `${el.id}-fly${ghostSeq}`;
+    map.set(el.id, fresh);
+    el.id = fresh;
+  });
+  if (map.size === 0) return;
+  root.querySelectorAll('*').forEach(el => {
+    for (const attr of ['fill', 'clip-path', 'stroke', 'mask', 'filter']) {
+      const v = el.getAttribute(attr);
+      const m = v === null ? null : /^url\(#(.+)\)$/.exec(v);
+      if (m !== null && map.has(m[1])) el.setAttribute(attr, `url(#${map.get(m[1])})`);
+    }
+  });
+}
 
 function TeaIcon({ grade }: { grade: TeaGrade }) {
   const fill = grade === 'premium' ? '#a9693a' : grade === 'skimp' ? '#dcc7a5' : '#c99560';
@@ -179,12 +203,10 @@ function CraftPanelView(p: CraftPanelProps) {
   }, [hint]);
 
   // ── buttons ──
+  // A dark button still asks: the screen judges it against what was already sent this tick, which may have changed.
   const press = useCallback((b: ButtonState) => {
-    if (b.why !== null) {
-      say(b.reason ?? 'Chưa bấm được');
-      return;
-    }
-    p.onInput(b.id);
+    const why = p.onInput(b.id);
+    if (why !== null) say(why);
   }, [p.onInput, say]);
 
   // ── the cup: drag or tap ──
@@ -194,67 +216,79 @@ function CraftPanelView(p: CraftPanelProps) {
   const [selected, setSelected] = useState(false);
   const [hot, setHot] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [sent, setSent] = useState<'deliver' | 'trash' | null>(null);
   const [binOpen, setBinOpen] = useState(false);
+  const binTimer = useRef(0);
   const drag = useRef<null | {
     id: number; x0: number; y0: number; x: number; y: number; lastX: number; lastT: number; vx: number; tilt: number;
-    moved: boolean; t0: number; rects: { id: number; r: DOMRect }[]; raf: number;
+    moved: boolean; t0: number; raf: number; scale: number; hitAt: number;
   }>(null);
+  useEffect(() => () => {
+    if (drag.current !== null) cancelAnimationFrame(drag.current.raf);
+    drag.current = null;
+    window.clearTimeout(binTimer.current);
+  }, []);
 
-  // The counter changed under a selected or sent cup.
-  const cupKey = craft.cup === null ? null : `${craft.cup.size}${craft.cup.toppings.join('')}${craft.cup.teaMl}`;
   useEffect(() => {
     if (!ready) setSelected(false);
   }, [ready]);
-  useEffect(() => {
-    // The cup left the counter (delivered or binned): show the counter fresh.
-    if (craft.cup === null && sent !== null) {
-      setSent(null);
-      const el = cupBox.current;
-      el?.getAnimations().forEach(a => a.cancel());
-      if (el !== null) el.style.transform = '';
-    }
-  }, [craft.cup, sent]);
-  useEffect(() => {
-    // A refused hand-over: the cup comes back.
-    if (sent === null) return;
-    const t = window.setTimeout(() => {
-      const el = cupBox.current;
-      el?.getAnimations().forEach(a => a.cancel());
-      if (el !== null) el.style.transform = '';
-      setSent(null);
-    }, 900);
-    return () => window.clearTimeout(t);
-  }, [sent, cupKey]);
 
-  const flyTo = useCallback((target: Element, kind: 'deliver' | 'trash', after: () => void) => {
+  /** The customer under a cup held at (x, y), from the cards as they stand now (the row slides when someone leaves). */
+  const targetAt = (x: number, y: number): number | null => dropTarget(
+    [...document.querySelectorAll<HTMLElement>('[data-drop-customer]')].map(el => {
+      const r = el.getBoundingClientRect();
+      return { id: Number(el.dataset.dropCustomer), left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    }), x, y);
+
+  /**
+   * The cup flies to a customer or into the bin. A copy of the cup flies, so the sim emptying the counter on its next
+   * tick cannot cut the flight short, and the next cup can already be set down while this one is in the air.
+   */
+  const flyPrepare = useCallback((target: Element, kind: 'deliver' | 'trash'): { go: () => void; cancel: () => void } => {
+    const none = { go: () => {}, cancel: () => {} };
     const el = cupBox.current;
-    if (el === null) {
-      after();
-      return;
-    }
-    const from = el.getBoundingClientRect();
-    const to = target.getBoundingClientRect();
+    const parent = el?.parentElement ?? null;
+    if (el === null || parent === null) return none;
     const cur = el.style.transform || 'translate(0px, 0px)';
-    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
-    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
-    // the current drag offset is already in `from`, so add it on top of the current transform
-    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(cur);
-    const ox = m ? Number(m[1]) : 0;
-    const oy = m ? Number(m[2]) : 0;
-    setSent(kind);
-    after();
-    if (p.reduced) {
-      el.style.transform = `translate(${ox + dx}px, ${oy + dy}px) scale(0.2)`;
-      return;
-    }
-    const lift = kind === 'trash' ? -90 : -30;
-    const spin = kind === 'trash' ? 200 : 0;
-    el.animate([
-      { transform: cur, opacity: 1 },
-      { transform: `translate(${ox + dx * 0.5}px, ${oy + dy * 0.5 + lift}px) rotate(${spin / 2}deg) scale(${kind === 'trash' ? 0.7 : 0.75})`, opacity: 1, offset: 0.5 },
-      { transform: `translate(${ox + dx}px, ${oy + dy}px) rotate(${spin}deg) scale(${kind === 'trash' ? 0.25 : 0.35})`, opacity: 0 },
-    ], { duration: kind === 'trash' ? 520 : 360, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' });
+    if (p.reduced) return { go: () => { el.style.transform = ''; }, cancel: () => {} };
+    const ghost = el.cloneNode(true) as HTMLElement;
+    ghost.classList.remove('is-ready', 'is-next');
+    ghost.classList.add('is-ghost');
+    ghost.removeAttribute('role');
+    ghost.removeAttribute('tabindex');
+    ghost.removeAttribute('aria-pressed');
+    ghost.removeAttribute('aria-label');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.querySelector('.cbtn__finger')?.remove();
+    renameIds(ghost);
+    Object.assign(ghost.style, {
+      position: 'absolute', left: `${el.offsetLeft}px`, top: `${el.offsetTop}px`, width: `${el.offsetWidth}px`,
+      height: `${el.offsetHeight}px`, margin: '0', transform: cur,
+    });
+    // the copy is taken now, before the counter re-renders; nothing is shown until `go`
+    return {
+      cancel: () => {},
+      go: () => {
+        el.style.transform = '';
+        parent.appendChild(ghost);
+        const from = ghost.getBoundingClientRect();
+        const to = target.getBoundingClientRect();
+        const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+        const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+        // the drag offset is already in `from`, so the flight adds to it
+        const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(cur);
+        const ox = m ? Number(m[1]) : 0;
+        const oy = m ? Number(m[2]) : 0;
+        const lift = kind === 'trash' ? -90 : -30;
+        const spin = kind === 'trash' ? 200 : 0;
+        const flight = ghost.animate([
+          { transform: cur, opacity: 1 },
+          { transform: `translate(${ox + dx * 0.5}px, ${oy + dy * 0.5 + lift}px) rotate(${spin / 2}deg) scale(${kind === 'trash' ? 0.7 : 0.75})`, opacity: 1, offset: 0.5 },
+          { transform: `translate(${ox + dx}px, ${oy + dy}px) rotate(${spin}deg) scale(${kind === 'trash' ? 0.25 : 0.35})`, opacity: 0 },
+        ], { duration: kind === 'trash' ? 520 : 400, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' });
+        flight.onfinish = () => ghost.remove();
+        flight.oncancel = () => ghost.remove();
+      },
+    };
   }, [p.reduced]);
 
   const deliverTo = useCallback((customer: number) => {
@@ -263,20 +297,36 @@ function CraftPanelView(p: CraftPanelProps) {
     setHot(null);
     setHint(null);
     if (card === null) return;
-    flyTo(card, 'deliver', () => p.onDeliver(customer));
-  }, [flyTo, p.onDeliver]);
+    // flown from a copy taken now, before the counter re-renders empty
+    const fly = flyPrepare(card, 'deliver');
+    const why = p.onDeliver(customer);
+    if (why !== null) {
+      fly.cancel();
+      say(why);
+      springBack();
+      return;
+    }
+    fly.go();
+  }, [flyPrepare, p.onDeliver, say]);
 
   const trash = useCallback(() => {
     if (!hasCup || p.closed) {
       say(p.closed ? 'Quán đã đóng cửa' : 'Không có ly nào để bỏ');
       return;
     }
+    const fly = binRef.current === null ? null : flyPrepare(binRef.current, 'trash');
+    const why = p.onTrash();
+    if (why !== null) {
+      fly?.cancel();
+      say(why);
+      return;
+    }
     setSelected(false);
     setBinOpen(true);
-    window.setTimeout(() => setBinOpen(false), 650);
-    if (binRef.current !== null) flyTo(binRef.current, 'trash', p.onTrash);
-    else p.onTrash();
-  }, [hasCup, p.closed, p.onTrash, flyTo, say]);
+    window.clearTimeout(binTimer.current);
+    binTimer.current = window.setTimeout(() => setBinOpen(false), 650);
+    fly?.go();
+  }, [hasCup, p.closed, p.onTrash, flyPrepare, say]);
 
   const springBack = () => {
     const el = cupBox.current;
@@ -290,18 +340,19 @@ function CraftPanelView(p: CraftPanelProps) {
   };
 
   const onDown = (e: RPointerEvent<HTMLDivElement>) => {
-    if (sent !== null || !hasCup) return;
+    // one finger or the main button; a second finger does not take over a drag
+    if (!e.isPrimary || e.button !== 0 || drag.current !== null || !hasCup) return;
     if (!ready) {
       say(p.closed ? 'Quán đã đóng cửa' : craft.cup?.teaMl ? 'Đợi xong bước này đã' : 'Ly chưa có trà, chưa giao được');
       return;
     }
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    const rects = [...document.querySelectorAll<HTMLElement>('[data-drop-customer]')]
-      .map(el => ({ id: Number(el.dataset.dropCustomer), r: el.getBoundingClientRect() }));
+    // a tall desktop cup shrinks a little in hand, so the order it is held over stays readable
+    const scale = Math.min(1.06, 170 / Math.max(1, e.currentTarget.offsetHeight));
     drag.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, lastX: e.clientX,
-      lastT: performance.now(), vx: 0, tilt: 0, moved: false, t0: performance.now(), rects, raf: 0 };
-    const tick = () => {
+      lastT: performance.now(), vx: 0, tilt: 0, moved: false, t0: performance.now(), raf: 0, scale, hitAt: 0 };
+    const tick = (now: number) => {
       const d = drag.current;
       if (d === null) return;
       d.raf = requestAnimationFrame(tick);
@@ -310,7 +361,13 @@ function CraftPanelView(p: CraftPanelProps) {
       d.tilt += (target - d.tilt) * (p.reduced ? 1 : 0.22);
       if (!d.moved) return;
       const el = cupBox.current;
-      if (el !== null) el.style.transform = `translate(${d.x - d.x0}px, ${d.y - d.y0}px) rotate(${(p.reduced ? 0 : d.tilt).toFixed(1)}deg) scale(1.06)`;
+      if (el !== null) el.style.transform = `translate(${d.x - d.x0}px, ${d.y - d.y0}px) rotate(${(p.reduced ? 0 : d.tilt).toFixed(1)}deg) scale(${d.scale.toFixed(3)})`;
+      // held still while the row slides: the highlight follows the card now under the cup
+      if (now - d.hitAt > 120) {
+        d.hitAt = now;
+        const id = targetAt(d.x, d.y);
+        setHot(h => (h === id ? h : id));
+      }
     };
     drag.current.raf = requestAnimationFrame(tick);
   };
@@ -332,9 +389,8 @@ function CraftPanelView(p: CraftPanelProps) {
     }
     if (d.moved) {
       sloshRef.current?.(Math.min(2, Math.abs(d.vx) * 2));
-      // the cup's centre sits a little above the finger
-      const hit = d.rects.find(({ r }) => d.x >= r.left - 8 && d.x <= r.right + 8 && d.y - 30 >= r.top - 20 && d.y - 30 <= r.bottom + 10);
-      const id = hit?.id ?? null;
+      d.hitAt = now;
+      const id = targetAt(d.x, d.y);
       setHot(h => (h === id ? h : id));
     }
   };
@@ -345,6 +401,7 @@ function CraftPanelView(p: CraftPanelProps) {
     cancelAnimationFrame(d.raf);
     drag.current = null;
     setDragging(false);
+    setHot(null);
     if (!d.moved) {
       if (!cancel && performance.now() - d.t0 < 600) {
         setSelected(s => !s);
@@ -352,9 +409,9 @@ function CraftPanelView(p: CraftPanelProps) {
       }
       return;
     }
-    const target = hot;
-    setHot(null);
-    if (!cancel && target !== null) deliverTo(target);
+    // the target is read now, from where the cards stand and where the finger lifted
+    const target = cancel ? null : targetAt(e.clientX, e.clientY);
+    if (target !== null) deliverTo(target);
     else springBack();
   };
 
@@ -364,37 +421,40 @@ function CraftPanelView(p: CraftPanelProps) {
     else say(hasCup ? 'Ly chưa xong' : 'Chưa có ly nào: pha một ly đã', false);
   }, [selected, ready, hasCup, deliverTo, say]);
 
-  // Keyboard: S/M/L sizes, D đá, T trà, 1–3 toppings, Q W E R hand the ready cup to customer 1–4, X the bin.
+  // Keyboard: S/M/L sizes, D đá, T trà, 1–3 toppings, Q W E R hand the ready cup to customer 1–4, X the bin. One
+  // listener that always reads this render's buttons (fast keys come between renders' effects).
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandler.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    const t = e.target as HTMLElement | null;
+    if (t !== null && (t.tagName === 'INPUT' || t.closest('[role="dialog"]') !== null)) return;
+    const k = e.key.toLowerCase();
+    const map: Record<string, CraftButtonId> = { s: 'S', m: 'M', l: 'L', d: 'ice', t: 'tea', 1: 'pearl', 2: 'jelly', 3: 'pudding' };
+    const id = map[k];
+    if (id !== undefined) {
+      const b = states.find(x => x.id === id);
+      if (b !== undefined) press(b);
+      e.preventDefault();
+      return;
+    }
+    const slot = ['q', 'w', 'e', 'r'].indexOf(k);
+    if (slot >= 0) {
+      const item = p.counter[slot];
+      if (item !== undefined && item.leaving === null && ready) deliverTo(item.customer);
+      e.preventDefault();
+      return;
+    }
+    if (k === 'x' || k === 'delete' || k === 'backspace') {
+      trash();
+      e.preventDefault();
+    }
+  };
   useEffect(() => {
     if (!p.open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-      const t = e.target as HTMLElement | null;
-      if (t !== null && (t.tagName === 'INPUT' || t.closest('[role="dialog"]') !== null)) return;
-      const k = e.key.toLowerCase();
-      const map: Record<string, CraftButtonId> = { s: 'S', m: 'M', l: 'L', d: 'ice', t: 'tea', 1: 'pearl', 2: 'jelly', 3: 'pudding' };
-      const id = map[k];
-      if (id !== undefined) {
-        const b = states.find(x => x.id === id);
-        if (b !== undefined) press(b);
-        e.preventDefault();
-        return;
-      }
-      const slot = ['q', 'w', 'e', 'r'].indexOf(k);
-      if (slot >= 0) {
-        const item = p.counter[slot];
-        if (item !== undefined && item.leaving === null && ready) deliverTo(item.customer);
-        e.preventDefault();
-        return;
-      }
-      if (k === 'x' || k === 'delete' || k === 'backspace') {
-        trash();
-        e.preventDefault();
-      }
-    };
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [p.open]);
 
   const running = craft.anim;
   const runLabel = running === null ? null : running.step === 'deliver' ? 'Đang giao ly…'
@@ -436,7 +496,7 @@ function CraftPanelView(p: CraftPanelProps) {
         </button>
 
         <div className="cstage__counter">
-          <div ref={cupBox} className={cx('cstage__cup', ready && 'is-ready', sent && 'is-sent', nextKey === 'deliver' && 'is-next')}
+          <div ref={cupBox} className={cx('cstage__cup', ready && 'is-ready', nextKey === 'deliver' && 'is-next')}
             role="button" tabIndex={ready ? 0 : -1}
             aria-label={ready ? (selected ? 'Ly đã chọn: chạm khách để giao' : 'Ly đã xong: kéo vào khách hoặc chạm để chọn') : 'Ly đang pha'}
             aria-pressed={selected}

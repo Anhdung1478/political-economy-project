@@ -66,6 +66,21 @@ export interface RushHudProps {
   onClose: () => void;
 }
 
+/** "Đóng cửa sớm". Drawn in the stock row upright and on desktop, in the first row on a phone on its side (CSS shows
+ *  one of the two). */
+function ShutButton({ disabled, onClick, top }: { disabled: boolean; onClick: () => void; top?: boolean }) {
+  return (
+    <button type="button" className={cx('rhud__shut', top && 'rhud__shut--top')} onClick={onClick} disabled={disabled}
+      aria-label="Đóng cửa sớm" title="Đóng cửa sớm">
+      <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden="true">
+        <rect x={3} y={4} width={18} height={16} rx={2} fill="none" stroke="currentColor" strokeWidth={2} />
+        <path d="M3 9 H21 M3 13 H21 M3 17 H21" stroke="currentColor" strokeWidth={1.6} />
+      </svg>
+      <span>Đóng cửa sớm</span>
+    </button>
+  );
+}
+
 function RushHudView(p: RushHudProps) {
   const secs = secondsLeft(p.ticksLeft);
   const urgent = secs <= 10 && !p.waiting && p.ticksLeft > 0;
@@ -97,6 +112,7 @@ function RushHudView(p: RushHudProps) {
           <span className="rhud__price-tag"><small>Ly M</small><b key={p.price}>{fmtMoney(p.price)}</b></span>
           <span className="rhud__price-act">{p.priceChanged ? 'Đã đổi' : 'Đổi giá (1 lần)'}</span>
         </button>
+        <ShutButton disabled={p.closed || p.waiting} onClick={p.onClose} top />
       </div>
       <div className="rhud__stock" aria-label="Kho hàng">
         <span className={cx('rstock rstock--tea', `is-${sv.tea}`)} title={`Trà còn ${fmtMl(sv.teaMl)} (khoảng ${sv.teaCups} ly M)`}>
@@ -113,14 +129,7 @@ function RushHudView(p: RushHudProps) {
           </span>
         ))}
         <span className="rhud__spacer" />
-        <button type="button" className="rhud__shut" onClick={p.onClose} disabled={p.closed || p.waiting}
-          aria-label="Đóng cửa sớm" title="Đóng cửa sớm">
-          <svg viewBox="0 0 24 24" width={18} height={18} aria-hidden="true">
-            <rect x={3} y={4} width={18} height={16} rx={2} fill="none" stroke="currentColor" strokeWidth={2} />
-            <path d="M3 9 H21 M3 13 H21 M3 17 H21" stroke="currentColor" strokeWidth={1.6} />
-          </svg>
-          <span>Đóng cửa sớm</span>
-        </button>
+        <ShutButton disabled={p.closed || p.waiting} onClick={p.onClose} />
       </div>
     </header>
   );

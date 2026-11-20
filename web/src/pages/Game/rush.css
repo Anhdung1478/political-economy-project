@@ -5,7 +5,7 @@
    Phone on its side: the panel slides in from the right over ~50%. Desktop (≥1100 px): side by side. */
 
 .game--rush {
-  --rush-hud: calc(var(--top) + 78px);
+  --rush-hud: calc(var(--top) + 82px);
   --rp-h: clamp(410px, 60dvh, 600px);
   --rp-w: 100vw;
   --rp-edge: 0px;
@@ -25,7 +25,7 @@
 /* ---------- Top bar ---------- */
 .rhud {
   position: absolute; z-index: 20; top: 0; left: 0; right: 0; height: var(--rush-hud);
-  display: grid; grid-template-rows: 44px 24px; align-content: end; gap: 4px;
+  display: grid; grid-template-rows: 44px 28px; align-content: end; gap: 4px;
   padding: var(--top) var(--right) 6px var(--left);
   background: linear-gradient(180deg, #fffcf7 0%, #fff6ea 100%);
   border-bottom: 1px solid var(--line-strong);
@@ -42,7 +42,7 @@
 }
 .rhud__dial { width: 32px; height: 32px; }
 .rhud__dial-track { fill: none; stroke: rgba(255, 255, 255, 0.16); stroke-width: 5; }
-.rhud__dial-fill { fill: none; stroke: var(--tea); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.rhud__dial-fill { fill: none; stroke: var(--tea); stroke-width: 5; stroke-linecap: round; }
 .rhud__clock.is-waiting { background: var(--caramel); box-shadow: 0 3px 0 var(--caramel-deep); }
 .rhud__clock.is-waiting .rhud__dial-fill { stroke: #fff; }
 .rhud__clock.is-urgent { background: var(--strawberry); box-shadow: 0 3px 0 var(--strawberry-deep); }
@@ -88,11 +88,15 @@
 }
 .rhud__price.is-used .rhud__price-act { background: var(--milk-deep); color: var(--ink-soft); }
 .rhud__shut {
-  display: inline-flex; align-items: center; gap: 5px; flex: none; height: 24px; padding: 0 10px 0 8px;
+  position: relative; display: inline-flex; align-items: center; gap: 5px; flex: none; height: 28px; padding: 0 10px 0 8px;
   border: 0; border-radius: var(--r-pill); background: var(--strawberry-soft); color: var(--strawberry-deep);
   font: inherit; font-weight: 800; font-size: 12px; cursor: pointer; white-space: nowrap;
 }
 .rhud__shut svg { width: 15px; height: 15px; }
+/* a bigger hit area than the pill itself */
+.rhud__shut::after { content: ''; position: absolute; inset: -8px -4px; }
+/* the copy in the first row is for the phone on its side */
+.rhud__shut--top { display: none; }
 .rhud__shut:disabled { opacity: 0.45; cursor: not-allowed; }
 .rhud__stock { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
 .rstock {
@@ -128,7 +132,7 @@
 
 .rcraft {
   position: relative; height: 100%;
-  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px;
+  display: grid; grid-template-rows: auto auto minmax(72px, 1fr) auto; gap: 6px;
   padding: 6px var(--right) calc(var(--bottom) + 2px) var(--left);
   background:
     radial-gradient(120% 60% at 50% 0%, rgba(255, 255, 255, 0.9), transparent 70%),
@@ -154,7 +158,7 @@
 .rcounter { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; min-height: 112px; }
 .rcounter__empty { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--ink-faint); font-size: 13px; font-weight: 600; }
 .rcounter__rest {
-  position: absolute; right: -4px; top: 30px; z-index: 2; padding: 3px 8px; border-radius: var(--r-pill);
+  position: absolute; right: -4px; bottom: -4px; z-index: 2; padding: 2px 7px; border-radius: var(--r-pill);
   background: var(--ink); color: var(--paper); font-size: 12px; font-weight: 800; box-shadow: var(--shadow-sm);
 }
 .rccard {
@@ -229,8 +233,8 @@
    steps pressed ahead */
 .cstage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; margin: 0 calc(-1 * var(--right)) 0 calc(-1 * var(--left)); }
 .cstage__top {
-  position: relative; display: grid; grid-template-columns: 70px minmax(0, 1fr) 70px; align-items: end; gap: 4px;
-  min-height: 0; padding: 0 var(--right) 0 var(--left);
+  position: relative; display: grid; grid-template-columns: 70px minmax(0, 1fr) 70px; grid-template-rows: minmax(0, 1fr);
+  align-items: end; gap: 4px; min-height: 0; padding: 0 var(--right) 0 var(--left);
 }
 .cstage__counter { position: relative; height: 100%; min-height: 0; display: flex; align-items: flex-end; justify-content: center; }
 .cstage__front {
@@ -248,7 +252,7 @@
   transform-origin: 50% 85%; will-change: transform; outline: none; margin-bottom: -4%;
 }
 .cstage__cup.is-ready { cursor: grab; }
-.cstage__cup:focus-visible { filter: drop-shadow(0 0 0 2px var(--caramel)); }
+.cstage__cup:focus-visible { outline: 3px solid var(--caramel); outline-offset: 2px; border-radius: 18px; }
 .rcraft.is-dragging .cstage__cup { cursor: grabbing; z-index: 50; }
 .rcraft.is-selected .cstage__cup .rcup { filter: drop-shadow(0 0 10px rgba(201, 119, 42, 0.8)); }
 .cstage__cup.is-sent { pointer-events: none; }
@@ -294,7 +298,7 @@
 .rstaff__ring { position: relative; width: 58px; height: 58px; }
 .rstaff__ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .rstaff__track { fill: #fffcf7; stroke: var(--matcha-soft); stroke-width: 5; }
-.rstaff__prog { fill: none; stroke: var(--matcha); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.rstaff__prog { fill: none; stroke: var(--matcha); stroke-width: 5; stroke-linecap: round; }
 .rstaff__face { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); border-radius: 50%; }
 .rstaff__label { display: grid; justify-items: center; line-height: 1.1; }
 .rstaff__label b { font-size: 11px; }
@@ -494,15 +498,24 @@
 
 /* ---------- Phone on its side: the panel from the right, ~50% ---------- */
 @media (orientation: landscape) and (max-height: 600px) {
-  .game--rush { --rush-hud: calc(var(--top) + 66px); --rp-w: max(390px, 50vw); --rp-h: 100dvh; }
+  /* the panel takes about half, narrower on small phones; the top bar over the street keeps two lines of controls
+     (clock, cash, rep; then the price and close early) and the stock, so nothing slides under the panel */
+  .game--rush { --rush-hud: calc(var(--top) + 102px); --rp-w: clamp(330px, 50vw, 480px); --rp-h: 100dvh; }
   .game--rush.game--street-small .game__street { bottom: 0; right: var(--rp-w); }
-  .rhud { grid-template-rows: 36px 22px; gap: 3px; padding-bottom: 4px; }
+  .rhud { grid-template-rows: auto 24px; gap: 4px; padding-bottom: 4px; }
   .rush--open .rhud { right: var(--rp-w); }
-  .rhud__clock { height: 34px; font-size: 18px; }
-  .rhud__dial { width: 26px; height: 26px; }
+  .rhud__row { flex-wrap: wrap; row-gap: 4px; }
+  .rhud__row > .rhud__spacer { flex: 0 0 100%; height: 0; }
+  .rhud__clock { height: 32px; font-size: 17px; }
+  .rhud__dial { width: 24px; height: 24px; }
   .rhud__stat { height: 30px; font-size: 14px; }
-  .rhud__price, .rhud__shut { height: 34px; }
-  .rush--open .rhud__cups, .rush--open .rhud__shut span { display: none; }
+  .rhud__price { height: 32px; }
+  .rhud__price-act { max-width: none; white-space: nowrap; }
+  .rhud__shut--top { display: inline-flex; height: 32px; }
+  .rhud__stock .rhud__shut { display: none; }
+  .rhud__stock .rstock small { display: none; }
+  .rstock { height: 24px; }
+  .rush--open .rhud__cups { display: none; }
   .rush__panel { left: auto; top: 0; width: var(--rp-w); height: 100%; }
   .rush--closed .rush__panel { transform: translateX(105%); }
   .rcraft {
@@ -514,7 +527,14 @@
   .rcraft__head { min-height: 26px; }
   .rcraft__head h2 { font-size: 14px; }
   .rcounter { min-height: 0; gap: 5px; }
-  .rccard__frame { min-height: 50px; }
+  .rccard__frame { min-height: 46px; }
+  .rcraft { grid-template-rows: auto auto minmax(64px, 1fr) auto; }
+  .rstaff { width: 56px; }
+  .rstaff__ring { width: 46px; height: 46px; }
+  .rstaff__face { inset: 5px; width: calc(100% - 10px); height: calc(100% - 10px); }
+  .rstaff__label { display: none; }
+  .rbin__svg { width: 36px; height: 40px; }
+  .cstage__top { grid-template-columns: 56px minmax(0, 1fr) 56px; }
   .cstage__front { min-height: 32px; padding-top: 6px; padding-bottom: 4px; }
   .cstage { margin-left: -12px; }
   .cstage__top { padding-left: 12px; }
@@ -561,4 +581,30 @@
   .rcoach { left: 24px; right: calc(var(--rp-w) + 40px); bottom: 24px; max-width: 520px; }
   .rcoach::after { left: auto; right: -9px; bottom: 40%; transform: rotate(-45deg); }
   .rush__soldout { left: calc((100vw - var(--rp-w)) / 2); }
+}
+
+/* ---------- Phone on its side, short (about 340 px or less: Android with its toolbar, small phones) ---------- */
+@media (orientation: landscape) and (max-height: 350px) {
+  .rcraft__head { min-height: 22px; }
+  .rccard { gap: 2px; padding: 2px; }
+  .rccard__frame { min-height: 36px; }
+  .rccard__patience { height: 5px; }
+  .rbin > span { display: none; }
+  .cstage__front { min-height: 28px; padding-top: 5px; padding-bottom: 3px; }
+  .rbuffer__slot { min-width: 38px; height: 18px; }
+  /* one row of eight buttons: icon and count, the name in the label for screen readers */
+  .rcraft { --cbtns-h: 50px; }
+  .cbtns { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .cbtn, .cbtn--topping { grid-column: span 1; grid-template-columns: 1fr; justify-items: center; text-align: center;
+    min-height: 44px; padding: 3px 1px; row-gap: 0; }
+  .cbtn--topping .cbtn__icon { grid-row: auto; }
+  .cbtn--topping .cbtn__label, .cbtn--tea .cbtn__sub, .cbtn--ice .cbtn__label { display: none; }
+  .cbtn--topping .cbtn__sub { font-size: 10px; }
+  .cbtn--size .cbtn__label, .cbtn--tea .cbtn__label { font-size: 13px; }
+  .cbtn__icon svg { width: 20px; height: 20px; }
+}
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 720px) {
+  .cbtn--topping { column-gap: 3px; padding-left: 4px; padding-right: 3px; }
+  .cbtn--topping .cbtn__icon svg { width: 18px; height: 18px; }
+  .cbtn--topping .cbtn__label { font-size: 12px; }
 }

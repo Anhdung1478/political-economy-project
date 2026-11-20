@@ -3,9 +3,9 @@
 // running step is, the next step of the day-1 practice cup, what a hand-over pays, what a price change would do, the
 // patience face, stock warnings, and the counter row with the customers who just left still in it. No React here.
 import { CONFIG, type SimConfig } from '../../../../shared/sim/config';
-import { checkInput, orderPrice, payment } from '../../../../shared/sim/rush';
+import { checkInput, craftInput, orderPrice, payment } from '../../../../shared/sim/rush';
 import type {
-  CraftInput, CraftState, Cup, InputReject, K, Order, RunState, RushState, Size, Stock, Tick, ToppingId,
+  Action, CraftInput, CraftState, Cup, InputReject, K, Order, RunState, RushState, Size, Stock, Tick, ToppingId,
 } from '../../../../shared/sim/types';
 import { fmtMoney, fmtNumber } from '../../game/format';
 import { CROSS_AT, FUME_AT, TAP_AT } from '../../scene/draw/characters';
@@ -15,7 +15,6 @@ import { TOPPING_NAMES } from './copy';
 
 export type CraftButtonId = Size | 'ice' | 'tea' | ToppingId;
 
-export const SIZES: readonly Size[] = ['S', 'M', 'L'];
 export const TOPPINGS: readonly ToppingId[] = CONFIG.customers.toppingOrder;
 
 export function inputOf(id: CraftButtonId): CraftInput {
@@ -104,6 +103,52 @@ export function buttonStates(craft: CraftState, stock: Stock | null, closed: boo
     const why: InputReject | null = closed ? 'closed' : checkInput(craft, input, stock, cfg);
     return { id, input, why, reason: why === null ? null : rejectText(why, input, cup, cfg) };
   });
+}
+
+/**
+ * The counter as the sim will see it on its next tick: the sim's craft and stock with the actions already sent for
+ * that tick folded in, in order, by the sim's own `craftInput` (a hand-over or the bin empties the counter; the
+ * hand-over then runs its 0.4 s). Buttons judged against this take a second press inside the same tick, as the sim
+ * will (it applies a tick's actions in order). `t` is the tick the actions will run at.
+ */
+export function projectCraft(craft: CraftState, stock: Stock, pending: readonly Action[], t: Tick, machine: boolean,
+  cfg: SimConfig = CONFIG): { craft: CraftState; stock: Stock } {
+  let c = craft;
+  let st = stock;
+  for (const a of pending) {
+    if (a.type === 'craft') {
+      const r = craftInput(c, a.input, st, t, machine, cfg);
+      c = r.craft;
+      st = r.stock ?? st;
+    } else if (a.type === 'trash') {
+      c = { cup: null, anim: null, buffer: [] };
+    } else if (a.type === 'deliver') {
+      c = { cup: null, anim: { step: 'deliver', endsAt: t + cfg.craft.deliverTicks }, buffer: [] };
+    }
+  }
+  return { craft: c, stock: st };
+}
+
+export interface DropRect { id: number; left: number; top: number; right: number; bottom: number }
+
+/**
+ * The customer a cup held at (x, y) is over: the card whose box, a little enlarged, holds the cup's centre, which
+ * sits `lift` px above the finger; the nearest centre wins when two overlap. Read the boxes when the pointer moves
+ * or lifts, never earlier: the row slides when someone leaves.
+ */
+export function dropTarget(rects: readonly DropRect[], x: number, y: number, lift = 30): number | null {
+  const cy = y - lift;
+  let best: number | null = null;
+  let bestD = Infinity;
+  for (const r of rects) {
+    if (x < r.left - 8 || x > r.right + 8 || cy < r.top - 20 || cy > r.bottom + 10) continue;
+    const d = Math.abs(x - (r.left + r.right) / 2);
+    if (d < bestD) {
+      bestD = d;
+      best = r.id;
+    }
+  }
+  return best;
 }
 
 /** The inputs pressed ahead, as names ("Đá", "Trà", "Trân châu"). */
@@ -298,10 +343,10 @@ export interface StockView {
   toppings: Record<ToppingId, { n: number; level: StockLevel }>;
 }
 
-/** Stock with its warnings: tea out under an S cup, low under 3 M cups; a topping out at 0, low at 2 or fewer. */
+/** Stock with its warnings: tea out under the sold-out line (the sim's `soldOutBelowMl`), low under 3 M cups; a topping out at 0, low at 2 or fewer. */
 export function stockView(stock: Stock, cfg: SimConfig = CONFIG): StockView {
   const ml = cfg.supplies.sizeMl;
-  const tea: StockLevel = stock.teaMl < ml.S ? 'out' : stock.teaMl < ml.M * 3 ? 'low' : 'ok';
+  const tea: StockLevel = stock.teaMl < cfg.supplies.soldOutBelowMl ? 'out' : stock.teaMl < ml.M * 3 ? 'low' : 'ok';
   const toppings = {} as StockView['toppings'];
   for (const t of TOPPINGS) {
     const n = stock.toppings[t];

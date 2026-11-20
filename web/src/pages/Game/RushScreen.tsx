@@ -9,8 +9,8 @@
 import { useReducedMotion } from 'framer-motion';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG } from '../../../../shared/sim/config';
-import { canDeliver, counterView, craftInput, craftTick } from '../../../../shared/sim/rush';
-import type { CraftState, RunState, RushState, SimEvent } from '../../../../shared/sim/types';
+import { canDeliver, checkInput, counterView, craftInput, craftTick } from '../../../../shared/sim/rush';
+import type { Action, CraftState, InputReject, RunState, RushState, SimEvent } from '../../../../shared/sim/types';
 import { fmtMoney } from '../../game/format';
 import type { RunHandle } from '../../game/useRun';
 import { Button } from '../../ui/Button';
@@ -21,7 +21,7 @@ import { OrderBubble, setPortraitsPaused } from './CounterCustomer';
 import { PriceDialog, RushHud } from './RushHud';
 import {
   counterRow, handOver, inputOf, leaveKind, outcomeOf, patienceUsed, practiceLine, practiceNext, PRACTICE_ORDER,
-  rejectText, rushCash, saleLabel, type CraftButtonId, type Departure, type HandOver, type LiveSlot,
+  projectCraft, projectCup, rejectText, rushCash, saleLabel, type CraftButtonId, type Departure, type HandOver, type LiveSlot,
 } from './rush';
 import './rush.css';
 
@@ -80,6 +80,16 @@ interface Practice {
 }
 
 const EMPTY_CRAFT: CraftState = { cup: null, anim: null, buffer: [] };
+const NO_ACTIONS: readonly Action[] = [];
+
+/** A refusal from the sim, in words that fit what happened between the press and the tick. */
+function refusalText(action: Action['type'], why: InputReject): string {
+  if (action === 'deliver' && why === 'notInFirstFour') return 'Khách vừa rời quầy';
+  if (action === 'deliver' && why === 'busy') return 'Ly chưa xong, chưa giao được';
+  if (action === 'craft' && (why === 'noTea' || why === 'noTopping')) return `${rejectText(why, null, null)}: các bước bấm trước đã huỷ`;
+  if (action === 'craft' && (why === 'order' || why === 'duplicate' || why === 'noCup')) return 'Bước này không còn hợp với ly, đã bỏ qua';
+  return rejectText(why, null, null);
+}
 
 export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime, subscribe }: RushScreenProps) {
   const reduced = useReducedMotion() ?? false;
@@ -94,14 +104,19 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
   }));
   const practiceRef = useRef(practice);
   practiceRef.current = practice;
+  /** The practice counter and its tick, updated by the handlers at once (two presses in one task both count). */
+  const pCraft = useRef<CraftState>(EMPTY_CRAFT);
+  const pTick = useRef(0);
+  const setPracticeCraft = useCallback((c: CraftState, extra: Partial<Practice> = {}) => {
+    pCraft.current = c;
+    setPractice(p => ({ ...p, ...extra, craft: c }));
+  }, []);
   useEffect(() => {
     if (!practice.on) return;
     const id = window.setInterval(() => {
-      setPractice(p => {
-        if (!p.on) return p;
-        const r = craftTick(p.craft, null, p.tick, rush.player.machine);
-        return { ...p, craft: r.craft, tick: p.tick + 1, wall: performance.now() };
-      });
+      const r = craftTick(pCraft.current, null, pTick.current, rush.player.machine);
+      pTick.current += 1;
+      setPracticeCraft(r.craft, { tick: pTick.current, wall: performance.now() });
     }, CONFIG.rush.tickMs);
     return () => window.clearInterval(id);
   }, [practice.on, rush.player.machine]);
@@ -181,7 +196,8 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
     tag.innerHTML = h.correct ? `<b>${saleLabel(h.paid)}</b>`
       : `<b>${saleLabel(h.paid)}</b><em>−${fmtMoney(h.cut)} · ${h.cutLabel}</em>`;
     tag.style.left = `${sx}px`;
-    tag.style.top = `${sy}px`;
+    // above the order bubble, so both stay readable
+    tag.style.top = `${Math.max(4, a.top - base.top - 8)}px`;
     layer.appendChild(tag);
     const life = reducedRef.current ? 1200 : 1500;
     tag.animate(reducedRef.current
@@ -247,9 +263,7 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
           }
         } else if (e.type === 'inputRejected' && e.why !== 'closed') {
           noticeId.current += 1;
-          const why = e.action === 'craft' && (e.why === 'noTea' || e.why === 'noTopping')
-            ? `${rejectText(e.why, null, null)}: các bước bấm trước đã huỷ` : rejectText(e.why, null, null);
-          setNotice({ id: noticeId.current, text: why });
+          setNotice({ id: noticeId.current, text: refusalText(e.action, e.why) });
         }
       }
       if (leaves.length > 0) setDeparting(ds => [...ds.filter(d => !leaves.some(l => l.customer === d.customer)), ...leaves]);
@@ -257,39 +271,80 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
   }), [subscribe, spawn]);
 
   // ── Player actions ──
+  // What was sent for the next tick: the panel judges its buttons against the counter with these folded in, so a
+  // second press inside one tick is taken (the sim applies a tick's actions in order), and a second hand-over or bin
+  // before the tick lands is not sent at all.
   const machine = rush.player.machine;
-  const onInput = useCallback((id: CraftButtonId) => {
-    if (practiceRef.current.on) {
-      setPractice(p => ({ ...p, craft: craftInput(p.craft, inputOf(id), null, p.tick, machine).craft }));
-      return;
-    }
-    act({ type: 'craft', input: inputOf(id) });
-  }, [act, machine]);
-  const onTrash = useCallback(() => {
-    if (practiceRef.current.on) {
-      setPractice(p => ({ ...p, craft: EMPTY_CRAFT }));
-      return;
-    }
-    act({ type: 'trash' });
+  const [pending, setPending] = useState<{ tick: number; actions: Action[] }>({ tick: -1, actions: [] });
+  const pendingRef = useRef(pending);
+  const rushRef = useRef(rush);
+  rushRef.current = rush;
+  const tickRef = useRef(rush.tick);
+  tickRef.current = rush.tick;
+  const send = useCallback((a: Action) => {
+    act(a);
+    const t = tickRef.current;
+    const prev = pendingRef.current;
+    const next = { tick: t, actions: prev.tick === t ? [...prev.actions, a] : [a] };
+    pendingRef.current = next;
+    setPending(next);
   }, [act]);
-  const onDeliver = useCallback((customer: number) => {
-    const p = practiceRef.current;
-    if (p.on) {
-      if (customer !== PRACTICE_ID || p.craft.cup === null || !canDeliver(p.craft)) return;
-      const h = handOver(price, PRACTICE_ORDER, p.craft.cup);
+  /** The counter as the sim will see it, with everything sent so far (read at the moment of a press). */
+  const counterNow = useCallback(() => {
+    const r = rushRef.current;
+    const pend = pendingRef.current.tick === r.tick ? pendingRef.current.actions : NO_ACTIONS;
+    return projectCraft(r.player.craft, r.player.stock, pend, r.tick, r.player.machine);
+  }, []);
+  const closedRef = useRef(closed);
+  closedRef.current = closed;
+  const pendingNow = pending.tick === rush.tick ? pending.actions : NO_ACTIONS;
+  const projected = useMemo(() => projectCraft(rush.player.craft, rush.player.stock, pendingNow, rush.tick, machine),
+    [rush.player.craft, rush.player.stock, pendingNow, rush.tick, machine]);
+  // Each press is judged against the counter as it stands after everything already sent, and refused with its reason
+  // (the panel shows it); the sim still judges every action it gets.
+  const onInput = useCallback((id: CraftButtonId): string | null => {
+    const input = inputOf(id);
+    if (practiceRef.current.on) {
+      const c = pCraft.current;
+      const why = checkInput(c, input, null);
+      if (why !== null) return rejectText(why, input, projectCup(c));
+      setPracticeCraft(craftInput(c, input, null, pTick.current, machine).craft);
+      return null;
+    }
+    const now = counterNow();
+    const why = closedRef.current ? 'closed' : checkInput(now.craft, input, now.stock);
+    if (why !== null) return rejectText(why, input, projectCup(now.craft));
+    send({ type: 'craft', input });
+    return null;
+  }, [send, machine, counterNow, setPracticeCraft]);
+  const onTrash = useCallback((): string | null => {
+    const c = practiceRef.current.on ? pCraft.current : counterNow().craft;
+    if (c.cup === null) return 'Không có ly nào để bỏ';
+    if (practiceRef.current.on) setPracticeCraft(EMPTY_CRAFT);
+    else send({ type: 'trash' });
+    return null;
+  }, [send, counterNow, setPracticeCraft]);
+  const onDeliver = useCallback((customer: number): string | null => {
+    if (practiceRef.current.on) {
+      const c = pCraft.current;
+      if (customer !== PRACTICE_ID || c.cup === null || !canDeliver(c)) return 'Ly chưa xong';
+      const h = handOver(price, PRACTICE_ORDER, c.cup);
       const now = performance.now();
       setDeparting(ds => [...ds, { customer: PRACTICE_ID, order: PRACTICE_ORDER, joinedTick: -1, index: 0,
         kind: h.correct ? 'cheer' : 'wrong', at: now }]);
-      setPractice(q => ({ ...q, result: h, craft: { cup: null, anim: { step: 'deliver', endsAt: q.tick + CONFIG.craft.deliverTicks }, buffer: [] } }));
-      return;
+      setPracticeCraft({ cup: null, anim: { step: 'deliver', endsAt: pTick.current + CONFIG.craft.deliverTicks }, buffer: [] },
+        { result: h });
+      return null;
     }
-    act({ type: 'deliver', customer });
-  }, [act, price]);
+    if (!canDeliver(counterNow().craft)) return 'Ly chưa xong, chưa giao được';
+    send({ type: 'deliver', customer });
+    return null;
+  }, [send, price, counterNow, setPracticeCraft]);
   const startRush = useCallback(() => {
     setPractice(p => ({ ...p, on: false }));
     setDeparting(ds => ds.filter(d => d.customer !== PRACTICE_ID));
   }, []);
-  const retryPractice = useCallback(() => setPractice(p => ({ ...p, result: null, craft: EMPTY_CRAFT })), []);
+  const retryPractice = useCallback(() => setPracticeCraft(EMPTY_CRAFT, { result: null }), [setPracticeCraft]);
 
   // ── Price and closing ──
   const [priceOpen, setPriceOpen] = useState(false);
@@ -300,8 +355,10 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
   }, [act]);
   const cancelPrice = useCallback(() => setPriceOpen(false), []);
   const cancelClose = useCallback(() => setCloseOpen(false), []);
+  const [closedAt, setClosedAt] = useState<number | null>(null);
   const confirmClose = useCallback(() => {
     setCloseOpen(false);
+    setClosedAt(CONFIG.rush.ticks - tickRef.current);
     dispatch({ type: 'closeEarly' });
   }, [dispatch]);
   useEffect(() => {
@@ -326,8 +383,8 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
   }, [rush.done]);
 
   // ── What the panel gets, kept stable between ticks ──
-  const craft = useStable(practice.on ? practice.craft : rush.player.craft);
-  const stock = useStable(rush.player.stock);
+  const craft = useStable(practice.on ? practice.craft : projected.craft);
+  const stock = useStable(projected.stock);
   // The staff's progress in whole seconds (its ring eases between them): the panel re-renders once a second for it.
   const staff = useStable(rush.player.staff === null ? null : { progress: Math.floor(rush.player.staff.progress / 10) * 10 });
   const time = practice.on ? practiceTime : simTime;
@@ -341,7 +398,8 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
   const now = rush.tick;
   const urgent = live.some(l => patienceUsed(now, l.joinedTick) >= 0.7);
   // Whole seconds: the top bar re-renders once a second, not every tick.
-  const ticksLeft = Math.ceil((CONFIG.rush.ticks - rush.tick) / 10) * 10;
+  // After "Đóng cửa sớm" the street is played out at once (R15): the clock stays where the shop closed.
+  const ticksLeft = Math.ceil(((closedAt ?? CONFIG.rush.ticks - rush.tick)) / 10) * 10;
 
   const stats = useMemo(() => ({ cups: rush.player.tally.cups, revenue: rush.player.tally.revenue }),
     [rush.player.tally.cups, rush.player.tally.revenue]);
@@ -391,7 +449,7 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
       )}
 
       {practice.on && (
-        <div className="rcoach" role="dialog" aria-label="Ly thử">
+        <aside className="rcoach" aria-label="Ly thử" aria-live="polite">
           <span className="rcoach__tag">Ly thử · không tính tiền · đồng hồ chưa chạy</span>
           {practice.result === null ? (
             <>
@@ -412,7 +470,7 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
               </div>
             </>
           )}
-        </div>
+        </aside>
       )}
 
       <div ref={fx} className="rush__fx" aria-hidden="true" />
@@ -437,7 +495,7 @@ export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime,
       )}
 
       {paused && !rush.done && (
-        <div className="rpause" role="dialog" aria-label="Tạm dừng">
+        <div className="rpause" role="dialog" aria-modal="true" aria-label="Tạm dừng">
           <div className="rpause__card">
             <b>Tạm dừng</b>
             <p>Đồng hồ đứng yên khi bạn rời trang.</p>

@@ -112,7 +112,6 @@ function CupView({ craft, machine, tea, time, reduced, ready, sloshRef }: CupPro
     [g, toppingKey]);
   const colors = TEA_COLORS[tea];
 
-  const root = useRef<SVGGElement>(null);
   const body = useRef<SVGGElement>(null);
   const liquid = useRef<SVGPathElement>(null);
   const foam = useRef<SVGPathElement>(null);
@@ -303,7 +302,7 @@ function CupView({ craft, machine, tea, time, reduced, ready, sloshRef }: CupPro
         </pattern>
       </defs>
       <ellipse cx={CX} cy={FLOOR + 3} rx={g.bw / 2 + 10} ry={6} className="rcup__shadow" />
-      <g ref={root}>
+      <g>
         <g ref={body}>
           <g clipPath={`url(#cupclip-${cup.size})`}>
             <rect x={0} y={0} width={W} height={200} fill="rgba(255,255,255,0.55)" />
