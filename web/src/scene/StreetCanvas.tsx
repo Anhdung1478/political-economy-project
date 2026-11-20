@@ -5,7 +5,8 @@
 // emits them (`ref.push(events, tick)`); the picture interpolates between ticks, from `simTime` when the parent has a
 // finer clock, else from when each push came. A new `snapshot` (or `ref.reset`) rebuilds the street, e.g. on return
 // to a hidden tab. `ambient`: the street with no rush running, on the wall clock, with made-up walkers strolling,
-// glancing at the boards and buying now and then (ambient.ts), at a lower frame rate and without speech bubbles; its
+// glancing at the boards and buying now and then (ambient.ts), at a lower frame rate; the walkers now and then say a short flavour line (bubbles.ts `AmbientVoice`: weather,
+// cravings, school, nothing about the shops), never the sim's words; its
 // street is `snapshot` (the day's shops at rest) or, without one, the first morning of a run from `seed`.
 // If the canvas cannot start, or drawing keeps failing, `fallback` shows instead (spec §13); by default, live, the
 // list of shops (StreetList.tsx: name, price, status, queue), and nothing behind an ambient screen.
@@ -14,6 +15,7 @@ import {
 } from 'react';
 import type { RushState, SimEvent } from '../../../shared/sim/types';
 import { AmbientClock, AmbientDriver, ambientStreet } from './ambient';
+import { AMBIENT_DIRECTORS } from './bubbles';
 import { Director } from './director';
 import { fitLayout } from './layout';
 import type { TimeOfDay } from './lighting';
@@ -117,7 +119,7 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
           setFailed(true);
         },
         seed: latest.current.seed,
-        speech: latest.current.mode === 'live',
+        speech: true,
         maxFps: latest.current.mode === 'ambient' ? AMBIENT_FPS : 0,
         beforeFrame: t => { if (latest.current.mode === 'ambient') ambient.current?.driver.step(t); },
       });
@@ -145,7 +147,9 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
     const d = director.current;
     if (d === null) return;
     const sc = scene.current;
-    sc?.setSpeech(mode === 'live');
+    sc?.setSpeech(true);
+    if (mode === 'ambient') AMBIENT_DIRECTORS.add(d);
+    else AMBIENT_DIRECTORS.delete(d);
     sc?.setMaxFps(mode === 'ambient' ? AMBIENT_FPS : undefined);
     if (mode === 'live') {
       ambient.current = null;

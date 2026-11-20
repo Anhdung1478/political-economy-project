@@ -11,7 +11,7 @@
 import { CONFIG } from '../../../../shared/sim/config';
 import type { ShopId } from '../../../../shared/sim/types';
 import {
-  admit, candidates, daySeed, placeBubbles, popOf, tailTip, type AvoidRect, type Candidate, type Placed,
+  admit, AMBIENT_DIRECTORS, AmbientVoice, candidates, daySeed, MAX_BUBBLES, placeBubbles, popOf, tailTip, type AvoidRect, type Candidate, type Placed,
   type Placing, type Shown,
 } from '../bubbles';
 import type { RenderContext } from '../Scene';
@@ -26,18 +26,21 @@ interface State {
   shown: Shown[]; out: Shown[]; waiting: Candidate[]; seed: number; day: number; daySeed: number;
   /** Reused each frame: the placements asked for and whose they are. */
   place: Placing[]; who: Shown[];
+  /** The ambient street's talker (rebuilt with the day's seed). */
+  voice: AmbientVoice | null;
 }
 
 function stateOf(rc: RenderContext): State {
   let s = rc.store.get(STORE) as State | undefined;
   if (s === undefined) {
-    s = { shown: [], out: [], waiting: [], seed: NaN, day: 0, daySeed: 0, place: [], who: [] };
+    s = { shown: [], out: [], waiting: [], seed: NaN, day: 0, daySeed: 0, place: [], who: [], voice: null };
     rc.store.set(STORE, s);
   }
   if (s.seed !== rc.seed || s.day !== rc.director.day) {
     s.seed = rc.seed;
     s.day = rc.director.day;
     s.daySeed = daySeed(rc.seed, rc.director.day);
+    s.voice = null;
   }
   return s;
 }
@@ -108,6 +111,16 @@ function canSpeak(rc: RenderContext, id: number): boolean {
   return a.x > v.x && a.x < v.x + v.w;
 }
 
+/** A new word starts only on a walker this far inside the view (a share of its width), so it is not cut off at once. */
+const START_INSET = 0.08;
+
+function canStart(rc: RenderContext, id: number): boolean {
+  if (!canSpeak(rc, id)) return false;
+  const a = rc.director.actor(id);
+  const v = rc.view;
+  return a !== undefined && a.x > v.x + v.w * START_INSET && a.x < v.x + v.w * (1 - START_INSET);
+}
+
 /** What the bubbles keep clear of: the van's banner and the ceiling sign; at a lower cost the boards and your shop. */
 function avoidRects(rc: RenderContext): AvoidRect[] {
   const d = rc.director;
@@ -134,12 +147,30 @@ export function drawSpeech(rc: RenderContext): void {
   const d = rc.director;
   const now = rc.now;
   let sales: { shop: ShopId; customer: number; correct: boolean; t: number }[] | null = null;
-  for (const c of rc.cues) if (c.kind === 'sale') (sales ??= []).push(c);
-  if (rc.bubbles.length > 0 || sales !== null || st.shown.length > 0 || st.waiting.length > 0) {
-    const res = admit(st.shown, rc.bubbles.length > 0 || sales !== null
-      ? candidates(rc.bubbles, sales ?? [], st.daySeed) : [], {
+  const ambient = AMBIENT_DIRECTORS.has(d);
+  // The ambient street says nothing of the sim: the director's requests and cues are not used there.
+  if (!ambient) for (const c of rc.cues) if (c.kind === 'sale') (sales ??= []).push(c);
+  let chat: Candidate[] = [];
+  if (ambient) {
+    const live = st.shown.filter(b => b.until > now);
+    const eligible: number[] = [];
+    let visible = 0;
+    for (const a of d.actors) {
+      if (!canSpeak(rc, a.id)) continue;
+      visible++;
+      if (canStart(rc, a.id) && !st.shown.some(b => b.customer === a.id)) eligible.push(a.id);
+    }
+    st.voice ??= new AmbientVoice(st.daySeed);
+    const k = st.voice.pick(now, eligible, visible, Math.min(live.length, MAX_BUBBLES));
+    if (k !== null) chat = [k];
+  }
+  const requests = ambient ? [] : rc.bubbles;
+  if (requests.length > 0 || sales !== null || chat.length > 0 || st.shown.length > 0 || st.waiting.length > 0) {
+    const res = admit(st.shown, chat.length > 0 ? chat : requests.length > 0 || sales !== null
+      ? candidates(requests, sales ?? [], st.daySeed) : [], {
       now, daySeed: st.daySeed,
       canSpeak: id => canSpeak(rc, id),
+      canStart: id => canStart(rc, id),
       priceOf: shop => (shop === null ? null : d.shops.find(s => s.id === shop)?.price ?? null),
     }, st.waiting);
     st.shown = res.shown;

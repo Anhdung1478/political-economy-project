@@ -21,7 +21,7 @@ import type { Rect } from './layout';
  * A bubble's situation: the director's topics, the trust/value side of "too expensive", "another shop is better"
  * when that shop really was cheaper, and a happy serve.
  */
-export type Situation = BubbleTopic | 'valueDoubt' | 'otherCheaper' | 'served';
+export type Situation = BubbleTopic | 'valueDoubt' | 'otherCheaper' | 'served' | 'chat';
 
 /** How a bubble is coloured: a good word, a bad one, or plain. */
 export type Tone = 'good' | 'bad' | 'plain';
@@ -32,7 +32,7 @@ const ITEM: Record<StockItem, string> = { tea: 'trà', pearl: 'trân châu', jel
  * The lines, after spec §9's table (its example first). `{item}` is what ran out, `{price}` the shop's price in k.
  * Every situation has 3 or 4.
  */
-export const LINES: Readonly<Record<Situation, readonly string[]>> = {
+export const LINES: Readonly<Record<Exclude<Situation, 'chat'>, readonly string[]>> = {
   tooExpensive: [
     'Quán này đắt quá, đi quán khác thôi.',
     '{price}k một ly? Quá túi tiền rồi.',
@@ -125,13 +125,48 @@ export const LINES: Readonly<Record<Situation, readonly string[]>> = {
   ],
 };
 
+/**
+ * What walkers say on the ambient street (title, lobby, projector, morning): flavour only. No shop, price, queue or
+ * stock (the screen could contradict it), just weather, cravings, school and choosing.
+ */
+export const AMBIENT_LINES: readonly string[] = [
+  'Trời nóng quá, làm ly đá thôi.',
+  'Trân châu hôm nay có dai không ta?',
+  'Đi học muộn rồi mà vẫn phải ghé.',
+  'Hôm nay uống gì ta, phân vân quá.',
+  'Thèm trà sữa từ sáng giờ.',
+  'Ít đá, ít ngọt, nhớ nha!',
+  'Trời mà mưa là hỏng buổi đi chơi.',
+  'Mai kiểm tra mà giờ còn la cà.',
+  'Uống xong mới có sức học bài.',
+  'Gió mát ghê, đi dạo xíu rồi về.',
+  'Đi một mình cũng phải uống trà sữa.',
+  'Bạn rủ đi mà mình lại đến sớm.',
+  'Tuần này uống mấy ly rồi nhỉ…',
+  'Mùi trà thơm quá trời.',
+  'Thêm thạch được không ta?',
+  'Ôi, nắng chang chang.',
+  'Cuối tuần là phải đi dạo phố.',
+  'Giờ này chưa ăn gì, đói quá.',
+  'Một ly thôi, hứa là một ly thôi.',
+  'Uống ly trà cho tỉnh ngủ.',
+  'Chọn quán nào bây giờ nhỉ?',
+  'Ngày đẹp trời, đi dạo thôi.',
+  'Hôm nay trà đào hay trà sữa nhỉ?',
+  'Mình hợp trân châu hơn.',
+  'Chờ bạn mãi chưa thấy tới.',
+  'Ước gì được nghỉ học hôm nay.',
+];
+
+const linesOf = (s: Situation): readonly string[] => (s === 'chat' ? AMBIENT_LINES : LINES[s]);
+
 /** `outOfStock` when the sim did not say what ran out. */
 const OUT_GENERIC = ['Hết hàng rồi à…', 'Ơ, bán hết rồi sao?', 'Hết sạch rồi, tiếc ghê.'] as const;
 
 export const TONE: Readonly<Record<Situation, Tone>> = {
   tooExpensive: 'bad', valueDoubt: 'bad', tooCrowded: 'plain', lowTrust: 'bad', outOfStock: 'plain',
   otherBetter: 'plain', otherCheaper: 'plain', chosePlayer: 'good', patience: 'bad', wrongCup: 'bad', priceUp: 'bad', steepDiscount: 'plain',
-  shopClosed: 'plain', emptyHanded: 'plain', rumor: 'bad', served: 'good',
+  shopClosed: 'plain', emptyHanded: 'plain', rumor: 'bad', served: 'good', chat: 'plain',
 };
 
 /**
@@ -141,11 +176,11 @@ export const TONE: Readonly<Record<Situation, Tone>> = {
 export const WEIGHT: Readonly<Record<Situation, number>> = {
   wrongCup: 9, patience: 8, priceUp: 8, emptyHanded: 7, outOfStock: 7, rumor: 6, tooExpensive: 6, valueDoubt: 6,
   lowTrust: 6, tooCrowded: 5, steepDiscount: 5, shopClosed: 5, otherBetter: 4, otherCheaper: 4, chosePlayer: 3,
-  served: 2,
+  served: 2, chat: 1,
 };
 
 /** Situation names in a fixed order, for hashing. */
-const SITUATIONS = Object.keys(LINES) as Situation[];
+const SITUATIONS = [...Object.keys(LINES), 'chat'] as Situation[];
 
 /**
  * The situation of a request: "too expensive" whose price alone was affordable is about trust and value; "another
@@ -183,7 +218,7 @@ export function lineIndex(daySeedV: number, customer: number, s: Situation, n: n
 /** The words: the chosen line with what ran out and the price filled in; `avoid` skips a line already on screen. */
 export function wordsFor(s: Situation, index: number, o: { missing?: StockItem; price?: K | null },
   avoid?: (text: string) => boolean): string {
-  const list = s === 'outOfStock' && o.missing === undefined ? OUT_GENERIC : LINES[s];
+  const list = s === 'outOfStock' && o.missing === undefined ? OUT_GENERIC : linesOf(s);
   const fill = (i: number) => {
     let t = list[i % list.length];
     if (t.includes('{item}')) t = t.replace('{item}', ITEM[o.missing ?? 'tea']);
@@ -275,7 +310,7 @@ export function byPriority(a: Candidate, b: Candidate): number {
 }
 
 /** A bubble stays at least this long (ticks) before a weightier word may push it out (no flicker). */
-export const MIN_SHOW = 6;
+export const MIN_SHOW = 10;
 /** A word that finds the board full waits this long (ticks) for room, then is dropped. */
 export const WAIT_TICKS = 15;
 /** At most this many words wait. */
@@ -286,6 +321,8 @@ export interface AdmitContext {
   daySeed: number;
   /** Whether the customer is on screen to speak (on the street, not folded into "+n", not fading). */
   canSpeak(customer: number): boolean;
+  /** Whether a new word may start now: the speaker is far enough inside the view to be read (default: `canSpeak`). */
+  canStart?(customer: number): boolean;
   /** The price on a shop's board now (for "{price}k"). */
   priceOf(shop: ShopId | null): K | null;
 }
@@ -320,18 +357,24 @@ export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: A
   const pool = [...waiting.filter(k => k.t + WAIT_TICKS >= c.now), ...cands].sort(byPriority);
   const seen = new Set<number>();
   for (const k of pool) {
-    if (seen.has(k.customer) || !c.canSpeak(k.customer)) continue;
+    if (seen.has(k.customer) || !c.canSpeak(k.customer) || (c.canStart !== undefined && !c.canStart(k.customer))) continue;
     seen.add(k.customer);
     const r = rankOf(k);
     const live = next.filter(b => b.until > c.now);
     const mine = live.find(b => b.customer === k.customer);
     if (mine !== undefined) {
       if (rankOf(mine) >= r) continue;
+      // A bubble is read for MIN_SHOW before anything pushes it out (only its speaker leaving cuts it short).
+      if (c.now - mine.born < MIN_SHOW) {
+        wait.push(k);
+        continue;
+      }
       pushOut(mine);
     }
-    const same = live.find(b => b !== mine && b.situation === k.situation);
+    // Ambient chatter is not one-per-situation: the cap of 3 and one per speaker are its limits.
+    const same = k.situation === 'chat' ? undefined : live.find(b => b !== mine && b.situation === k.situation);
     if (same !== undefined) {
-      if (rankOf(same) >= r) {
+      if (rankOf(same) >= r || c.now - same.born < MIN_SHOW) {
         wait.push(k);
         continue;
       }
@@ -350,7 +393,7 @@ export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: A
       }
       pushOut(low);
     }
-    const n = k.situation === 'outOfStock' && k.missing === undefined ? OUT_GENERIC.length : LINES[k.situation].length;
+    const n = k.situation === 'outOfStock' && k.missing === undefined ? OUT_GENERIC.length : linesOf(k.situation).length;
     const text = wordsFor(k.situation, lineIndex(c.daySeed, k.customer, k.situation, n),
       { missing: k.missing, price: c.priceOf(k.shop) }, t => next.some(b => b.text === t));
     next.push({
@@ -488,3 +531,63 @@ export function tailTip(root: { x: number; y: number }, head: { x: number; y: nu
   if (d <= max || d === 0) return { x: head.x, y: head.y };
   return { x: root.x + (dx / d) * max, y: root.y + (dy / d) * max };
 }
+
+// ── Ambient chatter ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Ticks between ambient words with `AMBIENT_FEW` walkers in view, jittered between ×0.75 and ×1.25 (4 s). */
+export const AMBIENT_GAP = 40;
+/** The walkers in view for which the gap is as given; fewer talk less, more talk more (within the bounds below). */
+export const AMBIENT_FEW = 3;
+/** The gap never goes under this (ticks, 1.5 s) nor over AMBIENT_GAP_MAX (10 s), whatever the crowd. */
+export const AMBIENT_GAP_MIN = 15;
+export const AMBIENT_GAP_MAX = 100;
+
+/**
+ * Who says something on the ambient street, and when: a calm rhythm (about one new word every AMBIENT_GAP ticks with
+ * AMBIENT_FEW walkers in view, scaled by how many are, never under AMBIENT_GAP_MIN), from the day's seed alone: the
+ * same seed and the same walkers give the same words, never the sim. `pick` returns a candidate or null.
+ */
+export class AmbientVoice {
+  private nextAt = NaN;
+  private count = 0;
+  /** Walkers who have spoken: each says one thing on its way. */
+  private readonly spoken = new Set<number>();
+
+  constructor(private readonly daySeedV: number) {}
+
+  private hash(salt: number): number {
+    let h = Math.imul(this.daySeedV ^ Math.imul(this.count + 1, 0x9e3779b1) ^ salt, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return h >>> 0;
+  }
+
+  private gap(visible: number): number {
+    const jitter = 0.75 + (this.hash(0x1234567) / 4294967296) * 0.5;
+    const scale = AMBIENT_FEW / Math.max(1, visible);
+    return Math.min(AMBIENT_GAP_MAX, Math.max(AMBIENT_GAP_MIN, AMBIENT_GAP * jitter * scale));
+  }
+
+  /**
+   * `now` in ticks, the walkers who may speak (in a fixed order, none of them with a bubble), how many walkers are in
+   * view, and how many bubbles are live. A word is due after the gap; it waits for a free place and a speaker.
+   */
+  pick(now: number, eligible: readonly number[], visible: number, live: number): Candidate | null {
+    if (Number.isNaN(this.nextAt)) this.nextAt = now + this.gap(visible) * 0.5;
+    if (now < this.nextAt || live >= MAX_BUBBLES) return null;
+    const fresh = eligible.filter(id => !this.spoken.has(id));
+    if (fresh.length === 0) return null;
+    const customer = fresh[this.hash(0x7f4a7c15) % fresh.length];
+    this.spoken.add(customer);
+    this.count++;
+    this.nextAt = now + this.gap(visible);
+    return { customer, situation: 'chat', player: false, shop: null, t: now };
+  }
+}
+
+/**
+ * Directors whose street is ambient (no rush running): the speech layer ignores the director's requests there and lets
+ * `AmbientVoice` talk instead. StreetCanvas adds and removes its director as its mode changes.
+ */
+export const AMBIENT_DIRECTORS = new WeakSet<object>();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BubbleRequest } from './director';
 import {
-  admit, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, MIN_SHOW, placeBubbles, popOf, POP_OUT,
+  admit, AMBIENT_GAP_MIN, AMBIENT_LINES, AmbientVoice, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, MIN_SHOW, placeBubbles, popOf, POP_OUT,
   rankOf, situationOf, tailTip, WAIT_TICKS, wordsFor, type AdmitContext, type Candidate, type Placing, type Shown, type Situation,
 } from './bubbles';
 
@@ -12,6 +12,112 @@ const cand = (customer: number, situation: Situation, player = false, t = 100): 
   ({ customer, situation, player, shop: player ? 'player' : 'batu', t });
 const req = (o: Partial<BubbleRequest>): BubbleRequest =>
   ({ customer: 1, t: 10, topic: 'tooExpensive', shop: 'batu', playerRelated: false, ...o });
+
+describe('a bubble\'s minimum time', () => {
+  it('is about a second, and nothing pushes a bubble out before it (same speaker, same situation)', () => {
+    expect(MIN_SHOW).toBeGreaterThanOrEqual(10);
+    let r = admit([], [cand(1, 'chosePlayer', true)], ctx());
+    for (const dt of [1, MIN_SHOW - 1]) {
+      r = admit(r.shown, [cand(1, 'wrongCup', true, 100 + dt)], ctx({ now: 100 + dt }), r.waiting);
+      expect(r.shown.map(b => b.situation)).toEqual(['chosePlayer']);
+      expect(r.out).toHaveLength(0);
+    }
+    r = admit(r.shown, [], ctx({ now: 100 + MIN_SHOW }), r.waiting);
+    expect(r.shown.map(b => b.situation)).toEqual(['wrongCup']);
+    // The same situation: a higher-ranked one waits out the minimum too.
+    let q = admit([], [cand(1, 'tooCrowded')], ctx());
+    q = admit(q.shown, [cand(2, 'tooCrowded', true, 101)], ctx({ now: 101 }), q.waiting);
+    expect(q.shown.map(b => b.customer)).toEqual([1]);
+  });
+
+  it('is cut short only when the speaker leaves the view', () => {
+    let r = admit([], [cand(1, 'chosePlayer', true)], ctx());
+    r = admit(r.shown, [], ctx({ now: 102, canSpeak: () => false }));
+    expect(r.out).toHaveLength(1);
+    expect(r.out[0].until).toBe(102);
+  });
+
+  it('a new word does not start on a speaker who may not start (near the view\'s edge)', () => {
+    const r = admit([], [cand(1, 'tooCrowded'), cand(2, 'patience')], ctx({ canStart: id => id === 2 }));
+    expect(r.shown.map(b => b.customer)).toEqual([2]);
+  });
+});
+
+describe('ambient chatter', () => {
+  /** Runs the voice for `ticks` at 3 frames a tick over `visible` walkers, through admit as the speech layer does. */
+  const run = (seed: number, ticks: number, visible = 3) => {
+    const voice = new AmbientVoice(daySeed(seed, 1));
+    let shown: Shown[] = [];
+    let waiting: Candidate[] = [];
+    const born: { t: number; text: string; customer: number }[] = [];
+    for (let f = 0; f < ticks * 3; f++) {
+      const now = f / 3;
+      // Walkers come and go: a new one every 12 ticks, `visible` of them in view at a time.
+      const first = Math.floor(now / 12);
+      const walkers = Array.from({ length: visible }, (_, i) => first + i);
+      const eligible = walkers.filter(id => !shown.some(b => b.customer === id && b.until > now));
+      const k = voice.pick(now, eligible, visible, shown.filter(b => b.until > now).length);
+      const r = admit(shown, k === null ? [] : [k], ctx({ now, daySeed: daySeed(seed, 1) }), waiting);
+      for (const b of r.shown) if (!shown.includes(b)) born.push({ t: now, text: b.text, customer: b.customer });
+      shown = r.shown;
+      waiting = r.waiting;
+      expect(shown.filter(b => b.until > now).length).toBeLessThanOrEqual(MAX_BUBBLES);
+    }
+    return born;
+  };
+
+  it('says only lines of the ambient pool, as plain chat', () => {
+    const born = run(7, 600, 4);
+    expect(born.length).toBeGreaterThan(5);
+    for (const b of born) expect(AMBIENT_LINES).toContain(b.text);
+    const r = admit([], [{ customer: 1, situation: 'chat', player: false, shop: null, t: 0 }], ctx());
+    expect(r.shown[0].tone).toBe('plain');
+    expect(r.shown[0].situation).toBe('chat');
+  });
+
+  it('is calm: about one new word every 3 to 5 seconds with a few walkers, never faster than the floor', () => {
+    const born = run(7, 1200, 3);
+    const rate = born.length / 120;
+    expect(rate).toBeGreaterThan(1 / 6);
+    expect(rate).toBeLessThan(1 / 2.5);
+    for (let i = 1; i < born.length; i++) expect(born[i].t - born[i - 1].t).toBeGreaterThanOrEqual(AMBIENT_GAP_MIN - 0.5);
+    expect(run(7, 1200, 1).length).toBeLessThan(born.length);
+    expect(run(7, 1200, 6).length).toBeGreaterThanOrEqual(born.length);
+    expect(run(7, 1200, 6).length / 120).toBeLessThanOrEqual(10 / AMBIENT_GAP_MIN);
+  });
+
+  it('is deterministic for a seed, and other seeds say other things; each walker speaks once', () => {
+    expect(run(7, 600)).toEqual(run(7, 600));
+    expect(run(8, 600).map(b => b.text)).not.toEqual(run(7, 600).map(b => b.text));
+    const voice = new AmbientVoice(1);
+    const got: number[] = [];
+    for (let t = 0; t < 2000; t++) {
+      const k = voice.pick(t, [1, 2], 2, 0);
+      if (k !== null) got.push(k.customer);
+    }
+    expect(got.sort()).toEqual([1, 2]);
+  });
+
+  it('waits when the board is full or nobody can speak, and does not queue up a burst', () => {
+    const voice = new AmbientVoice(1);
+    for (let t = 0; t < 500; t++) expect(voice.pick(t, [1], 1, MAX_BUBBLES)).toBeNull();
+    for (let t = 500; t < 1000; t++) expect(voice.pick(t, [], 0, 0)).toBeNull();
+    expect(voice.pick(1000, [9], 1, 0)).not.toBeNull();
+    expect(voice.pick(1001, [10], 1, 0)).toBeNull();
+  });
+});
+
+describe('the ambient pool', () => {
+  it('is flavour: no shop, price, queue or stock; all different and short', () => {
+    expect(AMBIENT_LINES.length).toBeGreaterThanOrEqual(20);
+    expect(AMBIENT_LINES.length).toBeLessThanOrEqual(30);
+    expect(new Set(AMBIENT_LINES).size).toBe(AMBIENT_LINES.length);
+    for (const l of AMBIENT_LINES) {
+      expect(l, l).not.toMatch(/\d|đắt|rẻ|giá|tiền|hàng|đông|hết|bên kia|xếp/i);
+      expect(l.length, l).toBeLessThanOrEqual(40);
+    }
+  });
+});
 
 describe('the lines', () => {
   it('has 3 or 4 lines for each of the table\'s situations, the spec\'s example among them', () => {
@@ -105,11 +211,12 @@ describe('who speaks', () => {
     expect(r.shown.map(b => b.customer)).not.toContain(3); // the lightest of four (another shop better) is left out
     r = admit(r.shown, [cand(5, 'tooExpensive')], ctx({ now: 101 }));
     expect(r.shown.map(b => b.customer)).not.toContain(5);
-    r = admit(r.shown, [cand(6, 'patience', true)], ctx({ now: 102 }));
+    const later = 100 + MIN_SHOW;
+    r = admit(r.shown, [cand(6, 'patience', true, later)], ctx({ now: later }));
     expect(r.shown).toHaveLength(MAX_BUBBLES);
     expect(r.shown.map(b => b.customer)).toContain(6);
     expect(r.out).toHaveLength(1);
-    expect(r.out[0].until).toBe(102);
+    expect(r.out[0].until).toBe(later);
   });
 
   it('shows one bubble per situation: a word of the same rank waits, a higher one takes its place', () => {
@@ -117,7 +224,7 @@ describe('who speaks', () => {
     r = admit(r.shown, [cand(2, 'tooCrowded')], ctx({ now: 101 }), r.waiting);
     expect(r.shown.map(b => b.customer)).toEqual([1]);
     expect(r.waiting.map(k => k.customer)).toEqual([2]);
-    r = admit(r.shown, [cand(3, 'tooCrowded', true)], ctx({ now: 102 }), r.waiting);
+    r = admit(r.shown, [cand(3, 'tooCrowded', true)], ctx({ now: 100 + MIN_SHOW }), r.waiting);
     expect(r.shown.map(b => b.customer)).toEqual([3]);
     expect(r.out.map(b => b.customer)).toEqual([1]);
   });
@@ -167,10 +274,10 @@ describe('who speaks', () => {
 
   it('one bubble per customer: a weightier word replaces theirs', () => {
     let r = admit([], [cand(1, 'chosePlayer', true)], ctx());
-    r = admit(r.shown, [cand(1, 'wrongCup', true)], ctx({ now: 101 }));
+    r = admit(r.shown, [cand(1, 'wrongCup', true)], ctx({ now: 100 + MIN_SHOW }));
     expect(r.shown).toHaveLength(1);
     expect(r.shown[0].situation).toBe('wrongCup');
-    r = admit(r.shown, [cand(1, 'chosePlayer', true)], ctx({ now: 102 }));
+    r = admit(r.shown, [cand(1, 'chosePlayer', true)], ctx({ now: 102 + MIN_SHOW }));
     expect(r.shown[0].situation).toBe('wrongCup');
   });
 

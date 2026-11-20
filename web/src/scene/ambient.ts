@@ -2,7 +2,7 @@
 // and the host's projector): no rush is running, but people still stroll along, glance at the price boards, and now
 // and then buy a cup. The walkers are made up here, deterministically from a seed and the day, and played through the
 // same director and characters as the rush's customers, so they look and move exactly alike; the street stays light
-// on the CPU (a handful of walkers, short queues, no speech bubbles, a lower frame rate in StreetCanvas).
+// on the CPU (a handful of walkers, short queues, a lower frame rate in StreetCanvas; speech is bubbles.ts `AmbientVoice`, not made here).
 //
 // - `AmbientCrowd` (pure): the made-up walkers and what they do, as `Customer`s and the `SimEvent`s the rush would
 //   have sent for them. Three kinds: strollers walk straight through; glancers stop to read the boards, take a last
