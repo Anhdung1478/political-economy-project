@@ -562,3 +562,52 @@ html.game-lock #root { min-height: 0; }
   .morning__foot .capacity { padding-bottom: 4px; font-size: 12px; }
   .morning__foot .money__parts:not(.money__credit) { display: none; }
 }
+
+/* ---------- Morning: "Xem phố" (hide the plan to see the whole street; the rush's panel motion, mirrored) ---------- */
+.peek {
+  position: absolute; z-index: 6; top: calc(var(--top) + var(--hud-h) + 6px); right: var(--right);
+  display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px 0 10px;
+  border: 2px solid var(--ink); border-radius: var(--r-pill); background: var(--paper); color: var(--ink);
+  font: inherit; font-size: 14px; font-weight: 800; white-space: nowrap; cursor: pointer;
+  box-shadow: 0 3px 0 var(--ink), var(--shadow-md);
+}
+.peek.is-on { background: var(--matcha); border-color: var(--matcha-deep); color: #fff; box-shadow: 0 3px 0 var(--matcha-deep), var(--shadow-md); }
+.peek__icon { font-size: 16px; line-height: 1; }
+.peek__key {
+  min-width: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid currentColor; opacity: 0.6;
+  font: 700 11px/16px var(--font-display, inherit); text-align: center;
+}
+@media (hover: none) { .peek__key { display: none; } }
+.peek:focus-visible { outline: 3px solid var(--caramel); outline-offset: 2px; }
+/* the plan leaves the way the craft panel does: the body up and out, the till down, the frame's glass faded */
+.morning { transition: background-color 0.25s, border-color 0.25s, box-shadow 0.25s; }
+.morning.is-peek .morning__body, .morning.is-peek .morning__foot,
+.morning.is-peek .morning__news, .morning.is-peek .morning__plan {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.25s ease-in, opacity 0.25s ease-in, visibility 0s 0.25s;
+}
+.morning.is-peek .morning__body { transform: translateY(-24px); }
+.morning.is-peek .morning__foot { transform: translateY(110%); }
+.morning.is-peek {
+  pointer-events: none; background: transparent; border-color: transparent; box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.morning:not(.is-leaving):not(.is-peek) .morning__body, .morning:not(.is-leaving):not(.is-peek) .morning__foot,
+.morning:not(.is-leaving):not(.is-peek) .morning__news, .morning:not(.is-leaving):not(.is-peek) .morning__plan {
+  transition: transform 0.25s ease-out, opacity 0.25s ease-out;
+}
+@media (orientation: landscape) {
+  .morning.is-peek .morning__news, .morning.is-peek .morning__plan { transform: translateX(-24px); }
+  .morning.is-peek .morning__body { transform: none; }
+  .morning.is-peek .morning__foot { transform: translateY(40px); }
+  /* in the free middle of the top bar's row, between its two pills */
+  .peek { top: var(--top); left: 50%; right: auto; transform: translateX(-50%); height: var(--hud-h); }
+}
+@media (min-width: 1100px) and (min-height: 620px) {
+  .peek { transform: translateX(-50%) scale(var(--s)); transform-origin: top center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .morning, .morning .morning__news, .morning .morning__plan, .morning .morning__body, .morning .morning__foot {
+    transition: none !important;
+  }
+}

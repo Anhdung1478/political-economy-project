@@ -3,12 +3,13 @@
 // measured frame rate (`window.__sceneFps`), then shuts everything down.
 //
 //   npm run shoot -- --route "/dev/scene?day=3&seed=7" [--size 390x844] [--dpr 2] [--wait 2000]
-//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR] [--full]
+//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR] [--full] [--press KEY]
 //
 // The route may leave out its leading slash ("dev/scene?day=3"), which Git Bash would otherwise rewrite into a path.
 // Captures start once `--ready` matches (default on /dev/scene: the street's first frame,
 // `canvas[data-scene][data-ready="1"]`; on /dev/characters the sheet's; elsewhere none, the load event only), then
-// `--wait` ms later. `--full` captures the whole page rather than the viewport.
+// `--wait` ms later. `--full` captures the whole page rather than the viewport. `--press KEY` (a puppeteer key name,
+// e.g. `h`) is pressed after that wait, with 700 ms for what it animates, before the first capture.
 //
 // Frames go to `<out>.png` (one frame) or `<out>-01.png`, `<out>-02.png`, … under `.shots/` (git-ignored). Chrome comes
 // from CHROME_PATH, default C:\Program Files\Google\Chrome\Application\chrome.exe. `--cpu N` slows the page's CPU N
@@ -25,7 +26,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, '.shots');
 const CHROME = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const USAGE = 'usage: npm run shoot -- --route PATH [--size WxH] [--dpr N] [--wait MS] [--frames N] [--every MS] '
-  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR] [--full]';
+  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR] [--full] [--press KEY]';
 /** What a scene route is ready on: the street's first frame (not the Suspense loader before it). */
 const SCENE_READY = 'canvas[data-scene][data-ready="1"]';
 /** The character sheet's first frame. */
@@ -36,13 +37,15 @@ interface Args {
   out: string; cpu: number;
   /** Capture the whole page, not just the viewport. */
   full: boolean;
+  /** A key to press after the wait, before capturing. */
+  press: string;
   /** A selector to wait for before capturing; '' for none; null until defaulted from the route. */
   ready: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const a: Args = { route: '', width: 390, height: 844, dpr: 2, wait: 2000, frames: 1, every: 1000,
-    out: path.join(SHOTS, 'shot'), cpu: 1, full: false, ready: null };
+    out: path.join(SHOTS, 'shot'), cpu: 1, full: false, press: '', ready: null };
   const num = (flag: string, v: string | undefined, min: number) => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n) || n < min) throw new Error(`${flag} needs a number >= ${min}`);
@@ -71,7 +74,10 @@ function parseArgs(argv: string[]): Args {
     else if (f === '--wait') a.wait = num(f, v, 0);
     else if (f === '--frames') a.frames = Math.floor(num(f, v, 1));
     else if (f === '--every') a.every = num(f, v, 0);
-    else if (f === '--cpu') a.cpu = num(f, v, 1);
+    else if (f === '--press') {
+      if (v === undefined || v === '') throw new Error('--press needs a key name, e.g. h');
+      a.press = v;
+    } else if (f === '--cpu') a.cpu = num(f, v, 1);
     else if (f === '--ready') {
       if (v === undefined) throw new Error('--ready needs a CSS selector (or "" for none)');
       a.ready = v;
@@ -140,6 +146,10 @@ async function main(): Promise<number> {
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
     if (args.ready) await page.waitForSelector(args.ready, { timeout: 60_000 });
     await sleep(args.wait);
+    if (args.press !== '') {
+      await page.keyboard.press(args.press as Parameters<typeof page.keyboard.press>[0]);
+      await sleep(700);
+    }
     await mkdir(path.dirname(args.out), { recursive: true });
     const fps: number[] = [];
     const readFps = async () => {

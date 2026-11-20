@@ -260,3 +260,27 @@ export function planIntents(from: MorningPlan, to: MorningPlan): Intent[] {
 
 /** Two plans with the same values. */
 export const samePlan = (a: MorningPlan, b: MorningPlan): boolean => planIntents(a, b).length === 0;
+
+// ── "Xem phố": hiding the plan to see the whole street ──────────────────────────────────────────────────────────
+
+/** A key press as the plan's visibility cares about it. */
+export interface PeekKeyEvent {
+  key: string;
+  ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean; repeat?: boolean;
+  defaultPrevented?: boolean;
+  /** The element the key went to: typing in a field is never a shortcut. */
+  target?: { tagName?: string; isContentEditable?: boolean; role?: string | null } | null;
+}
+
+const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+
+/** What a key asks of the plan: flip it (H), or bring it back (Esc, only while it is hidden). */
+export function peekKeyAction(e: PeekKeyEvent, peek: boolean): 'toggle' | 'show' | null {
+  if (e.defaultPrevented === true || e.repeat === true || e.ctrlKey === true || e.metaKey === true || e.altKey === true) return null;
+  if (e.key === 'Escape') return peek ? 'show' : null;
+  const t = e.target;
+  const typing = t != null && (TYPING_TAGS.has((t.tagName ?? '').toUpperCase()) || t.isContentEditable === true
+    || t.role === 'textbox');
+  if (typing || e.shiftKey === true) return null;
+  return e.key === 'h' || e.key === 'H' ? 'toggle' : null;
+}

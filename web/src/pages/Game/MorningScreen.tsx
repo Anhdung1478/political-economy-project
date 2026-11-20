@@ -24,7 +24,7 @@ import {
 import { Stepper } from './controls';
 import { DeliveryVan, Shelf } from './MorningArt';
 import {
-  ISSUE_FIELD, bulletinRows, clampPrice, entryNote, hintLine, issueText, newsLine, planIntents, priceRange, ruleLines,
+  ISSUE_FIELD, bulletinRows, clampPrice, entryNote, hintLine, issueText, newsLine, peekKeyAction, planIntents, priceRange, ruleLines,
   samePlan, stepCount, stepTea, streetAverage, streetSummary, type Entrant,
 } from './morning';
 
@@ -66,6 +66,33 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
   const presentRef = useRef(present);
   presentRef.current = present;
   const tableId = useId();
+
+  // "Xem phố": the plan slides away to show the whole street. Never saved; a fresh morning starts with the plan up.
+  const [peek, setPeek] = useState(false);
+  const peekBtn = useRef<HTMLButtonElement>(null);
+  const peekMoved = useRef(false);
+  useEffect(() => {
+    if (peekMoved.current) peekBtn.current?.focus({ preventScroll: true });
+  }, [peek]);
+  const setPeekTo = useCallback((v: boolean) => {
+    peekMoved.current = true;
+    setPeek(v);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const act = peekKeyAction({
+        key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey, repeat: e.repeat,
+        defaultPrevented: e.defaultPrevented,
+        target: el === null ? null : { tagName: el.tagName, isContentEditable: el.isContentEditable, role: el.getAttribute('role') },
+      }, peek);
+      if (act === null || leaving) return;
+      e.preventDefault();
+      setPeekTo(act === 'show' ? false : !peek);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [peek, leaving, setPeekTo]);
 
   /** Sends the local edits to the store now. */
   const flush = useCallback(() => {
@@ -156,8 +183,9 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
   const atFloor = brief.cash <= floor;
 
   return (
-    <div className={cx('morning', leaving && 'is-leaving')}>
-      <div className="morning__body" ref={body} onScroll={() => cue && setCue(false)}>
+    <>
+    <div className={cx('morning', leaving && 'is-leaving', peek && 'is-peek')}>
+      <div className="morning__body" ref={body} inert={peek} onScroll={() => cue && setCue(false)}>
         <section className="morning__news panel scrolly" aria-labelledby="news-title">
           <header className="news__mast">
             <span>Bản tin phường</span>
@@ -315,7 +343,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
         </section>
       </div>
 
-      <footer className="morning__foot panel">
+      <footer className="morning__foot panel" inert={peek}>
         <AnimatePresence>
           {cue && !leaving && (
             <motion.button key="cue" type="button" className="plan-cue" onClick={toPrice}
@@ -366,6 +394,16 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
 
       <AnimatePresence>{leaving && <DeliveryVan key="van" onArrived={onArrived} />}</AnimatePresence>
     </div>
+    {!leaving && (
+      <button ref={peekBtn} type="button" className={cx('peek', peek && 'is-on')} aria-expanded={!peek}
+        aria-keyshortcuts="H" onClick={() => setPeekTo(!peek)}>
+        <span className="peek__icon" aria-hidden="true">{peek ? '📝' : '👁'}</span>
+        <span>{peek ? 'Lập kế hoạch' : 'Xem phố'}</span>
+        <kbd className="peek__key" aria-hidden="true">H</kbd>
+      </button>
+    )}
+    <p className="sr-only" role="status">{peek ? 'Đã ẩn kế hoạch để xem phố. Bấm H hoặc Esc để hiện lại.' : ''}</p>
+    </>
   );
 }
 

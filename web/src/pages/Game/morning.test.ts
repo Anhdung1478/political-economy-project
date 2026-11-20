@@ -7,7 +7,7 @@ import { gameAt } from '../Dev/gameAt';
 import { dayTitle, hudMoney } from './copy';
 import {
   avgOrderMl, bulletinRows, clampPrice, cupsFromTea, entryNote, hintLine, issueText, newsLine, planIntents,
-  priceRange, ruleLines, samePlan, shelfOf, stepCount, stepTea, streetAverage, streetSummary,
+  peekKeyAction, priceRange, ruleLines, samePlan, shelfOf, stepCount, stepTea, streetAverage, streetSummary,
 } from './morning';
 import { morningStreet } from './street';
 
@@ -171,5 +171,27 @@ describe('compact lines', () => {
     expect(streetSummary(b)).toMatch(new RegExp(`^\\d+k – \\d+k · quán bạn ${me.closePrice}k, ${me.sold} ly$`));
     const xs = b.street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
     expect(streetAverage(b)).toBe(Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 2) / 2);
+  });
+});
+
+describe('peekKeyAction', () => {
+  const field = { tagName: 'INPUT' };
+  it('H flips the plan, Esc only brings it back', () => {
+    expect(peekKeyAction({ key: 'h' }, false)).toBe('toggle');
+    expect(peekKeyAction({ key: 'H' }, true)).toBe('toggle');
+    expect(peekKeyAction({ key: 'Escape' }, true)).toBe('show');
+    expect(peekKeyAction({ key: 'Escape' }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'x' }, false)).toBeNull();
+  });
+  it('is not a shortcut while typing, with a modifier, held down or already handled', () => {
+    expect(peekKeyAction({ key: 'h', target: field }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'h', target: { tagName: 'DIV', role: 'textbox' } }, false)).toBeNull();
+    // the steppers are not text fields: H still works with one focused (the price starts focused)
+    expect(peekKeyAction({ key: 'h', target: { tagName: 'DIV', role: 'spinbutton' } }, false)).toBe('toggle');
+    expect(peekKeyAction({ key: 'h', target: { tagName: 'DIV', isContentEditable: true } }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'h', ctrlKey: true }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'h', repeat: true }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'h', defaultPrevented: true }, false)).toBeNull();
+    expect(peekKeyAction({ key: 'Escape', target: field }, true)).toBe('show');
   });
 });
