@@ -445,3 +445,21 @@ describe('sim errors', () => {
 it('uses the shared config by default', () => {
   expect(fresh().run.cash).toBe(CONFIG.run.startCash);
 });
+
+describe('a run saved at the cards before R75 (no rushResult.player.handed)', () => {
+  it('loads, takes its cards and closes the day, counting the leftover stock as the waste', async () => {
+    const raw = (await import('./fixtures/saved-cards-pre-r75.json')).default;
+    expect(raw.run.rushResult.player).not.toHaveProperty('handed');
+    const store = memoryStore({ [KEYS.solo]: JSON.stringify(raw) });
+    let s = load(store, KEYS.solo)!;
+    expect(s.run.phase).toBe('cards');
+    // A bounded loop: a swallowed throw would leave the run on its last card for ever.
+    for (let i = 0; i < 5 && s.run.phase === 'cards'; i++) s = reduce(s, { type: 'chooseCard', choice: 'A' });
+    expect(s.run.phase).toBe('report');
+    const p = raw.run.rushResult.player;
+    const rep = s.run.reports[s.run.reports.length - 1];
+    const left = p.left.teaMl * CONFIG.supplies.teaGrades[s.run.plan.tea].costPer100Ml / 100;
+    expect(rep.summary.wasteValue).toBeGreaterThanOrEqual(left);
+    expect(Number.isFinite(rep.summary.wasteValue)).toBe(true);
+  });
+});

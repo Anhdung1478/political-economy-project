@@ -407,9 +407,10 @@ export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
   const cash = run.cash - fines;
   const unit = toppingUnit(run, cfg);
   // R75: everything bought that did not go into a handed-over cup: leftover stock, trashed cups, the cup at close.
+  // A run saved at the cards before R75 has no `handed`: it then counts the leftover stock alone, as it did.
   const valueOf = (s: Stock): K => (s.teaMl * cfg.supplies.teaGrades[plan.tea].costPer100Ml) / 100
     + cfg.customers.toppingOrder.reduce((sum, t) => sum + s.toppings[t] * unit, 0);
-  const wasteValue = valueOf(p.used) - valueOf(p.handed) + valueOf(p.left);
+  const wasteValue = valueOf(p.used) - valueOf(p.handed ?? p.used) + valueOf(p.left);
 
   const items = eveningRep(run, plan, p, rules, cfg);
   const rep = clampRep(run.rep + items.reduce((sum, i) => sum + i.delta, 0), cfg);

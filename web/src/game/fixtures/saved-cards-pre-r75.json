@@ -1,0 +1,305 @@
+{
+ "v": 1,
+ "sessionCode": null,
+ "run": {
+  "v": 1,
+  "seed": 7,
+  "runId": "run-7",
+  "day": 1,
+  "phase": "cards",
+  "cash": 81,
+  "rep": 50,
+  "upgrades": [],
+  "skimpDays": 0,
+  "flags": {
+   "cartel": "none",
+   "cartelBroken": false,
+   "shockTopping": false,
+   "blackMarket": false,
+   "taxEvaded": false,
+   "inspection": "none",
+   "reporter": null
+  },
+  "pending": [],
+  "sideDeck": [
+   "kol",
+   "tab",
+   "scholarship",
+   "student",
+   "complaint",
+   "deliveryAd"
+  ],
+  "sideDrawn": [],
+  "shops": [
+   {
+    "id": "batu",
+    "status": "active",
+    "closedOn": null,
+    "todayPrice": 30,
+    "resting": false,
+    "probeDir": 1,
+    "history": []
+   },
+   {
+    "id": "giare",
+    "status": "active",
+    "closedOn": null,
+    "todayPrice": 28,
+    "resting": false,
+    "probeDir": 1,
+    "history": []
+   },
+   {
+    "id": "cochap",
+    "status": "active",
+    "closedOn": null,
+    "todayPrice": 28,
+    "resting": false,
+    "probeDir": 1,
+    "history": []
+   },
+   {
+    "id": "luotsong",
+    "status": "active",
+    "closedOn": null,
+    "todayPrice": 32,
+    "resting": false,
+    "probeDir": 1,
+    "history": []
+   },
+   {
+    "id": "sinhvien",
+    "status": "active",
+    "closedOn": null,
+    "todayPrice": 34,
+    "resting": false,
+    "probeDir": -1,
+    "history": []
+   },
+   {
+    "id": "tapdoan",
+    "status": "notYet",
+    "closedOn": null,
+    "todayPrice": null,
+    "resting": false,
+    "probeDir": 1,
+    "history": []
+   }
+  ],
+  "plan": {
+   "price": 30,
+   "tea": "standard",
+   "teaMl": 5500,
+   "upgrade": null,
+   "toppings": {
+    "pearl": 11,
+    "jelly": 8,
+    "pudding": 8
+   }
+  },
+  "morningNews": [],
+  "today": {
+   "plan": {
+    "price": 30,
+    "tea": "standard",
+    "teaMl": 5500,
+    "upgrade": null,
+    "toppings": {
+     "pearl": 11,
+     "jelly": 8,
+     "pudding": 8
+    }
+   },
+   "cost": {
+    "tea": 165,
+    "toppings": 54,
+    "upgrade": 0
+   },
+   "tempStaff": false,
+   "applied": [],
+   "cardCash": 0
+  },
+  "rushResult": {
+   "player": {
+    "revenue": 0,
+    "tax": 0,
+    "cups": 0,
+    "wrong": 0,
+    "staffCups": 0,
+    "walkouts": 11,
+    "missedNoStock": 0,
+    "trashed": 0,
+    "closePrice": 30,
+    "used": {
+     "teaMl": 0,
+     "toppings": {
+      "pearl": 0,
+      "jelly": 0,
+      "pudding": 0
+     }
+    },
+    "left": {
+     "teaMl": 5500,
+     "toppings": {
+      "pearl": 11,
+      "jelly": 8,
+      "pudding": 8
+     }
+    },
+    "gouged": false,
+    "brokeCartel": false
+   },
+   "shops": [
+    {
+     "id": "batu",
+     "status": "soldOut",
+     "openPrice": 30,
+     "closePrice": 32,
+     "trail": [
+      [
+       0,
+       30
+      ],
+      [
+       600,
+       32
+      ]
+     ],
+     "sold": 12,
+     "capacity": 12,
+     "soldOut": true,
+     "profit": null,
+     "revenue": 370
+    },
+    {
+     "id": "giare",
+     "status": "soldOut",
+     "openPrice": 28,
+     "closePrice": 28,
+     "trail": [
+      [
+       0,
+       28
+      ]
+     ],
+     "sold": 12,
+     "capacity": 12,
+     "soldOut": true,
+     "profit": null,
+     "revenue": 336
+    },
+    {
+     "id": "cochap",
+     "status": "soldOut",
+     "openPrice": 28,
+     "closePrice": 28,
+     "trail": [
+      [
+       0,
+       28
+      ]
+     ],
+     "sold": 12,
+     "capacity": 12,
+     "soldOut": true,
+     "profit": null,
+     "revenue": 336
+    },
+    {
+     "id": "luotsong",
+     "status": "open",
+     "openPrice": 32,
+     "closePrice": 34,
+     "trail": [
+      [
+       0,
+       32
+      ],
+      [
+       600,
+       34
+      ]
+     ],
+     "sold": 11,
+     "capacity": 12,
+     "soldOut": false,
+     "profit": null,
+     "revenue": 360
+    },
+    {
+     "id": "sinhvien",
+     "status": "open",
+     "openPrice": 34,
+     "closePrice": 34,
+     "trail": [
+      [
+       0,
+       34
+      ]
+     ],
+     "sold": 9,
+     "capacity": 12,
+     "soldOut": false,
+     "profit": null,
+     "revenue": 306
+    },
+    {
+     "id": "player",
+     "status": "open",
+     "openPrice": 30,
+     "closePrice": 30,
+     "trail": [
+      [
+       0,
+       30
+      ]
+     ],
+     "sold": 0,
+     "capacity": 0,
+     "soldOut": false,
+     "profit": null,
+     "revenue": 0
+    },
+    {
+     "id": "tapdoan",
+     "status": "notYet",
+     "openPrice": null,
+     "closePrice": null,
+     "trail": [],
+     "sold": 0,
+     "capacity": 0,
+     "soldOut": false,
+     "profit": null,
+     "revenue": 0
+    }
+   ],
+   "customers": 130,
+   "eligible": 93,
+   "emptyHanded": 37,
+   "taxFund": 0,
+   "scared": 0,
+   "certified": [],
+   "named": []
+  },
+  "cards": [
+   "kol",
+   "cartel"
+  ],
+  "cardIndex": 0,
+  "choices": [],
+  "cardRep": [],
+  "reports": [],
+  "outcome": null
+ },
+ "planDraft": {
+  "price": 30,
+  "tea": "standard",
+  "upgrade": null,
+  "teaMl": 5500,
+  "toppings": {
+   "pearl": 11,
+   "jelly": 8,
+   "pudding": 8
+  }
+ }
+}
