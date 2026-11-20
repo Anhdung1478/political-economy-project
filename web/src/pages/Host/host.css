@@ -15,6 +15,15 @@
 .vtoggle button:hover { color: var(--ink); }
 .vtoggle button.is-on { background: var(--paper); color: var(--ink); box-shadow: var(--shadow-sm); }
 .hctl { display: inline-flex; gap: 10px; align-items: center; }
+.hctl__fb { min-width: 7.5em; font-size: 13px; font-weight: 700; transition: opacity 0.2s; }
+.hctl__fb--none { opacity: 0; }
+.hctl__fb--sent { color: var(--matcha-deep); }
+.hctl__fb--failed { color: var(--strawberry-deep); }
+.hctl__warn { margin-bottom: 8px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--strawberry-soft); color: var(--strawberry-deep) !important; font-weight: 600; }
+
+/* On the board the bar's own chip and the stale banner say it; no floating badge over the toggle. */
+.hbar__offline { background: var(--strawberry); color: #fff; }
+.hbar__offline .conn__dot { display: inline-block; }
 
 /* Projector dock: out of the way for the class, full strength under the host's mouse. */
 .hdock {
@@ -57,7 +66,7 @@
 .street-slot { position: absolute; inset: 0; z-index: 0; }
 .street-slot svg { width: 100%; height: 100%; display: block; }
 .proj-market { height: 100%; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 32px; padding-top: 24px; }
-.proj-market__card { padding: 40px 48px; display: grid; gap: 22px; max-width: 980px; background: rgba(255, 252, 247, 0.94); }
+.proj-market__card { padding: 40px 48px; display: grid; gap: 22px; max-width: 980px; background: var(--paper); }
 .proj-market__kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--matcha-deep); font-size: 18px; }
 .proj-market__card h1 { font-size: 56px; }
 .proj-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
@@ -69,11 +78,13 @@
 .proj-progress { height: 18px; border-radius: var(--r-pill); background: var(--milk); overflow: hidden; }
 .proj-progress__bar { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--matcha), var(--tea)); }
 .proj-progress__text { font-size: 22px; color: var(--ink-soft); font-weight: 600; }
-.proj-late { padding: 22px; display: grid; justify-items: center; gap: 12px; text-align: center; font-size: 18px; background: rgba(255, 252, 247, 0.94); }
+.proj-progress__sub { color: var(--strawberry-deep); }
+.proj-note { margin: 40px auto 0; max-width: 900px; padding: 28px 36px; font-size: 26px; text-align: center; color: var(--ink-soft); }
+.proj-late { padding: 22px; display: grid; justify-items: center; gap: 12px; text-align: center; font-size: 18px; background: var(--paper); }
 .proj-late .qr__code { box-shadow: none; }
 
 /* Awards */
-.proj-awards { height: 100%; display: grid; grid-template-rows: auto auto 1fr; gap: 28px; }
+.proj-awards { height: 100%; display: grid; align-content: start; gap: 28px; }
 .proj-awards__title { font-size: 56px; text-align: center; }
 .proj-awards__grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; }
 .award { padding: 28px 24px; display: grid; justify-items: center; text-align: center; gap: 8px; align-content: start; }
@@ -106,6 +117,8 @@
 .hbar__spacer { flex: 1; }
 
 .board { padding: 20px 28px 48px; display: grid; gap: 20px; max-width: 1680px; margin: 0 auto; }
+.board--stale .ov, .board--stale .members { opacity: 0.55; filter: saturate(0.3); transition: opacity 0.3s, filter 0.3s; }
+.board__stale { padding: 10px 16px; border-radius: var(--r-md); background: var(--strawberry-soft); color: var(--strawberry-deep); font-weight: 700; font-size: 14px; }
 .board h2 { font-size: 18px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .board h2 small { font-family: var(--font); font-weight: 600; font-size: 13px; color: var(--ink-faint); letter-spacing: 0; }
 
@@ -146,7 +159,8 @@
 .members__head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 18px 10px; flex-wrap: wrap; }
 .members__head p { font-size: 13px; color: var(--ink-faint); }
 .members__empty { padding: 32px 18px 40px; text-align: center; color: var(--ink-soft); font-size: 16px; }
-.members__scroll { overflow-x: auto; }
+.members__scroll { overflow: visible; }
+@media (max-width: 1100px) { .members__scroll { overflow-x: auto; } }
 
 .mt { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .mt th {
@@ -154,6 +168,7 @@
   text-align: left; font-size: 12px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.04em;
   padding: 8px 10px; border-bottom: 2px solid var(--line); white-space: nowrap;
 }
+.mt > thead th { position: sticky; top: var(--hbar-h, 72px); z-index: 3; }
 .mt th.num, .mt td.num { text-align: right; }
 .mt__sort { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
 .mt__sort:hover, .mt__sort.is-on { color: var(--ink); }
@@ -182,11 +197,26 @@
 .dd__table { border-collapse: collapse; font-size: 12px; background: var(--paper); border-radius: var(--r-sm); overflow: hidden; box-shadow: var(--shadow-sm); }
 .dd__table th { font-size: 11px; font-weight: 700; color: var(--ink-faint); text-align: left; padding: 6px 6px; background: var(--milk); white-space: nowrap; }
 .dd__table td { padding: 5px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
-.dd__table td:nth-child(19) { white-space: normal; min-width: 150px; }
+.dd__table td.dd__c-cards { white-space: normal; min-width: 130px; }
 .dd__table tr.is-lost td { background: var(--strawberry-soft); }
 .dd__note { font-size: 12px; color: var(--ink-faint); }
 .dd__empty { font-size: 14px; color: var(--ink-soft); }
 
+/* Small laptops (1280×720 and the like): keep the overview to one short row so the table starts above the fold. */
 @media (max-width: 1280px) {
-  .ov { grid-template-columns: 1fr 1fr; }
+  .board { padding: 14px 18px 40px; gap: 14px; }
+  .ov { grid-template-columns: 0.9fr 1fr 1.7fr 1fr; gap: 10px; }
+  .ov__card { padding: 10px 12px; gap: 8px; }
+  .board h2 { font-size: 15px; }
+  .ov__nums { gap: 6px; }
+  .ov__num { padding: 5px 8px; font-size: 11px; }
+  .ov__num b { font-size: 22px; }
+  .ov__prices { font-size: 12.5px; }
+  .ov__prices th, .ov__prices td { padding-top: 2px; padding-bottom: 2px; }
+  .ov__labels { grid-template-columns: 1fr 1fr; column-gap: 14px; gap: 3px 14px; font-size: 12px; }
+  .ov__labels li { grid-template-columns: 18px 1fr 58px; gap: 4px; }
+  .ov__bar { display: none; }
+  .ov__vote { grid-template-columns: 60px 1fr 22px 12px 1fr 22px; font-size: 12.5px; }
+  .hbar { padding: 8px 18px 10px; gap: 10px; }
+  .mt td { padding: 5px 8px; }
 }

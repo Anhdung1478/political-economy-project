@@ -25,7 +25,9 @@ export function ProjectorView({ state }: { state: SessionSnapshot }) {
             transition={{ duration: 0.35, ease: [0.2, 0.8, 0.2, 1] }}>
             {state.phase === 'lobby' && <Lobby state={state} />}
             {state.phase === 'open' && <Market state={state} />}
-            {state.phase === 'awards' && state.awards && <AwardsView awards={state.awards} />}
+            {state.phase === 'awards' && (state.awards
+              ? <AwardsView awards={state.awards} />
+              : <p className="proj-note card">Đã chốt giải. Kết quả đang được gửi tới, chờ một chút nhé.</p>)}
           </motion.main>
         </AnimatePresence>
       </div>
@@ -65,13 +67,15 @@ function Market({ state }: { state: SessionSnapshot }) {
         <div className="proj-stats">
           <Stat label="Đang chơi" value={playing} tone="matcha" />
           <Stat label="Đã xong" value={finished} tone="caramel" />
-          <Stat label="Mất uy tín" value={lostTrust} tone="strawberry" />
+          <Stat label="Thua sớm" value={lostTrust} tone="strawberry" />
         </div>
         <div className="proj-progress" role="img" aria-label={`${finished} trên ${joined} người đã xong`}>
           <motion.span className="proj-progress__bar" initial={false} animate={{ width: `${done * 100}%` }}
             transition={{ type: 'spring', stiffness: 120, damping: 20 }} />
         </div>
-        <p className="proj-progress__text">{finished} / {joined} người đã xong 5 ngày</p>
+        <p className="proj-progress__text">
+          {finished} / {joined} người đã xong{lostTrust > 0 && <span className="proj-progress__sub"> (trong đó {lostTrust} người thua sớm)</span>}
+        </p>
       </section>
       <aside className="proj-late card">
         <JoinQR size={120} showUrl={false} />

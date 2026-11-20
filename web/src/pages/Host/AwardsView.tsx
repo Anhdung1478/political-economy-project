@@ -21,8 +21,11 @@ export function AwardsView({ awards }: { awards: AwardsResult }) {
   }, [burst]);
   return (
     <div className="proj-awards">
-      <Confetti key={burst} count={60} />
+      {awards.awards.length > 0 && <Confetti key={burst} count={60} />}
       <h1 className="proj-awards__title">Trao giải Phố Trà Sữa</h1>
+      {awards.awards.length === 0 && awards.top.length === 0 && (
+        <p className="proj-note card">Chưa ai gửi về kết quả ngày nào trước lúc chốt, nên lần này chưa có giải.</p>
+      )}
       <div className="proj-awards__grid">
         {AWARDS.map((info, i) => {
           const a = awards.awards.find(x => x.id === info.id);

@@ -1,6 +1,6 @@
 // /host (spec §11 "Màn hình host"): the host key flow, then two views switched with a toggle: the projector view for
 // the class (ProjectorView) and the private live board (BoardView, only after auth, from `host:board`).
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { SessionPhase } from '../../../../shared/protocol';
 import { connect, isNetTimeout, useOnConnect, useSession } from '../../net/socket';
 import { Button } from '../../ui/Button';
@@ -19,14 +19,16 @@ const keyGet = () => { try { return localStorage.getItem(HOST_KEY_STORE); } catc
 const keyForget = () => { try { localStorage.removeItem(HOST_KEY_STORE); } catch { /* private mode */ } };
 
 type View = 'projector' | 'board';
-// The last view, for this tab; `?view=board` picks one on load (handy for screenshots).
+// The last view, for this tab; `?view=board` picks one on load (handy for screenshots) and is remembered, so a
+// reload after the address bar is scrubbed keeps it.
 const VIEW_STORE = 'pts.hostView';
+const viewSave = (v: View) => { try { sessionStorage.setItem(VIEW_STORE, v); } catch { /* private mode */ } };
 function initialView(): View {
   const q = new URLSearchParams(location.search).get('view');
+  if (q === 'board' || q === 'projector') { viewSave(q); return q; }
   let saved: string | null = null;
   try { saved = sessionStorage.getItem(VIEW_STORE); } catch { /* private mode */ }
-  const v = q ?? saved;
-  return v === 'board' ? 'board' : 'projector';
+  return saved === 'board' ? 'board' : 'projector';
 }
 
 const PHASE_TEXT: Record<SessionPhase, string> = { lobby: 'Phòng chờ', open: 'Chợ đang mở', awards: 'Đã trao giải' };
@@ -37,10 +39,18 @@ export default function Host() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [problem, setProblem] = useState<'wrong' | 'network' | null>(null);
   const [view, setViewState] = useState<View>(initialView);
-  const setView = (v: View) => {
-    setViewState(v);
-    try { sessionStorage.setItem(VIEW_STORE, v); } catch { /* private mode */ }
-  };
+  const setView = (v: View) => { setViewState(v); viewSave(v); };
+  // The sticky bar's height, for the sticky table header and the connection badge below it.
+  const bar = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--hbar-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   const auth = useCallback(() => {
     if (!key) { setProblem(null); setAuthed(false); return; }
@@ -70,8 +80,15 @@ export default function Host() {
   if (!state || authed === null) return <div className="boot"><span /><span /><span /></div>;
 
   const client = connect();
-  const controls = <HostControls phase={state.phase} onOpen={() => client.open()} onAwards={() => client.awards()}
-    onReset={() => client.reset()} />;
+  // Only emit on a live socket: a buffered command would be flushed before host:auth on reconnect and dropped.
+  const send = (fire: () => void) => () => {
+    if (!connected || !client.socket.connected) return false;
+    fire();
+    return true;
+  };
+  const controls = <HostControls phase={state.phase} connected={connected}
+    noDays={board !== null && board.overview.labels.n === 0}
+    onOpen={send(() => client.open())} onAwards={send(() => client.awards())} onReset={send(() => client.reset())} />;
   const toggle = (
     <div className="vtoggle" role="tablist" aria-label="Chế độ xem">
       <button type="button" role="tab" aria-selected={view === 'projector'} className={cx(view === 'projector' && 'is-on')}
@@ -82,21 +99,22 @@ export default function Host() {
   );
 
   return (
-    <div className="host" data-host-ready="1">
-      <ConnectionBadge connected={connected} />
+    <div className={cx('host', `host--${view}`, !connected && 'host--offline')} data-host-ready="1">
+      {view === 'projector' && <ConnectionBadge connected={connected} />}
       {view === 'projector' ? <>
         <ProjectorView state={state} />
         <div className="hdock">{toggle}{controls}</div>
       </> : <>
-        <header className="hbar">
+        <header className="hbar" ref={bar}>
           <span className="hbar__brand">Phố <em>Trà Sữa</em></span>
           <span className="hbar__code">Mã <b>{state.code}</b></span>
           <span className={`chip hbar__phase hbar__phase--${state.phase}`}>{PHASE_TEXT[state.phase]}</span>
+          {!connected && <span className="chip hbar__offline" role="status"><span className="conn__dot" /> Mất kết nối</span>}
           <span className="hbar__spacer" />
           {toggle}
           {controls}
         </header>
-        {board ? <BoardView board={board} /> : <div className="boot"><span /><span /><span /></div>}
+        {board ? <BoardView board={board} stale={!connected} /> : <div className="boot"><span /><span /><span /></div>}
       </>}
     </div>
   );

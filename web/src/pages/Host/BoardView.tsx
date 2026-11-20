@@ -5,13 +5,14 @@ import type { BoardMember, HostBoard } from '../../../../shared/protocol';
 import { fmtMoney, fmtMoneySigned, fmtNumber, fmtPercent } from '../../game/format';
 import { cx } from '../../ui/cx';
 import {
-  avgPriceText, DAY_COLUMNS, dayCells, LABEL_INFO, labelShares, memberVoteText, orDash, progressText,
+  avgPriceText, DAY_COLUMNS, dayCells, LOST_MARK, LABEL_INFO, labelShares, memberVoteText, orDash, progressText,
   SORT_DEFAULT_DESC, sortMembers, voteRows, type SortKey,
 } from './hostFormat';
 
-export function BoardView({ board }: { board: HostBoard }) {
+export function BoardView({ board, stale }: { board: HostBoard; stale: boolean }) {
   return (
-    <div className="board" data-host-view="board">
+    <div className={cx('board', stale && 'board--stale')} data-host-view="board">
+      {stale && <p className="board__stale" role="status">Mất kết nối: số liệu dưới đây có thể đã cũ, chấm kết nối không còn đúng.</p>}
       <Overview board={board} />
       <Members members={board.members} />
     </div>
@@ -174,6 +175,9 @@ function Members({ members }: { members: BoardMember[] }) {
   );
 }
 
+/** Column-specific styles in the detail table. */
+const COLUMN_CLASS: Partial<Record<typeof DAY_COLUMNS[number], string>> = { 'Thẻ': 'cards', 'Nhãn': 'labels' };
+
 function DayDetail({ member }: { member: BoardMember }) {
   if (member.days.length === 0) {
     return <p className="dd__empty">{member.name} chưa gửi ngày nào. Tiến độ: {progressText(member)}.</p>;
@@ -185,12 +189,15 @@ function DayDetail({ member }: { member: BoardMember }) {
         <tbody>
           {member.days.map(d => (
             <tr key={d.day} className={cx(d.lost && 'is-lost')}>
-              {dayCells(d).map((c, i) => <td key={i} className={cx(i === 13 && d.profit < 0 && 'neg')}>{c}</td>)}
+              {dayCells(d).map((c, i) => (
+                <td key={DAY_COLUMNS[i]} className={cx(`dd__c-${COLUMN_CLASS[DAY_COLUMNS[i]] ?? 'x'}`,
+                  DAY_COLUMNS[i] === 'Lãi' && d.profit < 0 && 'neg')}>{c}</td>
+              ))}
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="dd__note">Topping theo thứ tự trân châu / thạch / pudding. ☠ = ngày mất hết uy tín.</p>
+      <p className="dd__note">Topping theo thứ tự trân châu / thạch / pudding. “{LOST_MARK}” = ngày uy tín về 0.</p>
     </div>
   );
 }

@@ -77,8 +77,9 @@ function progressValue(m: BoardMember): number {
  */
 export function sortMembers(members: readonly BoardMember[], key: SortKey, desc = SORT_DEFAULT_DESC[key]): BoardMember[] {
   const order = new Map(members.map((m, i) => [m.id, i]));
+  // Before any day the sums are 0, not "missing": treat them as missing too, so they sort last like the score.
   const val = (m: BoardMember): number | string | null =>
-    key === 'name' ? m.name : key === 'progress' ? progressValue(m) : m[key];
+    key === 'name' ? m.name : key === 'progress' ? progressValue(m) : m.days.length === 0 ? null : m[key];
   return [...members].sort((a, b) => {
     const va = val(a), vb = val(b);
     if (va === null || vb === null) {
@@ -118,12 +119,16 @@ export function avgPriceText(p: { open: number | null; close: number | null }): 
 const ml = (n: number) => `${fmtNumber(n / 1000, 1)}L`;
 const toppings = (t: DaySummary['bought']['toppings']) => `${t.pearl}/${t.jelly}/${t.pudding}`;
 
+// Short headers so the table fits a 1366 px laptop; labels come before the cards (the cards column wraps).
+export const DAY_COLUMNS = ['Ngày', 'Giá', 'Loại trà', 'Trà mua/dùng', 'Topping mua/dùng', 'Bỏ đi', 'Ly', 'Sai',
+  'Bỏ về', 'Thu', 'Chi', 'Thuế', 'Phạt', 'Lãi', 'Tiền', 'Uy tín', 'Điểm', 'Nâng cấp', 'Nhãn', 'Thẻ'] as const;
+export type DayColumn = typeof DAY_COLUMNS[number];
+/** The day cell text for a day the player lost all rep. */
+export const LOST_MARK = 'thua';
 /** One row of the per-day detail table, every cell already a string, in `DAY_COLUMNS` order. */
-export const DAY_COLUMNS = ['Ngày', 'Giá', 'Trà', 'Trà mua/dùng', 'Topping mua/dùng', 'Bỏ đi', 'Ly', 'Sai', 'Bỏ về',
-  'Doanh thu', 'Chi phí', 'Thuế', 'Phạt', 'Lãi', 'Tiền', 'Uy tín', 'Điểm', 'Nâng cấp', 'Thẻ', 'Nhãn'] as const;
 export function dayCells(d: DaySummary): string[] {
   return [
-    `${d.day}${d.lost ? ' ☠' : ''}`,
+    d.lost ? `${d.day} · ${LOST_MARK}` : String(d.day),
     d.openPrice === d.closePrice ? fmtMoney(d.openPrice) : `${fmtMoney(d.openPrice)} → ${fmtMoney(d.closePrice)}`,
     TEA_TEXT[d.tea],
     `${ml(d.bought.teaMl)} / ${ml(d.used.teaMl)}`,
@@ -133,8 +138,8 @@ export function dayCells(d: DaySummary): string[] {
     fmtMoney(d.revenue), fmtMoney(d.cost), fmtMoney(d.tax), fmtMoney(d.fines),
     fmtMoneySigned(d.profit), fmtMoney(d.cash), fmtNumber(d.rep, 0), fmtMoney(d.score),
     d.upgrade ? UPGRADE_TEXT[d.upgrade] : '—',
-    d.cards.length ? d.cards.map(c => `${CARD_TEXT[c.id]} ${c.choice}`).join(', ') : '—',
     d.labels.length ? d.labels.map(l => LABEL_INFO[l].icon).join(' ') : '—',
+    d.cards.length ? d.cards.map(c => `${CARD_TEXT[c.id]} ${c.choice}`).join(', ') : '—',
   ];
 }
 

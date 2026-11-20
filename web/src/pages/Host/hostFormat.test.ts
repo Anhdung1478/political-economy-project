@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BoardMember } from '../../../../shared/protocol';
 import { daySummary } from '../../../../shared/protocol.fixtures';
 import {
-  avgPriceText, awardDetail, DAY_COLUMNS, dayCells, labelShares, memberVoteText, progressText, sortMembers, voteRows,
+  avgPriceText, awardDetail, DAY_COLUMNS, dayCells, type DayColumn, labelShares, memberVoteText, progressText, sortMembers, voteRows,
 } from './hostFormat';
 
 function member(id: string, over: Partial<BoardMember> = {}): BoardMember {
@@ -57,9 +57,9 @@ describe('progressText', () => {
 
 describe('sortMembers', () => {
   const ms = [
-    member('p1', { name: 'Linh', score: 900, cups: 40 }),
-    member('p2', { name: 'an', score: 900, cups: 55 }),
-    member('p3', { name: 'Bảo', score: 700, cups: 60 }),
+    member('p1', { name: 'Linh', score: 900, cups: 40, days: [daySummary()] }),
+    member('p2', { name: 'an', score: 900, cups: 55, days: [daySummary()] }),
+    member('p3', { name: 'Bảo', score: 700, cups: 60, days: [daySummary()] }),
     member('p4', { name: 'Đạt' }),
   ];
   it('keeps the board order for score desc, ties by board order', () => {
@@ -75,6 +75,13 @@ describe('sortMembers', () => {
     const copy = [...ms];
     expect(sortMembers(ms, 'cups').map(m => m.id)).toEqual(['p3', 'p2', 'p1', 'p4']);
     expect(ms).toEqual(copy);
+  });
+  it('puts members with no day last for the summed columns too', () => {
+    const xs = [member('none'), member('one', { cups: 0, wrong: 0, walkouts: 0, days: [daySummary()] })];
+    for (const k of ['cups', 'wrong', 'walkouts'] as const) {
+      expect(sortMembers(xs, k).map(m => m.id)).toEqual(['one', 'none']);
+      expect(sortMembers(xs, k, false).map(m => m.id)).toEqual(['one', 'none']);
+    }
   });
   it('sorts by progress: finished first, then the furthest day and phase', () => {
     const ps = [
@@ -101,12 +108,14 @@ describe('text cells', () => {
   it('gives one cell per day column', () => {
     const cells = dayCells(daySummary({ upgrade: 'machine', labels: ['skimp', 'taxEvaded'], lost: true }));
     expect(cells).toHaveLength(DAY_COLUMNS.length);
-    expect(cells[0]).toBe('1 ☠');
+    const at = (c: DayColumn) => cells[DAY_COLUMNS.indexOf(c)];
+    expect(cells[0]).toBe('1 · thua');
     expect(cells[1]).toBe('30k → 28k');
     expect(cells[3]).toBe('3L / 2,5L');
-    expect(cells[13]).toBe('+260k');
-    expect(cells[17]).toBe('Máy pha');
-    expect(cells[18]).toBe('KOL A');
-    expect(cells[19]).toBe('🥄 🐀');
+    expect(at('Lãi')).toBe('+260k');
+    expect(at('Nâng cấp')).toBe('Máy pha');
+    expect(at('Thẻ')).toBe('KOL A');
+    expect(at('Nhãn')).toBe('🥄 🐀');
+    expect(dayCells(daySummary())[0]).toBe('1');
   });
 });
