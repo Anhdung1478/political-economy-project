@@ -352,6 +352,11 @@ html.game-lock #root { min-height: 0; }
   margin-top: 8px; padding: 6px 10px; border-radius: var(--r-sm); overflow: hidden;
   background: var(--strawberry-soft); color: var(--strawberry-deep); font-size: 13px; font-weight: 600; line-height: 1.35;
 }
+.fit-btn {
+  margin-top: 4px; padding: 7px 14px; min-height: 36px; border: 2px solid var(--ink); border-radius: var(--r-pill);
+  background: var(--paper); color: var(--ink); font-weight: 800; font-size: 13px; cursor: pointer;
+}
+.fit-btn:disabled { opacity: 0.5; cursor: default; }
 .linkish { border: 0; padding: 0; background: none; color: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
 
 /* Shelf */
@@ -532,6 +537,12 @@ html.game-lock #root { min-height: 0; }
 }
 @media (min-width: 1100px) and (min-height: 620px) and (max-height: 760px) { .game { --s: 0.94; } }
 @media (min-width: 1100px) and (min-height: 620px) and (max-height: 650px) { .game { --s: 0.88; } }
+/* a short laptop: slack for the till's notices (the credit row, two notices) so the plan never overflows */
+@media (min-width: 1100px) and (min-height: 620px) and (max-height: 760px) {
+  .morning__plan .field-block { padding: 4px 14px 5px; }
+  .morning__plan .block__title { margin-bottom: 3px; }
+  .morning__foot { padding-top: 7px; padding-bottom: 7px; }
+}
 /* a narrow laptop (1100-1279 px) is short of width too: scale down sooner */
 @media (min-width: 1100px) and (max-width: 1279px) and (min-height: 620px) and (max-height: 700px) { .game { --s: 0.88; } }
 @media (min-width: 1580px) and (min-height: 860px) { .game { --s: 1.12; } }

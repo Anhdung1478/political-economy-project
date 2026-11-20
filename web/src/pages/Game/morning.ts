@@ -1,8 +1,9 @@
 // The morning screen's pure side (spec §5): the bulletin as rows and sentences, the plan's ranges and steps, the
 // issue messages, the shelf picture, and the intents that carry a locally edited plan into the run store. No React.
 import { CONFIG, type SimConfig } from '../../../../shared/sim/config';
+import { validatePlan } from '../../../../shared/sim/day';
 import type {
-  BriefShopRow, MorningBrief, MorningPlan, PendingEffect, PlanIssue, ShopId, ToppingId,
+  BriefShopRow, MorningBrief, MorningPlan, PendingEffect, PlanIssue, RunState, ShopId, ToppingId,
 } from '../../../../shared/sim/types';
 import { fmtMoney, fmtMoneySigned, fmtNumber } from '../../game/format';
 import type { Intent } from '../../game/runStore';
@@ -229,7 +230,7 @@ export const ISSUE_FIELD: Record<PlanIssue, 'price' | 'tea' | 'toppings' | 'upgr
 };
 
 /** The issue in a sentence (numbers from the config and the day's ceiling). */
-export function issueText(issue: PlanIssue, ceiling: number | null, cfg: SimConfig = CONFIG): string {
+export function issueText(issue: PlanIssue, ceiling: number | null, cfg: SimConfig = CONFIG, upgradePicked = true): string {
   const r = priceRange(null, cfg);
   switch (issue) {
     case 'price': return `Giá phải là số nghìn tròn, từ ${fmtMoney(r.min)} tới ${fmtMoney(r.max)}.`;
@@ -239,8 +240,46 @@ export function issueText(issue: PlanIssue, ceiling: number | null, cfg: SimConf
     case 'negative': return 'Không nhập số âm được đâu.';
     case 'upgradeOwned': return 'Món này quán đã có rồi.';
     case 'credit':
-      return `Vượt hạn mức mua chịu (tiền không được xuống dưới ${fmtMoney(cfg.run.creditFloor)}). Bớt hàng hoặc bỏ nâng cấp.`;
+      return `Vượt hạn mức mua chịu (tiền không được xuống dưới ${fmtMoney(cfg.run.creditFloor)}). `
+        + (upgradePicked ? 'Bớt hàng hoặc bỏ nâng cấp.' : 'Bớt hàng đi một chút.');
   }
+}
+
+/**
+ * "Mua vừa đủ tiền": the plan with its stock scaled down, in whole percent steps, to the most the cash and the credit
+ * allow (`validatePlan` decides, so no money rule is repeated here). The upgrade stays unless even an empty shelf does
+ * not fit with it; the plan itself when it already fits.
+ */
+export function affordablePlan(run: RunState, plan: MorningPlan, cfg: SimConfig = CONFIG): MorningPlan {
+  const fits = (p: MorningPlan) => !validatePlan(run, p, cfg).includes('credit');
+  if (fits(plan)) return plan;
+  const step = cfg.supplies.teaStepMl;
+  const scaled = (p: MorningPlan, pct: number): MorningPlan => ({
+    ...p,
+    teaMl: Math.floor((p.teaMl * pct) / 100 / step) * step,
+    toppings: Object.fromEntries(TOPPINGS.map(t => [t, Math.floor((p.toppings[t] * pct) / 100)])) as MorningPlan['toppings'],
+  });
+  for (const base of [plan, { ...plan, upgrade: null }]) {
+    for (let pct = 99; pct >= 0; pct--) {
+      const p = scaled(base, pct);
+      if (fits(p)) return p;
+    }
+  }
+  return scaled({ ...plan, upgrade: null }, 0);
+}
+
+/**
+ * The street-average line of the price block: yesterday's, or after a ceiling day (R76) the latest free day's, which
+ * is the price the plan starts from. Null on day 1.
+ */
+export function averageHint(brief: MorningBrief): { text: string; average: number } | null {
+  const bc = brief.beforeCeiling;
+  if (bc !== null) {
+    const when = bc.day === brief.day - 2 ? 'Hôm kia' : `Ngày ${bc.day}`;
+    return { text: `${when}, trước giá trần, cả phố trung bình`, average: bc.average };
+  }
+  const average = streetAverage(brief);
+  return average === null ? null : { text: 'Hôm qua cả phố (gồm quán bạn) trung bình', average };
 }
 
 // ── Carrying local edits into the store ─────────────────────────────────────────────────────────────────────────

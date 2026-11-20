@@ -24,8 +24,8 @@ import {
 import { Stepper } from './controls';
 import { DeliveryVan, Shelf } from './MorningArt';
 import {
-  ISSUE_FIELD, bulletinRows, clampPrice, entryNote, hintLine, issueText, newsLine, peekKeyAction, planIntents, priceRange, ruleLines,
-  samePlan, stepCount, stepTea, streetAverage, streetSummary, type Entrant,
+  ISSUE_FIELD, affordablePlan, averageHint, bulletinRows, clampPrice, entryNote, hintLine, issueText, newsLine, peekKeyAction,
+  planIntents, priceRange, ruleLines, samePlan, stepCount, stepTea, streetSummary, type Entrant,
 } from './morning';
 
 /** Pause after the last edit before the draft is saved. */
@@ -177,7 +177,8 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
   const rows = bulletinRows(brief);
   const summary = streetSummary(brief);
   const note = entryNote(brief, entrants);
-  const average = streetAverage(brief);
+  const average = averageHint(brief);
+  const upgradePicked = local.upgrade !== null;
   const fills = { low: CONFIG.morning.quickFillCups.low, mid: CONFIG.morning.quickFillCups.mid, high: capacity };
   const floor = CONFIG.run.creditFloor;
   const atFloor = brief.cash <= floor;
@@ -260,7 +261,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                 style={{ '--fill': `${((Math.min(range.max, local.price) - range.min) / (range.max - range.min)) * 100}%` } as CSSProperties}
                 onChange={e => edit({ price: Number(e.target.value) })} />
               <p className="price__meta">
-                {average !== null && <span>Hôm qua cả phố (gồm quán bạn) trung bình <b>{fmtMoney(average)}</b></span>}
+                {average !== null && <span>{average.text} <b>{fmtMoney(average.average)}</b></span>}
                 <span>S −{fmtMoney(-CONFIG.pricing.sizeSurcharge.S)}, L +{fmtMoney(CONFIG.pricing.sizeSurcharge.L)}, mỗi topping +{fmtMoney(CONFIG.pricing.toppingSurcharge)}</span>
               </p>
             </div>
@@ -355,8 +356,14 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
         <div className="foot-info">
           <p className="capacity"><span aria-hidden="true">⚡</span> Sức pha hôm nay: khoảng <b>{capacity} ly</b></p>
           <div className="foot-issues">
-            <Issues list={issuesAt('cost')} ceiling={brief.rules.ceiling} />
-            <Issues list={issues.filter(i => ISSUE_FIELD[i] !== 'cost')} ceiling={brief.rules.ceiling} className="issue--desk" />
+            <Issues list={issuesAt('cost')} ceiling={brief.rules.ceiling} upgrade={upgradePicked} />
+            {issues.includes('credit') && !atFloor && (
+              <button type="button" className="fit-btn" disabled={leaving}
+                onClick={() => { const fit = affordablePlan(run, localRef.current); edit({ teaMl: fit.teaMl, toppings: fit.toppings, upgrade: fit.upgrade }); }}>
+                Mua vừa đủ tiền
+              </button>
+            )}
+            <Issues list={issues.filter(i => ISSUE_FIELD[i] !== 'cost')} ceiling={brief.rules.ceiling} upgrade={upgradePicked} className="issue--desk" />
             {atFloor && (
               <p className="issue" role="status">
                 Tiền đã chạm đáy mua chịu ({fmtMoney(floor)}): chỉ mở cửa được với kệ trống.{' '}
@@ -388,7 +395,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
           {leaving ? 'Xe hàng tới rồi…' : 'Mở cửa'}
         </Button>
         {issues.length > 0 && (
-          <p id="plan-issues" className="sr-only">Chưa mở được: {issues.map(i => issueText(i, brief.rules.ceiling)).join(' ')}</p>
+          <p id="plan-issues" className="sr-only">Chưa mở được: {issues.map(i => issueText(i, brief.rules.ceiling, undefined, upgradePicked)).join(' ')}</p>
         )}
       </footer>
 
@@ -416,13 +423,15 @@ function upgradeShort(u: UpgradeId): string {
   }
 }
 
-function Issues({ list, ceiling, className }: { list: readonly PlanIssue[]; ceiling: number | null; className?: string }) {
+function Issues({ list, ceiling, upgrade = true, className }: {
+  list: readonly PlanIssue[]; ceiling: number | null; upgrade?: boolean; className?: string;
+}) {
   return (
     <AnimatePresence initial={false}>
       {list.map(i => (
         <motion.p key={i} className={cx('issue', className)} role="alert"
           initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-          <span aria-hidden="true">⚠️</span> {issueText(i, ceiling)}
+          <span aria-hidden="true">⚠️</span> {issueText(i, ceiling, undefined, upgrade)}
         </motion.p>
       ))}
     </AnimatePresence>

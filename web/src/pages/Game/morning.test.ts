@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../../../../shared/sim/config';
-import { morningBrief } from '../../../../shared/sim/day';
+import { morningBrief, planCost, validatePlan } from '../../../../shared/sim/day';
 import type { MorningBrief, MorningPlan } from '../../../../shared/sim/types';
 import { transition } from '../../game/runStore';
 import { gameAt } from '../Dev/gameAt';
 import { dayTitle, hudMoney } from './copy';
 import {
-  avgOrderMl, bulletinRows, clampPrice, cupsFromTea, entryNote, hintLine, issueText, newsLine, planIntents,
+  affordablePlan, averageHint, avgOrderMl, bulletinRows, clampPrice, cupsFromTea, entryNote, hintLine, issueText, newsLine, planIntents,
   peekKeyAction, priceRange, ruleLines, samePlan, shelfOf, stepCount, stepTea, streetAverage, streetSummary,
 } from './morning';
 import { morningStreet } from './street';
@@ -152,6 +152,53 @@ describe('news and issues', () => {
     for (const i of ['price', 'teaStep', 'toppingStep', 'negative', 'upgradeOwned'] as const) {
       expect(issueText(i, null).length).toBeGreaterThan(5);
     }
+  });
+});
+
+describe('Mua vừa đủ tiền and the credit sentence', () => {
+  const broke = () => {
+    const run = gameAt(7, 3, 'morning').run;
+    return { ...run, cash: 60, plan: { ...run.plan, teaMl: 5500, toppings: { pearl: 11, jelly: 8, pudding: 8 } } };
+  };
+  it('scales the stock down to what cash and credit allow, keeping the upgrade it can', () => {
+    const run = broke();
+    expect(validatePlan(run, run.plan)).toContain('credit');
+    const fit = affordablePlan(run, run.plan);
+    expect(validatePlan(run, fit)).toEqual([]);
+    expect(fit.teaMl).toBeGreaterThan(0);
+    expect(fit.teaMl).toBeLessThan(run.plan.teaMl);
+    expect(fit.teaMl % CONFIG.supplies.teaStepMl).toBe(0);
+    // One percent more stock would not fit: it is the most the money allows (to the 1% grid).
+    expect(planCost(run, fit).cashAfter).toBeGreaterThanOrEqual(CONFIG.run.creditFloor);
+    expect(affordablePlan(run, fit)).toBe(fit);
+  });
+  it('drops the upgrade only when even an empty shelf cannot pay for it', () => {
+    const run = broke();
+    const withUp = { ...run.plan, upgrade: 'machine' as const };
+    expect(affordablePlan({ ...run, cash: 100 }, withUp).upgrade).toBe('machine');
+    const poor = { ...run, cash: CONFIG.run.creditFloor + 10 };
+    const plan2 = affordablePlan(poor, withUp);
+    expect(plan2).toMatchObject({ upgrade: null, teaMl: expect.any(Number) });
+    expect(validatePlan(poor, plan2)).toEqual([]);
+  });
+  it('does not tell a player with no upgrade to drop one', () => {
+    expect(issueText('credit', null, CONFIG, false)).not.toContain('nâng cấp');
+    expect(issueText('credit', null, CONFIG, true)).toContain('bỏ nâng cấp');
+    expect(issueText('credit', null)).toContain('bỏ nâng cấp');
+  });
+});
+
+describe('averageHint', () => {
+  it('cites yesterday, and after the ceiling day the latest free day (R76)', () => {
+    expect(averageHint(morningBrief(gameAt(7, 1, 'morning').run))).toBeNull();
+    const d2 = averageHint(morningBrief(gameAt(7, 2, 'morning').run))!;
+    expect(d2.text).toBe('Hôm qua cả phố (gồm quán bạn) trung bình');
+    const b4 = morningBrief(gameAt(7, 4, 'morning').run);
+    expect(b4.beforeCeiling).not.toBeNull();
+    const h4 = averageHint(b4)!;
+    expect(h4.text).toBe('Hôm kia, trước giá trần, cả phố trung bình');
+    expect(h4.average).toBe(b4.beforeCeiling!.average);
+    expect(h4.average).toBeGreaterThan(CONFIG.days[3].ceiling!); // not the 20k of the ceiling day
   });
 });
 
