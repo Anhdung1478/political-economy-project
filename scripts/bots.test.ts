@@ -8,7 +8,7 @@ import { createApp } from '../server/app';
 import { Session } from '../server/session';
 import { createSaver, loadSession, type SaverIo } from '../server/sessionFile';
 import { playRun, STRATEGIES } from '../shared/sim/autoplay';
-import { afterVote, botName, chooseStrategy, hostCommand, runBots, startBot, type Bot } from './bots';
+import { afterVote, botName, reporterAnswer, chooseStrategy, hostCommand, runBots, startBot, type Bot } from './bots';
 
 describe('bot helpers', () => {
   it('names bots in turn with a marker and a lap number', () => {
@@ -21,6 +21,11 @@ describe('bot helpers', () => {
     expect(afterVote('A')).toBe('invisible');
     expect(afterVote('B')).toBe('visible');
     expect(afterVote(null)).toBe('invisible');
+    // The bots' own answer varies, so a rehearsal board shows a shift.
+    let x = 1;
+    const rnd = () => { x = (x * 48271) % 2147483647; return x / 2147483647; };
+    const answers = new Set(Array.from({ length: 20 }, () => reporterAnswer(rnd)));
+    expect([...answers].sort()).toEqual(['A', 'B']);
   });
   it('picks a story-combo strategy from the mix', () => {
     let x = 7;

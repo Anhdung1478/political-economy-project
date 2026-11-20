@@ -30,6 +30,8 @@ ssh rakkoon69 'grep HOST_KEY ~/hai-ban-tay.config.cjs'
 
 Bấm **Mở chợ**. Mỗi người tự chơi 5 ngày trên điện thoại của mình, không chờ nhau. Nút chỉ bấm được khi buổi đang ở phòng chờ.
 
+Đợi cả lớp bình chọn xong rồi hãy bấm Mở chợ — ai chưa bình chọn lúc mở chợ sẽ không có phiếu "trước".
+
 ## 4. Theo dõi
 
 Chuyển sang **Bảng theo dõi**: tổng quan (số người, giá trung bình của lớp, các lựa chọn, bình chọn trước và sau) và danh sách thành viên với trạng thái kết nối. Lúc này hãy kể chuyện về những gì thấy trên bảng.

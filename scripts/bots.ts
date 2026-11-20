@@ -36,6 +36,12 @@ export function afterVote(reporter: 'A' | 'B' | null): VoteChoice {
   return reporter === 'B' ? 'visible' : 'invisible';
 }
 
+/**
+ * The reporter card's answer a bot gives, A or B from its own random (seeded per bot): the sim's `autoplay` always
+ * answers A, which would end every rehearsal with the whole class voting "invisible" after and no shift to show.
+ */
+export const reporterAnswer = (rnd: () => number): 'A' | 'B' => (rnd() < 0.5 ? 'A' : 'B');
+
 /** Play styles by weight (R58): `plainS` is a balance probe that always loses on day 1, so only a trickle of it. */
 const MIX: [string, number][] = [
   ['reasonable', 20], ['premium', 12], ['delay1', 10], ['delay6', 10], ['half', 10], ['double', 10], ['flat15', 8],
@@ -218,7 +224,8 @@ export function startBot(o: BotOptions): Bot {
       }
     }
     if (!alive()) return dropped();
-    while (!(await sendVote(afterVote(run.flags.reporter), 'after', code))) {
+    const after = afterVote(run.flags.reporter === null ? null : reporterAnswer(rnd));
+    while (!(await sendVote(after, 'after', code))) {
       if (!alive()) return dropped();
       await sleep(500);
     }
