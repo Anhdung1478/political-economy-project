@@ -100,6 +100,23 @@ export function createClient(socket: ClassSocket, ackTimeoutMs = ACK_TIMEOUT_MS)
   };
 }
 
+/** How long to wait before coming back to a server that cut the socket off. */
+export const SERVER_CUT_RETRY_MS = 1000;
+
+/**
+ * socket.io never reconnects by itself after `io server disconnect` (the server cut this socket off, e.g. after five
+ * wrong host keys), so the page would wait for a `connect` that never comes. This connects again after a second,
+ * on a fresh handshake with a fresh key count; `useOnConnect` then sends the key anew. One timer at a time, and at
+ * most one try a second against a server that keeps cutting the socket off. Other reasons keep socket.io's own backoff.
+ */
+export function reconnectAfterServerCut(socket: ClassSocket, delayMs = SERVER_CUT_RETRY_MS): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  socket.on('disconnect', why => {
+    if (why !== 'io server disconnect' || timer !== null) return;
+    timer = setTimeout(() => { timer = null; if (!socket.connected) socket.connect(); }, delayMs);
+  });
+}
+
 let client: SessionClient | null = null;
 
 /** The connection to the class server, opened on the first call; later calls return the same client. */
@@ -111,6 +128,7 @@ export function connect(): SessionClient {
   socket.on('host:board', b => set({ board: b }));
   socket.on('connect', () => set({ connected: true }));
   socket.on('disconnect', () => set({ connected: false }));
+  reconnectAfterServerCut(socket);
   // Phones that wake from sleep reconnect straight away instead of waiting for the backoff.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !socket.connected) socket.connect();

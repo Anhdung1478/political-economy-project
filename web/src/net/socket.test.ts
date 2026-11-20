@@ -5,7 +5,7 @@ import { daySummary } from '../../../shared/protocol.fixtures';
 import { createApp } from '../../../server/app';
 import { createOutbox } from '../game/reportQueue';
 import { memoryStore } from '../game/storage';
-import { type ClassSocket, createClient, isNetTimeout, NET_TIMEOUT } from './socket';
+import { type ClassSocket, createClient, isNetTimeout, NET_TIMEOUT, reconnectAfterServerCut } from './socket';
 
 let app: ReturnType<typeof createApp> | null = null;
 const sockets: ClassSocket[] = [];
@@ -80,5 +80,27 @@ describe('socket client', () => {
     await until(() => box.pending() === 0);
     expect(ranks).toEqual([1, 1]);
     expect(app!.session.board().members[0].days.map(d => d.day)).toEqual([1, 2]);
+  });
+
+  it('comes back after the server cut the socket off for five wrong host keys, and the right key then works', async () => {
+    const url = await server();
+    const s = socketTo(url);
+    reconnectAfterServerCut(s, 50);
+    const c = createClient(s);
+    await connected(s);
+    for (let i = 0; i < 5; i++) expect((await c.hostAuth(`wrong${i}`)).ok).toBe(false);
+    await until(() => !s.connected);
+    await until(() => s.connected);
+    expect(await c.hostAuth('k')).toEqual({ ok: true });
+  });
+
+  it('does not reconnect by itself after a plain client-side close', async () => {
+    const url = await server();
+    const s = socketTo(url);
+    reconnectAfterServerCut(s, 20);
+    await connected(s);
+    s.disconnect();
+    await new Promise(r => setTimeout(r, 150));
+    expect(s.connected).toBe(false);
   });
 });
