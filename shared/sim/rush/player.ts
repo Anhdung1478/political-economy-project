@@ -58,6 +58,8 @@ function deliver(d: RushState, ps: RushShop, id: number, t: Tick, cfg: SimConfig
   const order = d.customers[id].order;
   const { correct, paid } = payment(ps.price, order, cup, cfg);
   sell(d, ps, id, 'player', correct, paid, orderPrice(ps.price, order, cfg), t, events);
+  d.player.handed.teaMl += cup.teaMl;
+  for (const k of cup.toppings) d.player.handed.toppings[k]++;
   craft.cup = null;
   const endsAt = t + cfg.craft.deliverTicks;
   craft.anim = { step: 'deliver', endsAt };
@@ -150,6 +152,8 @@ function runStaff(d: RushState, staff: { progress: Tick }, t: Tick, cfg: SimConf
   const order = d.customers[id].order;
   stock.teaMl -= cfg.supplies.sizeMl[order.size];
   for (const k of order.toppings) stock.toppings[k]--;
+  d.player.handed.teaMl += cfg.supplies.sizeMl[order.size];
+  for (const k of order.toppings) d.player.handed.toppings[k]++;
   const full = orderPrice(ps.price, order, cfg);
   sell(d, ps, id, 'staff', true, full, full, t, events);
   return true;

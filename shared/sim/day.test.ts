@@ -258,7 +258,7 @@ describe('morningBrief', () => {
     const r = run();
     expect(morningBrief(r)).toStrictEqual({
       day: 1, theme: 'opening', rules: dayRules(r), busStop: false, news: [], street: [], yesterday: null,
-      capacity: 18, bus: null, cash: 300, rep: 50, toppingCost: 2,
+      capacity: 18, bus: null, cash: 300, rep: 50, toppingCost: 2, beforeCeiling: null,
     });
   });
 
@@ -736,13 +736,29 @@ describe('closeDay: money (R27, §16 row 13)', () => {
 
   it("values the leftover tea and toppings at today's unit costs", () => {
     const left = { teaMl: 1000, toppings: { pearl: 2, jelly: 1, pudding: 0 } };
+    const none = { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } };
     const r = run();
-    expect(last(quiet(r, r.plan, { left })).summary.wasteValue).toBe(30 + 6);
-    expect(last(quiet(r, { ...r.plan, tea: 'premium' }, { left })).summary.wasteValue).toBe(40 + 6);
-    expect(last(quiet(r, { ...r.plan, tea: 'skimp' }, { left: { ...left, teaMl: 1050 } })).summary.wasteValue)
+    // Nothing used (used = 0, handed = 0): the waste is the leftover alone.
+    const t = (l: typeof left) => ({ left: l, used: none, handed: none });
+    expect(last(quiet(r, r.plan, t(left))).summary.wasteValue).toBe(30 + 6);
+    expect(last(quiet(r, { ...r.plan, tea: 'premium' }, t(left))).summary.wasteValue).toBe(40 + 6);
+    expect(last(quiet(r, { ...r.plan, tea: 'skimp' }, t({ ...left, teaMl: 1050 }))).summary.wasteValue)
       .toBe(21 + 6);
     const d3 = seasoned(3, 20, { flags: shock() });
-    expect(last(quiet(d3, at20(d3), { left })).summary.wasteValue).toBe(30 + 1.5);
+    expect(last(quiet(d3, at20(d3), t(left))).summary.wasteValue).toBe(30 + 1.5);
+  });
+
+  it('counts cups thrown away and the cup in progress as waste, not the cups handed over (R75)', () => {
+    const r = run();
+    const toppings = (pearl: number, jelly: number, pudding: number) => ({ pearl, jelly, pudding });
+    const used = { teaMl: 1500, toppings: toppings(3, 1, 0) };
+    // 600 ml and 1 pearl went into a handed cup; the other 900 ml, 2 pearl, 1 jelly were thrown away or still in the cup.
+    const handed = { teaMl: 600, toppings: toppings(1, 0, 0) };
+    const left = { teaMl: 0, toppings: toppings(0, 0, 0) };
+    expect(last(quiet(r, r.plan, { used, handed, left })).summary.wasteValue).toBe(27 + 6);
+    // Everything bought, nothing handed over: all of it is waste (the 0-cups, 219k-bought report).
+    const bought = last(quiet(r, r.plan, { used: left, handed: left, left: { teaMl: r.plan.teaMl, toppings: r.plan.toppings } }));
+    expect(bought.summary.wasteValue).toBe(planCost(r, r.plan).tea + planCost(r, r.plan).toppings);
   });
 });
 

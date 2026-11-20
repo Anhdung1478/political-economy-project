@@ -222,6 +222,7 @@ describe('summarizeRush: the full day result', () => {
         closePrice: 30,
         used: { teaMl: 600, toppings: { pearl: 1, jelly: 1, pudding: 0 } },
         left: { teaMl: 1400, toppings: { pearl: 4, jelly: 4, pudding: 5 } },
+        handed: { teaMl: 600, toppings: { pearl: 1, jelly: 1, pudding: 0 } },
         gouged: false, brokeCartel: true,
       },
       shops: [

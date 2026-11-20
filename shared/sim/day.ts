@@ -7,7 +7,7 @@ import { createRush, type RushInput } from './rush';
 import { STREET, aiProfit, applyExits, morningPrices } from './shops';
 import type {
   AiShopId, AiShopState, BriefShopRow, ChoiceLabel, Day, DayReport, DayRules, DaySummary, K, MorningBrief, MorningPlan,
-  PendingEffect, PlanIssue, RepItem, RepReason, RunState, RushResult, RushState, ShopDayResult, ShopId, SimEvent, Size,
+  PendingEffect, PlanIssue, RepItem, RepReason, RunState, RushResult, RushState, ShopDayResult, ShopId, SimEvent, Size, Stock,
   ToppingId,
 } from './types';
 
@@ -204,7 +204,27 @@ export function morningBrief(run: RunState, cfg: SimConfig = CONFIG): MorningBri
     cash: cashAtOpening(run),
     rep: clampRep(run.rep + due.reduce((sum, p) => sum + (p.rep ?? 0), 0), cfg),
     toppingCost: toppingUnit(run, cfg),
+    beforeCeiling: beforeCeiling(run, cfg),
   };
+}
+
+/** The latest report of a day with no ceiling; null when there is none. */
+export function lastFreeReport(run: RunState, cfg: SimConfig = CONFIG): DayReport | null {
+  for (let i = run.reports.length - 1; i >= 0; i--) {
+    if (cfg.days[run.reports[i].summary.day].ceiling === null) return run.reports[i];
+  }
+  return null;
+}
+
+/** The hint of the morning after a ceiling day (R76): see `MorningBrief.beforeCeiling`. */
+function beforeCeiling(run: RunState, cfg: SimConfig): MorningBrief['beforeCeiling'] {
+  const yesterday = run.day - 1;
+  if (yesterday < 1 || cfg.days[yesterday as Day].ceiling === null) return null;
+  const free = lastFreeReport(run, cfg);
+  if (free === null) return null;
+  const closes = prices(free.street, 'closePrice');
+  if (closes.length === 0) return null;
+  return { day: free.summary.day, average: Math.round((closes.reduce((s, x) => s + x, 0) / closes.length) * 2) / 2 };
 }
 
 /**
@@ -386,8 +406,10 @@ export function closeDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
   const profit = p.revenue - cost - p.tax - fines;
   const cash = run.cash - fines;
   const unit = toppingUnit(run, cfg);
-  const wasteValue = (p.left.teaMl * cfg.supplies.teaGrades[plan.tea].costPer100Ml) / 100
-    + cfg.customers.toppingOrder.reduce((sum, t) => sum + p.left.toppings[t] * unit, 0);
+  // R75: everything bought that did not go into a handed-over cup: leftover stock, trashed cups, the cup at close.
+  const valueOf = (s: Stock): K => (s.teaMl * cfg.supplies.teaGrades[plan.tea].costPer100Ml) / 100
+    + cfg.customers.toppingOrder.reduce((sum, t) => sum + s.toppings[t] * unit, 0);
+  const wasteValue = valueOf(p.used) - valueOf(p.handed) + valueOf(p.left);
 
   const items = eveningRep(run, plan, p, rules, cfg);
   const rep = clampRep(run.rep + items.reduce((sum, i) => sum + i.delta, 0), cfg);

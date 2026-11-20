@@ -18,7 +18,8 @@ const rushResult = (tax: number): RushResult => ({
   player: {
     revenue: 400, tax, cups: tax / 5, wrong: 0, staffCups: 0, walkouts: 0, missedNoStock: 0, trashed: 0,
     closePrice: 30, used: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } },
-    left: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } }, gouged: false, brokeCartel: false,
+    left: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } },
+    handed: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } }, gouged: false, brokeCartel: false,
   },
   shops: [], customers: 130, eligible: 100, emptyHanded: 0, taxFund: tax, scared: 0, certified: [], named: [],
 });

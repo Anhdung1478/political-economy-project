@@ -1,7 +1,7 @@
 // The run across five days (spec §3): the starting state, the day transitions, the score and the ending.
 import { applyChoice, cardsForDay, shuffleSideDeck } from './cards';
 import { CONFIG, type SimConfig } from './config';
-import { closeDay, quickFill } from './day';
+import { closeDay, lastFreeReport, quickFill } from './day';
 import { summarizeRush } from './rush';
 import { STREET } from './shops';
 import type {
@@ -78,7 +78,8 @@ export function chooseCard(run: RunState, choice: Choice, cfg: SimConfig = CONFI
 /**
  * After the evening report: the end of the run after day 5 or an evening that lost all trust (`outcome` becomes
  * `finished` unless lost), otherwise the next morning. The morning keeps yesterday's plan with no upgrade, its price
- * brought into the new day's range and ceiling, and starts with no day result, cards or rep items.
+ * brought into the new day's range and ceiling (after a ceiling day, a price that sat on it goes back to the latest
+ * free day's opening price, R76), and starts with no day result, cards or rep items.
  */
 export function nextDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
   if (run.phase !== 'report') throw new Error(`cannot move on in phase ${run.phase}`);
@@ -88,7 +89,11 @@ export function nextDay(run: RunState, cfg: SimConfig = CONFIG): RunState {
   const day = (run.day + 1) as Day;
   const ceiling = cfg.days[day].ceiling;
   const highest = ceiling === null ? cfg.pricing.max : Math.min(cfg.pricing.max, ceiling);
-  const price = Math.min(highest, Math.max(cfg.pricing.min, run.plan.price));
+  // R76: a plan price that sat on yesterday's ceiling goes back to the latest free day's opening price.
+  const endedCeiling = cfg.days[run.day].ceiling;
+  const free = endedCeiling !== null && run.plan.price >= endedCeiling ? lastFreeReport(run, cfg) : null;
+  const carried = free === null ? run.plan.price : free.summary.openPrice;
+  const price = Math.min(highest, Math.max(cfg.pricing.min, carried));
   return {
     ...run, day, phase: 'morning',
     plan: { ...run.plan, toppings: { ...run.plan.toppings }, price, upgrade: null },

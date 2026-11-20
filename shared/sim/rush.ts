@@ -98,6 +98,7 @@ export function createRushWith(input: RushInput, customers: Customer[], cfg: Sim
       morningPrice: p.price, priceChanged: false, gouged: false, dropPermille: 0,
       brokeCartel: input.rules.cartel && p.price < cfg.cards.cartel.price,
       tea: p.tea, machine: p.machine, stock: copyStock(p.stock), bought: copyStock(p.stock),
+      handed: { teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 } },
       craft: { cup: null, anim: null, buffer: [] }, staff: p.staff ? { progress: 0 } : null,
       tally: { revenue: 0, tax: 0, cups: 0, wrong: 0, staffCups: 0, walkouts: 0, missedNoStock: 0, trashed: 0 },
     },
@@ -115,7 +116,7 @@ export function createRush(input: RushInput, cfg: SimConfig = CONFIG): StepResul
 }
 
 function clonePlayer(p: RushPlayer): RushPlayer {
-  return { ...p, stock: copyStock(p.stock), craft: copyCraft(p.craft), staff: p.staff && { ...p.staff }, tally: { ...p.tally } };
+  return { ...p, stock: copyStock(p.stock), handed: copyStock(p.handed), craft: copyCraft(p.craft), staff: p.staff && { ...p.staff }, tally: { ...p.tally } };
 }
 
 /**
@@ -206,7 +207,7 @@ export function summarizeRush(state: RushState, cfg: SimConfig = CONFIG): RushRe
   used.teaMl -= p.stock.teaMl;
   for (const k of cfg.customers.toppingOrder) used.toppings[k] -= p.stock.toppings[k];
   return {
-    player: { ...p.tally, closePrice: shopOf(state, 'player').price, used, left: copyStock(p.stock),
+    player: { ...p.tally, closePrice: shopOf(state, 'player').price, used, left: copyStock(p.stock), handed: copyStock(p.handed),
       gouged: p.gouged, brokeCartel: p.brokeCartel },
     shops: state.shops.map(s => dayResult(s, p)),
     customers: state.customers.length,

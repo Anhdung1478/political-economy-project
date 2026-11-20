@@ -92,7 +92,10 @@ export interface CraftState {
 
 export interface RushPlayer {
   morningPrice: K; priceChanged: boolean; gouged: boolean; dropPermille: number; brokeCartel: boolean;
-  tea: TeaGrade; machine: boolean; stock: Stock; bought: Stock; craft: CraftState;
+  tea: TeaGrade; machine: boolean; stock: Stock; bought: Stock;
+  /** What went into cups handed to a customer (the staff's included); the rest of `bought` is leftover or waste. */
+  handed: Stock;
+  craft: CraftState;
   staff: null | { progress: Tick };
   tally: {
     /** Paid by customers, before tax. */
@@ -175,6 +178,8 @@ export interface ShopDayResult {
 export interface RushResult {
   player: RushPlayer['tally'] & {
     closePrice: K; used: Stock; left: Stock;
+    /** What went into the cups handed over; `used` also holds trashed cups and the cup in progress at close. */
+    handed: Stock;
     gouged: boolean; brokeCartel: boolean;
   };
   shops: ShopDayResult[]; customers: number;
@@ -254,6 +259,11 @@ export interface MorningBrief {
   rep: number;
   /** Today's price of a topping portion (the shock price on its days). */
   toppingCost: K;
+  /**
+   * The morning after a ceiling day (R76): the latest free day before it and the street's average close that day,
+   * the price the plan starts from; null on every other morning.
+   */
+  beforeCeiling: null | { day: Day; average: K };
 }
 export interface AiShopState {
   id: AiShopId; status: 'notYet' | 'active' | 'closed'; closedOn: Day | null;

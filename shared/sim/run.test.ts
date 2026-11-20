@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from './config';
 import { applyChoice, cardsForDay, shuffleSideDeck } from './cards';
-import { closeDay, openDay, quickFill, validatePlan } from './day';
+import { closeDay, morningBrief, openDay, quickFill, validatePlan } from './day';
 import { seasoned } from './day.fixtures';
 import { finishRush, summarizeRush } from './rush';
 import { deepFreeze } from './rush.fixtures';
@@ -220,12 +220,26 @@ describe('nextDay', () => {
     expect(day3.plan.price).toBe(20);
     expect(validatePlan(day3, day3.plan)).toEqual([]);
     expect(nextDay(reportOf(d2, { ...d2.plan, price: 15 })).plan.price).toBe(15);
-    const d3 = seasoned(3, 20);
+    const d3 = seasoned(3, { 2: 30, 3: 20 });
     const day4 = nextDay(reportOf(d3, { ...d3.plan, price: 20 }));
-    expect(day4.plan.price).toBe(20);
+    expect(day4.plan.price).toBe(30); // the latest free day's opening price, not the ceiling (R76)
     expect(validatePlan(day4, { ...day4.plan, price: 50 })).toEqual([]);
     const d4 = seasoned(4);
     expect(nextDay(reportOf(d4, { ...d4.plan, price: 50 })).plan.price).toBe(50);
+  });
+
+  it("after the ceiling day, a price on the ceiling goes back to the latest free day's opening price (R76)", () => {
+    const d3 = seasoned(3, { 1: 26, 2: 28, 3: 20 });
+    const sat = nextDay(reportOf(d3, { ...d3.plan, price: 20 }));
+    expect(sat.day).toBe(4);
+    expect(sat.plan.price).toBe(28);
+    expect(morningBrief(sat).beforeCeiling).toMatchObject({ day: 2 });
+    // A price the student set under the ceiling is theirs: it stays.
+    expect(nextDay(reportOf(d3, { ...d3.plan, price: 18 })).plan.price).toBe(18);
+    // Clamped to the new day's range, and no hint on a morning that does not follow a ceiling day.
+    const d3b = seasoned(3, { 1: 26, 2: 52, 3: 20 });
+    expect(nextDay(reportOf(d3b, { ...d3b.plan, price: 20 })).plan.price).toBe(CONFIG.pricing.max);
+    expect(morningBrief(nextDay(reportOf(seasoned(4), seasoned(4).plan))).beforeCeiling).toBeNull();
   });
 
   it("lands the cartel break's gossip on the morning of day 3 (§7)", () => {
