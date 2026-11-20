@@ -110,8 +110,9 @@ describe('PlayController', () => {
 
     p.ctl.reportDay(atReport(2));
     await until(() => member().days.length === 2, 'two days');
-    await until(() => p.view().rank === 1, 'the rank from the ack'); // the ack follows the server's own update
-    expect(p.store.get(PLAY_KEYS.rank)).toContain('"day":2');
+    // The ack follows the server's own update; the rank of day 2 is the one kept.
+    await until(() => (p.store.get(PLAY_KEYS.rank) ?? '').includes('"day":2'), 'the day-2 rank');
+    expect(p.view().rank).toBe(1);
     p.ctl.reportDay(atReport(3));
     await until(() => member().days.length === 3, 'three days');
 
