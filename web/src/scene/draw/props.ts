@@ -787,20 +787,49 @@ function drawBus(rc: RenderContext, live: Live): void {
   }
 }
 
+/** Where the van's front-left corner is along the street at `now` (null when it is not on the street). */
+function vanX(L: StreetLayout, v: Rect, now: number, calm: boolean): number | null {
+  const at = CONFIG.rumor.inspectionTick;
+  let k = vanProgress(at, now);
+  if (k < 0) return null;
+  if (calm) {
+    if (Math.abs(now - at) > 25) return null;
+    k = 0.5;
+  }
+  const u = L.actorH;
+  return lerp(v.x - u * 2.9 - u, v.x + v.w + u, k);
+}
+
+/**
+ * The van's roof board with its banner and horns, at `now`, or null when the van is not on the street (the speech
+ * bubbles keep clear of it). Only on the rumor day; the caller checks the day.
+ */
+export function vanBannerRect(L: StreetLayout, v: Rect, now: number, calm: boolean): Rect | null {
+  const x = vanX(L, v, now, calm);
+  if (x === null) return null;
+  const u = L.actorH;
+  const y = (L.road.y0 + L.road.y1) / 2 - u * 1.5;
+  return { x: x - u * 0.3, y: y - u * 1.05, w: u * 2.9 + u * 0.6, h: u * 1.5 };
+}
+
+/** The ceiling sign on the last pole (day 3), for the speech bubbles to keep clear of. */
+export function ceilingSignRect(L: StreetLayout): Rect {
+  const xs = poleXs(L);
+  const x = xs[xs.length - 1];
+  const u = L.actorH;
+  const cy = ceilingSignY(L);
+  return { x: x - u * 0.5, y: cy - u * 0.5, w: u, h: u * 1.25 };
+}
+
 /** The ward's loudspeaker van at the inspection: big enough to read over the crowd on the near lane. */
 function drawVan(rc: RenderContext): void {
   const { ctx, layout: L, view: v } = rc;
   const u = L.actorH;
-  const at = CONFIG.rumor.inspectionTick;
-  let k = vanProgress(at, rc.now);
-  if (k < 0) return;
-  if (rc.reducedMotion) {
-    if (Math.abs(rc.now - at) > 25) return;
-    k = 0.5;
-  }
+  const vx = vanX(L, v, rc.now, rc.reducedMotion);
+  if (vx === null) return;
   const len = u * 2.9;
   const h = u * 1.5;
-  const x = lerp(v.x - len - u, v.x + v.w + u, k);
+  const x = vx;
   const ground = (L.road.y0 + L.road.y1) / 2;
   const y = ground - h;
   shadow(ctx, x + len / 2, ground, len * 0.5, u * 0.12, 0.2);

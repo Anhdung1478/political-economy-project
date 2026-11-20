@@ -8,7 +8,7 @@
 // - `drawFigure`: one character in a pose seen from a side; `drawCustomer`: the street's renderer, which keeps a little
 //   memory per actor (walk phase, pose transitions, emote timers) in the scene's store.
 import { CONFIG } from '../../../../shared/sim/config';
-import type { Actor, Heading } from '../director';
+import { FADE_TICKS, type Actor, type Heading } from '../director';
 import {
   armInFront, clipPose, copyPose, DEFAULT_DIMS, mixPose, newSkeleton, pose, solve, WALKING, type Clip, type ClipInput,
   type Dims, type P, type Pose, type Skeleton, type View,
@@ -22,6 +22,11 @@ import {
   angerMark, BROW_MOODS, dots, drawFace, eyeSpots, heart, mark, puff, sweat, type FaceInput,
   type Mood,
 } from './faces';
+import {
+  actorSpace, CYCLIC, cycleFrame, cycleKey, FigureCache, framePhase, lookSpace, loopStep, paceStep, slotKey, staggerOf,
+  stepLoop,
+  stepPace, type Frame, type FrameLook,
+} from './figures';
 
 // ── Traits ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1659,7 +1664,11 @@ interface Memo {
   seen: number;
 }
 
-interface Cast { memos: Map<number, Memo>; frame: number; sk: Skeleton; input: ClipInput; fx: FigureFx; emote: EmoteState }
+interface Cast {
+  memos: Map<number, Memo>; frame: number; sk: Skeleton; input: ClipInput; fx: FigureFx; emote: EmoteState;
+  /** The scene's figure frames (figures.ts) and the reused key input. */
+  figures: FigureCache; look: FrameLook;
+}
 
 const STORE_KEY = 'characters.cast';
 
@@ -1676,6 +1685,7 @@ function castOf(rc: RenderContext): Cast {
       input: { t: 0, loop: 0, phase: 0, pace: 0, side: true, stoop: 0, calm: false },
       fx: { mood: 'neutral', blink: 0, cup: false, phone: false },
       emote: { clip: 'idle', mood: 'neutral', t: 0, loop: 0, sinceHappy: Infinity, calm: false },
+      figures: new FigureCache(), look: { clip: 'idle', view: 'side', mood: 'neutral', blink: 0, flags: 0 },
     };
     rc.store.set(STORE_KEY, c);
   }
@@ -1743,9 +1753,6 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   input.side = view === 'side';
   input.stoop = tr.stoop;
   input.calm = rc.reducedMotion;
-  characterPose(m.target, sel.clip, input, tr);
-  mixPose(m.cur, m.from, m.target, (rc.wall - m.blendFrom) / BLEND_MS);
-  const sk = solve(m.cur, tr.dims, view, cast.sk);
 
   const s = H * tr.height;
   const fx = cast.fx;
@@ -1761,7 +1768,93 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   e.loop = input.loop;
   e.sinceHappy = a.carrying && !a.cupWrong ? (rc.now - m.happyAt) / 10 : Infinity;
   e.calm = rc.reducedMotion;
-  drawCharacterAt(ctx, tr, a.x, a.y, s, a.facing, view, m.cur, sk, fx, e);
+  // Pushed out by the cap while on screen: fades out rather than popping away.
+  const alpha = a.fadeAt === null ? 1 : clamp(1 - (rc.now - a.fadeAt) / FADE_TICKS, 0, 1);
+  if (alpha <= 0) return;
+  if (alpha < 1) ctx.globalAlpha = alpha;
+
+  const figs = cast.figures;
+  if (!figureCacheOn || !figs.available) {
+    characterPose(m.target, sel.clip, input, tr);
+    mixPose(m.cur, m.from, m.target, (rc.wall - m.blendFrom) / BLEND_MS);
+    const sk = solve(m.cur, tr.dims, view, cast.sk);
+    drawCharacterAt(ctx, tr, a.x, a.y, s, a.facing, view, m.cur, sk, fx, e);
+    if (alpha < 1) ctx.globalAlpha = 1;
+    return;
+  }
+
+  // The frame: a shared walk-cycle frame, or the actor's own for this refresh slot.
+  figs.begin(H, rc.pxPerUnit);
+  const look = cast.look;
+  look.clip = sel.clip;
+  look.view = view;
+  look.mood = sel.mood;
+  look.blink = fx.blink;
+  look.flags = (fx.cup ? 1 : 0) | (fx.phone ? 2 : 0) | (rc.reducedMotion ? 4 : 0);
+  const blending = rc.wall - m.blendFrom < BLEND_MS;
+  const cyclic = !blending && CYCLIC.has(sel.clip);
+  const cf = cyclic ? cycleFrame(m.phase) : 0;
+  const ps = !cyclic ? 0 : sel.clip === 'walk' ? paceStep(input.pace) : loopStep(sel.clip, input.loop);
+  const space = cyclic ? lookSpace(tr.look) : actorSpace(a.id);
+  const key = cyclic ? cycleKey(look, cf, ps) : slotKey(look, rc.wall, staggerOf(a.id));
+  let f = figs.get(space, key) ?? null;
+  if (f === null) {
+    if (cyclic) {
+      input.phase = framePhase(cf);
+      if (sel.clip === 'walk') input.pace = stepPace(ps);
+      else if (sel.clip === 'walkDrink' || sel.clip === 'walkScared') input.loop = stepLoop(sel.clip, ps);
+    }
+    characterPose(m.target, sel.clip, input, tr);
+    mixPose(m.cur, m.from, m.target, (rc.wall - m.blendFrom) / BLEND_MS);
+    const sk = solve(m.cur, tr.dims, view, cast.sk);
+    const p = m.cur;
+    f = figs.paint(space, key, c => {
+      c.scale(s, s);
+      // The soft shadow is part of the frame (it shrinks as they leave the ground, which the frame knows).
+      const air = clamp(p.lift * 6, 0, 0.5);
+      c.fillStyle = 'rgba(42, 29, 21, 0.15)';
+      c.beginPath();
+      c.ellipse(0, 0, 0.2 * (1 - air), 0.05 * (1 - air), 0, 0, Math.PI * 2);
+      c.fill();
+      drawFigure(c, tr, sk, view, p, fx);
+    });
+    if (f === null) {
+      drawCharacterAt(ctx, tr, a.x, a.y, s, a.facing, view, m.cur, sk, fx, e);
+      if (alpha < 1) ctx.globalAlpha = 1;
+      return;
+    }
+    f.headX = sk.head.x;
+    f.headY = sk.head.y;
+    f.toeX = view === 'side' ? sk.foot0.x + 0.05 : sk.foot0.x;
+    f.foot0X = sk.foot0.x;
+    f.foot1X = sk.foot1.x;
+  }
+  blitFigure(rc, f, tr, a.x, a.y, s, a.facing, e);
+  if (alpha < 1) ctx.globalAlpha = 1;
+}
+
+/** Turns the frame cache off (the dev page's A/B bench, `?figcache=0`): every figure is drawn live. */
+let figureCacheOn = true;
+export function setFigureCache(on: boolean): void {
+  figureCacheOn = on;
+}
+
+/** A cached frame on the street (shadow included) on the device grid, mirrored facing left; then the live marks. */
+function blitFigure(rc: RenderContext, f: Frame, tr: Traits, x: number, y: number, s: number, facing: 1 | -1,
+  e: EmoteState): void {
+  const { ctx, grid: g } = rc;
+  const box = castOf(rc).figures.box;
+  const X = Math.round(x * g.k + g.devX);
+  const Y = Math.round(y * g.k + g.devY);
+  ctx.setTransform(facing, 0, 0, 1, X - facing * box.ax, Y - box.ay);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(f.canvas as CanvasImageSource, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.setTransform(g.k, 0, 0, g.k, g.devX, g.devY);
+  const hx = x + facing * f.headX * s;
+  const top = y + (f.headY - tr.dims.headR * (tr.hat === 'conical' ? 1.9 : 1.15)) * s;
+  drawEmotes(ctx, hx, top, s, e);
+  drawFootMarks(ctx, x + facing * f.toeX * s, x + facing * f.foot0X * s, x + facing * f.foot1X * s, y, s, e);
 }
 
 /**

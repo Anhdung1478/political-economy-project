@@ -1,11 +1,27 @@
 // ============================================================================================================
 // AMBIENT STREET SLOT (projector background while the market is open).
 //
-// This is a calm, static stand-in. Once the scene has an ambient mode (Task 17), replace the body of
-// `StreetBackdrop` with `<StreetCanvas mode="ambient" ... />` (lazy-loaded, so the host bundle stays small) and keep
-// the wrapper `div.street-slot` and its `data-street-slot` attribute: ProjectorView sizes and layers it through them.
-// The overlay cards in ProjectorView sit on top and do not depend on what is drawn here.
+// The live street with no rush running (Task 17): `<StreetCanvas mode="ambient">` with its made-up walkers strolling,
+// glancing at the boards and buying now and then, at 30 frames a second, lazy-loaded so the host bundle stays small.
+// The street is the first morning of a run from the session's seed, so every projector of a session shows the same
+// street. While the scene loads, or if the canvas cannot start, the calm static picture below stands in.
+// The wrapper `div.street-slot` and its `data-street-slot` attribute stay: ProjectorView sizes and layers it through
+// them. The overlay cards in ProjectorView sit on top and do not depend on what is drawn here.
 // ============================================================================================================
+import { lazy, Suspense } from 'react';
+
+const StreetCanvas = lazy(() => import('../../scene/StreetCanvas').then(m => ({ default: m.StreetCanvas })));
+
+export function StreetBackdrop({ seed = 1 }: { seed?: number }) {
+  return (
+    <div className="street-slot" data-street-slot="ambient" aria-hidden="true">
+      <Suspense fallback={<StaticStreet />}>
+        <StreetCanvas snapshot={null} mode="ambient" seed={seed} timeOfDay="morning"
+          fallback={<StaticStreet />} />
+      </Suspense>
+    </div>
+  );
+}
 
 const SHOPS = [
   { x: 40, w: 230, h: 300, wall: 'var(--milk)', awning: 'var(--matcha)' },
@@ -17,10 +33,10 @@ const SHOPS = [
 ];
 const GROUND = 720;
 
-export function StreetBackdrop() {
+/** The calm static street: shown while the live one loads, or if the canvas cannot start. */
+function StaticStreet() {
   return (
-    <div className="street-slot" data-street-slot="static" aria-hidden="true">
-      <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
         <defs>
           <linearGradient id="hs-sky" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#fbe3c4" />
@@ -66,7 +82,6 @@ export function StreetBackdrop() {
         {Array.from({ length: 10 }, (_, i) => (
           <rect key={i} x={i * 170 + 30} y={GROUND + 110} width="90" height="10" rx="5" fill="var(--paper)" opacity="0.7" />
         ))}
-      </svg>
-    </div>
+    </svg>
   );
 }

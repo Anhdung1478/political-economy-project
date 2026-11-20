@@ -6,7 +6,7 @@ import type {
   Customer, LeaveCause, RushState, ShopId, ShopVerdict, SimEvent, StockItem,
 } from '../../../shared/sim/types';
 import { replayOf, rushOfDay, stateAt, walkRush, type Replay } from '../pages/Dev/replay';
-import { BROWSE_TICKS, considerTopic, Director, LAG_TICKS, MAX_ACTORS, type Actor } from './director';
+import { BROWSE_TICKS, considerTopic, Director, FADE_TICKS, LAG_TICKS, MAX_ACTORS, type Actor } from './director';
 import { asidePoint, fitTo, LANDSCAPE, PORTRAIT, queuePoint, slotOf, type StreetLayout } from './layout';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -547,10 +547,23 @@ describe(`at most ${MAX_ACTORS} actors on screen`, () => {
       leave(70, related, 'gaveUp'));
     for (const w of walkers) at(d, 70, consider(70, w, null), leave(70, w, 'noOffer'));
     d.advanceTo(71);
-    expect(visible(d)).toHaveLength(MAX_ACTORS);
-    expect(d.actorCount).toBe(MAX_ACTORS);
+    // Those pushed off fade out (no longer counted), then go.
+    const fading = [...d.actors].filter(a => a.fadeAt !== null);
+    expect(fading.length).toBeGreaterThan(0);
+    expect(fading.every(a => !a.playerRelated && a.leaving)).toBe(true);
+    expect(visible(d).filter(a => a.fadeAt === null)).toHaveLength(MAX_ACTORS);
     expect(d.actor(related)).toBeDefined();
     for (const shop of OPEN_DAY1) expect(d.shop(shop).overflow).toBe(0);
+    d.advanceTo(71 + FADE_TICKS);
+    for (const a of fading) expect(d.actor(a.id)).toBeUndefined();
+    expect(d.actorCount).toBeLessThanOrEqual(MAX_ACTORS);
+  });
+
+  it('is cheap under the cap: nothing folded, nobody fading', () => {
+    const d = director();
+    fullQueues(d);
+    expect([...d.actors].every(a => a.fadeAt === null && !a.hidden)).toBe(true);
+    for (const shop of OPEN_DAY1) expect(d.shop(shop).shown).toBe(PORTRAIT.queueSlots);
   });
 
   it('then folds long queues into "+n", the player\'s last, never under its four counter places', () => {
@@ -719,6 +732,50 @@ describe('bubble requests carry the real reason', () => {
       { customer: 0, t: 100, topic: 'outOfStock', shop: 'player', missing: 'jelly', playerRelated: true },
       { customer: 0, t: 100, topic: 'emptyHanded', shop: null, playerRelated: true },
     ]);
+  });
+});
+
+describe('"too expensive" when the price alone was affordable', () => {
+  it("says whether the board's price was within the customer's budget (low reputation sank the score)", () => {
+    const rush = day1();
+    const d = director(PORTRAIT, rush);
+    const budget = rush.customers[0].budget;
+    const price = d.shop('player').price;
+    at(d, 10, enter(10, 0), consider(10, 0, null, [verdict('player', 'tooExpensive')]));
+    const [b] = d.takeBubbles();
+    expect(b.topic).toBe('tooExpensive');
+    expect(b.priceOk).toBe(budget >= price);
+    // Over the budget: the price itself.
+    at(d, 20, { t: 20, type: 'shopPrice', shop: 'player', from: price, to: budget + 10 },
+      enter(20, 1), consider(20, 1, null, [verdict('player', 'tooExpensive')]));
+    const over = d.takeBubbles().find(x => x.customer === 1);
+    expect(over?.priceOk).toBe(rush.customers[1].budget >= budget + 10);
+    // Under it: trust and value.
+    at(d, 30, { t: 30, type: 'shopPrice', shop: 'player', from: budget + 10, to: 1 },
+      enter(30, 2), consider(30, 2, null, [verdict('player', 'tooExpensive')]));
+    expect(d.takeBubbles().find(x => x.customer === 2)?.priceOk).toBe(true);
+  });
+});
+
+describe("customers added after the rush state's (the ambient walkers)", () => {
+  it("come in on the director's schedule, ids following on; the rush state's list is left alone", () => {
+    const rush = quiet(day1());
+    const d = new Director(PORTRAIT);
+    d.reset(rush);
+    const n = rush.customers.length;
+    expect(d.customerCount).toBe(n);
+    const extra: Customer = { ...rush.customers[0], id: n, arriveTick: 200, entry: 'right' };
+    d.addCustomers([extra]);
+    expect(rush.customers).toHaveLength(n);
+    expect(d.customerCount).toBe(n + 1);
+    const due = d.enterTime(n);
+    play(d, due - 0.25);
+    expect(d.actor(n)).toBeUndefined();
+    play(d, due + 0.25);
+    expect(d.actor(n)?.heading).toBe('left');
+    play(d, 200);
+    expect(d.actor(n)?.activity).toBe('lookBoard');
+    expect(() => d.addCustomers([{ ...extra, id: n + 5 }])).toThrow();
   });
 });
 

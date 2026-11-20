@@ -1,0 +1,45 @@
+/* The street as a list (StreetList.tsx): when the canvas cannot draw. Cards on the street's cream, two to four across. */
+.street-list {
+  position: absolute; inset: 0; overflow: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(233, 184, 114, 0.28), transparent 55%),
+    linear-gradient(180deg, var(--cream), var(--milk));
+  font-family: var(--font);
+  color: var(--ink);
+}
+.street-list__note {
+  margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--ink-faint); letter-spacing: 0.02em;
+}
+.street-list__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 10px;
+  margin: 0; padding: 0; list-style: none;
+}
+.street-list__shop {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-md);
+}
+.street-list__shop.is-player {
+  border-color: var(--strawberry); box-shadow: 0 0 0 2px var(--strawberry-soft), var(--shadow-md);
+}
+.street-list__shop[data-status='resting'],
+.street-list__shop[data-status='closed'],
+.street-list__shop[data-status='closedEarly'] { opacity: 0.66; }
+.street-list__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.street-list__name { font-family: var(--font-display); font-size: 16px; font-weight: 800; line-height: 1.15; }
+.street-list__status { padding: 3px 9px; font-size: 12px; }
+.street-list__price {
+  font-family: var(--font-display); font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--caramel-deep);
+}
+.street-list__trend { margin-left: 4px; font-size: 13px; font-style: normal; vertical-align: 4px; }
+.street-list__trend.is-up { color: var(--strawberry); }
+.street-list__trend.is-down { color: var(--matcha); }
+.street-list__price { line-height: 1; }
+.street-list__queue {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-soft);
+}
+.street-list__dots { display: inline-flex; gap: 3px; }
+.street-list__dots:empty { display: none; }
+.street-list__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--tea); }
+.street-list__badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.street-list__badges .chip { padding: 3px 9px; font-size: 12px; }

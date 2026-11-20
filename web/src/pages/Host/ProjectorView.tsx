@@ -13,7 +13,7 @@ export function ProjectorView({ state }: { state: SessionSnapshot }) {
   const scale = useStageScale();
   return (
     <div className="deck proj" data-host-view="projector">
-      {state.phase === 'open' && <StreetBackdrop />}
+      {state.phase === 'open' && <StreetBackdrop seed={state.seed} />}
       <div className="stage proj__stage" style={{ '--scale': scale } as CSSProperties}>
         <header className="proj__top">
           <span className="proj__brand">Phố <em>Trà Sữa</em></span>

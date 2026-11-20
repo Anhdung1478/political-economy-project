@@ -32,6 +32,8 @@ import { clamp } from './tween';
 export const LAG_TICKS = 15;
 /** Most actors drawn at once (spec §9). */
 export const MAX_ACTORS = 40;
+/** A walker the cap pushes off the screen fades out over this many ticks before going (no pop). */
+export const FADE_TICKS = 4;
 /** Least time a walker reads the boards in the middle of the street before the sim has them choose (ticks). */
 export const BROWSE_TICKS = 10;
 /** Fastest hurry, in walking speeds. */
@@ -108,6 +110,8 @@ export interface Actor {
   hidden: boolean;
   /** Has queued at the player's shop: kept on screen longest when the street is full. */
   playerRelated: boolean;
+  /** Pushed off by the cap while on screen: fading out since this director time, gone FADE_TICKS later; else null. */
+  fadeAt: number | null;
 }
 
 export interface ShopView {
@@ -169,6 +173,12 @@ export interface BubbleRequest {
   shop: ShopId | null;
   /** What ran out (`outOfStock`). */
   missing?: StockItem;
+  /**
+   * `tooExpensive` only: whether the shop's price alone was within the customer's budget. Then it was low reputation
+   * that sank the shop's score (spec §4: the score adds (rep − 50) × 0.2k), and the words are about trust and value,
+   * not the price.
+   */
+  priceOk?: boolean;
   /** About the player's shop, or said by someone who queued there. */
   playerRelated: boolean;
 }
@@ -289,6 +299,8 @@ export class Director {
   private dayN: Day = 1;
   private rulesV: DayRules | null = null;
   private customers: readonly Customer[] = [];
+  /** `customers` is the director's own copy (customers were added), not the rush state's. */
+  private ownCustomers = false;
   /** Customers not on the street yet, by the time they come in. */
   private pending: { id: number; at: number }[] = [];
   private readonly shopViews = new Map<ShopId, ShopView>();
@@ -326,6 +338,8 @@ export class Director {
   get shops(): ShopView[] { return STREET.flatMap(id => this.shopViews.get(id) ?? []); }
   get actors(): IterableIterator<Actor> { return this.cast.values(); }
   get actorCount(): number { return this.cast.size; }
+  /** Customers known (the rush state's, and any added); the next added one takes this id. */
+  get customerCount(): number { return this.customers.length; }
   actor(id: number): Actor | undefined { return this.cast.get(id); }
 
   shop(id: ShopId): ShopView {
@@ -395,6 +409,7 @@ export class Director {
     this.dayN = s.day;
     this.rulesV = s.rules;
     this.customers = s.customers;
+    this.ownCustomers = false;
     this.shopViews.clear();
     for (const sh of s.shops) this.shopViews.set(sh.id, viewOf(sh));
     const counter = this.shopViews.get('player');
@@ -427,6 +442,26 @@ export class Director {
     this.enforceCap();
   }
 
+  /**
+   * More customers for the street after the rush state's (the ambient walkers, ambient.ts): their ids follow on from
+   * the known ones, and each comes in on the director's schedule like the rush's (early enough to read the boards
+   * before their `arriveTick`). The rush state's own list is never changed.
+   */
+  addCustomers(cs: readonly Customer[]): void {
+    if (cs.length === 0) return;
+    if (!this.ownCustomers) {
+      this.customers = this.customers.slice();
+      this.ownCustomers = true;
+    }
+    const list = this.customers as Customer[];
+    for (const c of cs) {
+      if (c.id !== list.length) throw new Error(`customer ${c.id} added out of order (next is ${list.length})`);
+      list.push(c);
+      this.pending.push({ id: c.id, at: this.enterTime(c.id) });
+    }
+    this.pending.sort((a, b) => a.at - b.at);
+  }
+
   /** Applies one tick's events, in order. */
   apply(events: readonly SimEvent[]): void {
     for (const e of events) this.on(e);
@@ -444,7 +479,9 @@ export class Director {
     for (const a of this.cast.values()) {
       this.catchUp(a, now);
       this.advanceActor(a, now - from, from);
-      if (a.leaving && a.plan.length === 0) this.cast.delete(a.id);
+      if ((a.leaving && a.plan.length === 0) || (a.fadeAt !== null && now - a.fadeAt >= FADE_TICKS)) {
+        this.cast.delete(a.id);
+      }
     }
     this.comeIn(now, true);
     this.enforceCap();
@@ -575,9 +612,13 @@ export class Director {
 
   private say(t: Tick, customer: number, topic: BubbleTopic, shop: ShopId | null, missing?: StockItem): void {
     const playerRelated = shop === 'player' || (this.cast.get(customer)?.playerRelated ?? false);
-    this.bubbles.push(missing === undefined
+    const b: BubbleRequest = missing === undefined
       ? { customer, t, topic, shop, playerRelated }
-      : { customer, t, topic, shop, missing, playerRelated });
+      : { customer, t, topic, shop, missing, playerRelated };
+    const c = this.customers[customer];
+    const v = shop === null ? undefined : this.shopViews.get(shop);
+    if (topic === 'tooExpensive' && c !== undefined && v !== undefined && v.price > 0) b.priceOk = c.budget >= v.price;
+    this.bubbles.push(b);
   }
 
   private onConsider(t: Tick, id: number, reshop: boolean, verdicts: readonly ShopVerdict[],
@@ -695,7 +736,7 @@ export class Director {
       id, look, entry, x: 0, y: 0, facing: dir, heading: dir > 0 ? 'right' : 'left', speed: 0, activity: 'idle',
       since: this.t, gaze: null, cause: null, carrying: false, cupWrong: false,
       scared: this.customers[id]?.scared ?? false, shop: null, slot: -1, joinedAt: null, leaving: false,
-      hidden: false, playerRelated: false,
+      hidden: false, playerRelated: false, fadeAt: null,
       plan: [], lane: laneOf(look, entry), laneOffset: laneOffsetOf(look, this.L), dir, visits: 0,
     };
     this.cast.set(id, a);
@@ -954,41 +995,56 @@ export class Director {
    * At most MAX_ACTORS drawn. Over it: walkers leaving who have nothing to do with the player go first (those nearest
    * their way out first), then queues fold into "+n" (AI shops first, down to MIN_SHOWN_AI places; the player's
    * down to its counter's four), then leaving walkers who do. Folds come undone once the street, without the walkers
-   * leaving who could still go, would sit UNFOLD_MARGIN under the cap.
+   * leaving who could still go, would sit UNFOLD_MARGIN under the cap. A walker pushed off fades out over FADE_TICKS
+   * (no longer counted) rather than vanishing. Runs every frame: under the cap with nothing folded it only counts.
    */
   private enforceCap(): void {
     const slots = this.L.queueSlots;
+    if (this.shownAi === slots && this.shownPlayer === slots && this.visibleWith(slots, slots) <= MAX_ACTORS) {
+      this.applyShown();
+      return;
+    }
     const counter = Math.min(slots, CONFIG.rush.counterSlots);
     // Undo folds the street has room for again, in the reverse order: the player's first.
+    let leaving = -1;
     for (;;) {
       let ai = this.shownAi;
       let player = this.shownPlayer;
       if (player < slots) player++;
       else if (ai < slots) ai++;
       else break;
-      if (this.visibleWith(ai, player) - this.leavers(false).length > MAX_ACTORS - UNFOLD_MARGIN) break;
+      if (leaving < 0) leaving = this.leavers(false).length;
+      if (this.visibleWith(ai, player) - leaving > MAX_ACTORS - UNFOLD_MARGIN) break;
       this.shownAi = ai;
       this.shownPlayer = player;
     }
-    this.drop(this.leavers(false), this.visibleWith(this.shownAi, this.shownPlayer) - MAX_ACTORS);
-    while (this.visibleWith(this.shownAi, this.shownPlayer) > MAX_ACTORS) {
+    let over = this.visibleWith(this.shownAi, this.shownPlayer) - MAX_ACTORS;
+    if (over > 0) over -= this.drop(this.leavers(false), over);
+    while (over > 0) {
       if (this.shownAi > MIN_SHOWN_AI) this.shownAi--;
       else if (this.shownPlayer > counter) this.shownPlayer--;
       else break;
+      over = this.visibleWith(this.shownAi, this.shownPlayer) - MAX_ACTORS;
     }
-    this.drop(this.leavers(true), this.visibleWith(this.shownAi, this.shownPlayer) - MAX_ACTORS);
+    if (over > 0) this.drop(this.leavers(true), over);
+    this.applyShown();
+  }
+
+  /** Each shop's drawn places and "+n", and who in its queue is folded away. */
+  private applyShown(): void {
     for (const v of this.shopViews.values()) {
       v.shown = v.id === 'player' ? this.shownPlayer : this.shownAi;
       v.overflow = Math.max(0, v.queue.length - v.shown);
-      v.queue.forEach((id, i) => {
-        const a = this.cast.get(id);
+      for (let i = 0; i < v.queue.length; i++) {
+        const a = this.cast.get(v.queue[i]);
         if (a !== undefined) a.hidden = i >= v.shown;
-      });
+      }
     }
   }
 
-  /** Within the view (walkers coming in or going out beyond its ends are not on screen). */
+  /** Within the view (walkers coming in or going out beyond its ends are not on screen), and not fading out. */
   private onScreen(a: ActorState): boolean {
+    if (a.fadeAt !== null) return false;
     const v = this.viewRect;
     const half = this.L.actorH * 0.3;
     return a.x > v.x - half && a.x < v.x + v.w + half;
@@ -1017,7 +1073,10 @@ export class Director {
     return out.sort((p, q) => toExit(p) - toExit(q));
   }
 
-  private drop(list: ActorState[], n: number): void {
-    for (let i = 0; i < n && i < list.length; i++) this.cast.delete(list[i].id);
+  /** Starts the first `n` of `list` fading out (they no longer count); returns how many. */
+  private drop(list: ActorState[], n: number): number {
+    const k = Math.min(n, list.length);
+    for (let i = 0; i < k; i++) list[i].fadeAt = this.t;
+    return k;
   }
 }

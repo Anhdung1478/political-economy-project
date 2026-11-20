@@ -6,14 +6,15 @@
 // What is drawn comes from a renderer registry: the street, each shop, each customer, the props, then the named
 // overlay layers in order (lighting, particles, bubbles, hud). The customers are draw/characters.ts (Task 15); the
 // street, shops, props, light and particles are Task 16's (draw/street.ts, draw/shops.ts, draw/props.ts, lighting.ts,
-// particles.ts); the bubbles are still a placeholder (draw/placeholder.ts) until Task 17 plugs in its own with
+// particles.ts); the speech bubbles are Task 17's (bubbles.ts, draw/speech.ts). Any of them can be swapped with
 // `registerRenderers`. A renderer that keeps throwing stops the scene and calls `onFail` (the street then falls back
-// to its list, spec §13).
+// to its list, StreetList.tsx, spec §13). The ambient street (no rush running) may draw at a lower frame rate
+// (`maxFps`) to spare the CPU.
 import type { Actor, BubbleRequest, Cue, Director, ShopView } from './director';
 import { drawCustomer } from './draw/characters';
-import { drawBubbles } from './draw/placeholder';
 import { drawProp, props } from './draw/props';
 import { drawShop } from './draw/shops';
+import { drawSpeech } from './draw/speech';
 import { drawStreet } from './draw/street';
 import { fitLayout, type Fit, type Rect, type ShopSlot, type StreetLayout } from './layout';
 import { drawLighting, type TimeOfDay } from './lighting';
@@ -87,6 +88,10 @@ export interface RenderContext {
   /** prefers-reduced-motion: no ambience or particles; state changes still show. */
   reducedMotion: boolean;
   palette: Palette;
+  /** The run's seed (the day's speech lines are picked from its `scene/{day}` stream); 0 when not given. */
+  seed: number;
+  /** Speech bubbles shown (off on the ambient street). */
+  speech: boolean;
   /** Bubble requests and cues that came in since the previous frame (each handed out once). */
   bubbles: readonly BubbleRequest[];
   cues: readonly Cue[];
@@ -118,10 +123,10 @@ export interface Renderers {
 /** What a task plugs in: any of the draw functions, and any overlay layers (merged layer by layer). */
 export type RendererPatch = Partial<Omit<Renderers, 'overlays'>> & { overlays?: Partial<Record<OverlayLayer, Overlay>> };
 
-/** The street, shops, props, light and particles (Task 16), the customers (Task 15), placeholder bubbles (Task 17's). */
+/** The street, shops, props, light and particles (Task 16), the customers (Task 15), the speech bubbles (Task 17). */
 let registry: Renderers = {
   drawStreet, drawShop, drawCustomer, props, drawProp,
-  overlays: { lighting: drawLighting, particles: drawParticlesLayer, bubbles: drawBubbles },
+  overlays: { lighting: drawLighting, particles: drawParticlesLayer, bubbles: drawSpeech },
 };
 
 /**
@@ -138,6 +143,8 @@ declare global {
   interface Window { __sceneFps?: number }
 }
 
+const NO_BUBBLES: readonly BubbleRequest[] = [];
+
 /** Frames in a row a renderer may throw before the scene gives up (an old browser without `roundRect`, say). */
 const MAX_FAILED_FRAMES = 3;
 
@@ -151,6 +158,14 @@ export interface SceneOptions {
   reducedMotion?: boolean;
   /** The light of the hour; noon by default (the rush). */
   timeOfDay?: TimeOfDay;
+  /** The run's seed, for the speech lines (default 0). */
+  seed?: number;
+  /** Speech bubbles on (default) or off. */
+  speech?: boolean;
+  /** At most this many frames a second (default: every animation frame). */
+  maxFps?: number;
+  /** Called each frame with the time about to be shown, before the street moves on to it (the ambient walkers). */
+  beforeFrame?: (now: number) => void;
 }
 
 interface Item { depth: number; kind: 0 | 1 | 2; i: number }
@@ -185,6 +200,9 @@ export class Scene {
     this.palette = readPalette();
     this.forcedReduced = opts.reducedMotion;
     this.tod = opts.timeOfDay ?? 'noon';
+    this.maxFps = opts.maxFps ?? 0;
+    this.speech = opts.speech ?? true;
+    this.seed = opts.seed ?? 0;
     watchFonts();
     this.media = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
     this.fit = fitLayout(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
@@ -247,12 +265,25 @@ export class Scene {
     else if (this.wanted) this.start();
   };
 
+  private lastDrawn = 0;
+
   private readonly loop = (wall: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
+    const max = this.maxFps;
+    // A lower frame rate: skip frames that come too soon (a little slack so 60 Hz halves evenly to 30).
+    if (max > 0 && wall - this.lastDrawn < 1000 / max - 4) return;
+    this.lastDrawn = wall;
     this.frame(wall);
     this.countFrame(wall);
   };
+
+  private maxFps = 0;
+  setMaxFps(fps: number | undefined): void { this.maxFps = fps ?? 0; }
+  private speech = true;
+  setSpeech(on: boolean): void { this.speech = on; }
+  private seed = 0;
+  setSeed(seed: number): void { this.seed = seed; }
 
   /** One frame; MAX_FAILED_FRAMES failures in a row stop the scene and report it. */
   private frame(wall: number): void {
@@ -279,7 +310,9 @@ export class Scene {
 
   private draw(wall: number): void {
     const d = this.director;
-    d.advanceTo(this.opts.time());
+    const t = this.opts.time();
+    this.opts.beforeFrame?.(t);
+    d.advanceTo(t);
     const r = registry;
     const { ctx, fit } = this;
     const k = fit.scale * this.dpr;
@@ -291,8 +324,8 @@ export class Scene {
     const rc: RenderContext = {
       ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: wall - this.lastWall, pxPerUnit: k,
       grid: g, timeOfDay: this.tod, sprites: this.sprites,
-      reducedMotion: this.reducedMotion, palette: this.palette, bubbles: d.takeBubbles(), cues: d.takeCues(),
-      store: this.store,
+      reducedMotion: this.reducedMotion, palette: this.palette, seed: this.seed, speech: this.speech,
+      bubbles: this.speech ? d.takeBubbles() : (d.takeBubbles(), NO_BUBBLES), cues: d.takeCues(), store: this.store,
     };
     this.lastWall = wall;
     r.drawStreet(rc);

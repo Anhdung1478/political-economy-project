@@ -14,7 +14,7 @@ const looks = (n: number) => Array.from({ length: n }, (_, i) => (Math.imul(i + 
 const actor = (o: Partial<Actor> = {}): Actor => ({
   id: 1, look: 12345, entry: 'left', x: 0, y: 0, facing: 1, heading: 'right', speed: 0, activity: 'idle', since: 0,
   gaze: null, cause: null, carrying: false, cupWrong: false, scared: false, shop: null, slot: -1, joinedAt: null,
-  leaving: false, hidden: false, playerRelated: false, ...o,
+  leaving: false, hidden: false, playerRelated: false, fadeAt: null, ...o,
 });
 
 const plain: Pick<Traits, 'look' | 'phone' | 'archetype' | 'cane'> = { look: 1, phone: 0, archetype: 'office', cane: false };
