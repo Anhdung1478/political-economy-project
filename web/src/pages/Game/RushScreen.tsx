@@ -3,15 +3,27 @@
 // day loop can be played end to end. The rush also ends by itself a moment after the 90 s are up.
 import { useEffect } from 'react';
 import { CONFIG } from '../../../../shared/sim/config';
-import type { RushState } from '../../../../shared/sim/types';
+import type { RunState, RushState } from '../../../../shared/sim/types';
 import { fmtCountdown, secondsLeft } from '../../game/format';
-import type { Intent } from '../../game/runStore';
+import type { RunHandle } from '../../game/useRun';
 import { Button } from '../../ui/Button';
 
 /** Outro after the rush is done, before the afternoon (Task 20 plays its own). */
 const OUTRO_MS = 1500;
 
-export function RushScreen({ rush, dispatch }: { rush: RushState; dispatch: (i: Intent) => void }) {
+/**
+ * Everything the rush screen gets from Game (Task 20 uses these without rewiring Game): the live rush and the run,
+ * the rush as it opened (`opening`, the street's snapshot), `dispatch` (closeEarly, endRush), `act` (craft, deliver,
+ * trash, setPrice for the next tick), the clock hold (`setHold`/`held`, e.g. the day-1 trial cup), `hidden` (tab
+ * hidden, clock paused), `simTime` and `subscribe` (each tick's events, e.g. for the craft panel's own effects).
+ */
+export interface RushScreenProps extends Pick<RunHandle,
+  'opening' | 'dispatch' | 'act' | 'setHold' | 'held' | 'hidden' | 'simTime' | 'subscribe'> {
+  rush: RushState;
+  run: RunState;
+}
+
+export function RushScreen({ rush, dispatch }: RushScreenProps) {
   useEffect(() => {
     if (!rush.done) return;
     const t = window.setTimeout(() => dispatch({ type: 'endRush' }), OUTRO_MS);

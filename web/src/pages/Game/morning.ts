@@ -173,6 +173,26 @@ function rowNote(r: BriefShopRow, yesterday: number): BulletinRow['note'] {
   }
 }
 
+/**
+ * The one-line summary of yesterday's table while it is folded: the range of closing prices and the player's own
+ * close and cups ("24k – 32k · quán bạn 30k, 22 ly"); null on day 1.
+ */
+export function streetSummary(brief: MorningBrief): string | null {
+  const prices = brief.street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
+  if (prices.length === 0) return null;
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const range = lo === hi ? fmtMoney(lo) : `${fmtMoney(lo)} – ${fmtMoney(hi)}`;
+  const me = brief.street.find(r => r.id === 'player');
+  return me?.closePrice == null ? range : `${range} · quán bạn ${fmtMoney(me.closePrice)}, ${me.sold} ly`;
+}
+
+/** Yesterday's average close of the whole street, the player included (§16 row 16), to 0.5k; null on day 1. */
+export function streetAverage(brief: MorningBrief): number | null {
+  const xs = brief.street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
+  return xs.length === 0 ? null : Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 2) / 2;
+}
+
 /** A shop opening today and its opening price. */
 export interface Entrant { id: ShopId; price: number }
 

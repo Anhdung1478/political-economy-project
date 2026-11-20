@@ -4,10 +4,10 @@ import { morningBrief } from '../../../../shared/sim/day';
 import type { MorningBrief, MorningPlan } from '../../../../shared/sim/types';
 import { transition } from '../../game/runStore';
 import { gameAt } from '../Dev/gameAt';
-import { dayTitle } from './copy';
+import { dayTitle, hudMoney } from './copy';
 import {
   avgOrderMl, bulletinRows, clampPrice, cupsFromTea, entryNote, hintLine, issueText, newsLine, planIntents,
-  priceRange, ruleLines, samePlan, shelfOf, stepCount, stepTea,
+  priceRange, ruleLines, samePlan, shelfOf, stepCount, stepTea, streetAverage, streetSummary,
 } from './morning';
 import { morningStreet } from './street';
 
@@ -152,5 +152,24 @@ describe('news and issues', () => {
     for (const i of ['price', 'teaStep', 'toppingStep', 'negative', 'upgradeOwned'] as const) {
       expect(issueText(i, null).length).toBeGreaterThan(5);
     }
+  });
+});
+
+describe('compact lines', () => {
+  it('rounds big cash for the top bar', () => {
+    expect(hudMoney(1326.5)).toBe('1.327k');
+    expect(hudMoney(-1500)).toBe('−1.500k');
+    expect(hudMoney(673.5)).toBe('673,5k');
+  });
+
+  it('sums the table of yesterday up in one line, and averages the whole street', () => {
+    const b1 = morningBrief(gameAt(7, 1, 'morning').run);
+    expect(streetSummary(b1)).toBeNull();
+    expect(streetAverage(b1)).toBeNull();
+    const b = morningBrief(gameAt(7, 2, 'morning').run);
+    const me = b.street.find(r => r.id === 'player')!;
+    expect(streetSummary(b)).toMatch(new RegExp(`^\\d+k – \\d+k · quán bạn ${me.closePrice}k, ${me.sold} ly$`));
+    const xs = b.street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
+    expect(streetAverage(b)).toBe(Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 2) / 2);
   });
 });

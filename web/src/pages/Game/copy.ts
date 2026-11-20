@@ -1,6 +1,7 @@
 // Vietnamese words of the game screens that several screens share: shop names, the day's theme as a title, the
 // toppings and tea grades, upgrades. Numbers always come from the run or the config, never written here.
 import { CONFIG, type SimConfig } from '../../../../shared/sim/config';
+import { fmtMoney, fmtNumber } from '../../game/format';
 import type {
   DayRules, ShopId, TeaGrade, ThemeId, ToppingId, UpgradeId,
 } from '../../../../shared/sim/types';
@@ -67,3 +68,6 @@ export function dayTitle(theme: ThemeId, rules: DayRules): DayTitleText {
 export const PHASE_LABELS = {
   morning: '☀️ Sáng', rush: '🔥 Trưa', cards: '🃏 Chiều', report: '🌙 Tối', end: '🏁 Hết ván',
 } as const;
+
+/** Money for the narrow top bar: from 1.000k up, rounded to whole k ("1.327k", not "1.326,5k"). */
+export const hudMoney = (k: number): string => (Math.abs(k) >= 1000 ? `${fmtNumber(Math.round(k), 0)}k` : fmtMoney(k));

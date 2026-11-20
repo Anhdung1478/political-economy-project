@@ -10,14 +10,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { morningBrief } from '../../../../shared/sim/day';
 import type { DaySummary, Phase, RunState } from '../../../../shared/sim/types';
-import { fmtMoney } from '../../game/format';
 import { KEYS, startRun, type PersistOpts, type RunStoreState } from '../../game/runStore';
 import { storage } from '../../game/storage';
 import { resumeOrStart, useRun } from '../../game/useRun';
 import type { TimeOfDay } from '../../scene/lighting';
 import { StreetCanvas, type StreetCanvasHandle } from '../../scene/StreetCanvas';
 import { cx } from '../../ui/cx';
-import { PHASE_LABELS } from './copy';
+import { PHASE_LABELS, hudMoney } from './copy';
 import { DayTitle } from './DayTitle';
 import { MorningScreen } from './MorningScreen';
 import { ruleLines } from './morning';
@@ -92,20 +91,53 @@ export default function Game(props: GameProps) {
   const streetKey = `${run.runId}:${day}:${group}`;
   const runRef = useRef(run);
   runRef.current = run;
+  const draftPrice = useRef(planDraft.price);
+  draftPrice.current = planDraft.price;
+  /** The price on the player's board as the street was last built or told. */
+  const board = useRef<number | null>(null);
   const street = useMemo(() => {
     const at = runRef.current;
-    if (group === 'morning') return morningStreet(at);
+    board.current = null;
+    if (group === 'morning') {
+      const v = morningStreet(at, draftPrice.current);
+      board.current = v?.snapshot.shops.find(x => x.id === 'player')?.price ?? null;
+      return v;
+    }
     return { snapshot: group === 'after' ? afternoonStreet(at) : null, entrants: [] };
     // Rebuilt per day and phase group only: card choices and draft edits do not reset the street.
   }, [streetKey, group]);
   const snapshot = r.opening ?? street?.snapshot ?? null;
+  // The player's board on the morning street follows the draft price (saved edits, so not on every keystroke).
+  useEffect(() => {
+    if (phase !== 'morning' || board.current === null || board.current === planDraft.price) return;
+    canvas.current?.push([{ t: 0, type: 'shopPrice', shop: 'player', from: board.current, to: planDraft.price }], 0);
+    board.current = planDraft.price;
+  }, [phase, planDraft.price, street]);
 
-  // The day title, once per morning; the light turns to morning while it plays.
-  const firstDay = useRef(props.titleMode === 'skip' ? day : 0);
-  const [titled, setTitled] = useState(firstDay.current);
-  const [dawned, setDawned] = useState(firstDay.current);
+  // The day title, once per morning (remembered with the save, so a reload mid-morning does not replay it); the light
+  // turns to morning while it plays.
+  const titleKey = persist.key === null ? null : `${persist.key}.title`;
+  const [firstDay] = useState(() => {
+    if (props.titleMode === 'skip') return day;
+    try {
+      return titleKey !== null && storage.get(titleKey) === `${run.runId}:${day}` ? day : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [titled, setTitled] = useState(firstDay);
+  const [dawned, setDawned] = useState(firstDay);
+  const [justTitled, setJustTitled] = useState(false);
   const showTitle = phase === 'morning' && titled !== day;
-  const onTitleDone = useCallback(() => { setTitled(day); setDawned(day); }, [day]);
+  const runId = run.runId;
+  const onTitleDone = useCallback(() => {
+    setTitled(day);
+    setDawned(day);
+    setJustTitled(true);
+    try {
+      if (titleKey !== null) storage.set(titleKey, `${runId}:${day}`);
+    } catch { /* storage unavailable */ }
+  }, [day, runId, titleKey]);
   const onDawn = useCallback(() => setDawned(day), [day]);
   const tod = timeOfDayFor(phase, dawned === day);
 
@@ -144,13 +176,15 @@ export default function Game(props: GameProps) {
   } else if (phase === 'morning') {
     screen = (
       <motion.div key={`morning-${run.runId}-${day}`} className="game__screen" {...screenMotion}>
-        <MorningScreen run={run} planDraft={planDraft} dispatch={dispatch} entrants={street?.entrants ?? []} />
+        <MorningScreen run={run} planDraft={planDraft} dispatch={dispatch} entrants={street?.entrants ?? []}
+          focusPrice={justTitled} />
       </motion.div>
     );
   } else if (phase === 'rush' && r.state.rush !== null) {
     screen = (
       <motion.div key={`rush-${run.runId}-${day}`} className="game__screen" {...screenMotion}>
-        <RushScreen rush={r.state.rush} dispatch={dispatch} />
+        <RushScreen rush={r.state.rush} run={run} opening={r.opening} dispatch={dispatch} act={r.act}
+          setHold={r.setHold} held={r.held} hidden={r.hidden} simTime={r.simTime} subscribe={r.subscribe} />
       </motion.div>
     );
   } else if (phase === 'cards') {
@@ -189,8 +223,8 @@ export default function Game(props: GameProps) {
             <span className="hud__phase">{PHASE_LABELS[phase]}</span>
           </div>
           <div className="hud__stats">
-            <span className="hud__stat" aria-label={`Tiền ${fmtMoney(cash)}`}>
-              <span aria-hidden="true">💰</span> <b className={cash < 0 ? 'fx--bad' : ''}>{fmtMoney(cash)}</b>
+            <span className="hud__stat" aria-label={`Tiền ${hudMoney(cash)}`}>
+              <span aria-hidden="true">💰</span> <b className={cash < 0 ? 'fx--bad' : ''}>{hudMoney(cash)}</b>
             </span>
             <span className="hud__stat" aria-label={`Uy tín ${rep}`}><span aria-hidden="true">⭐</span> <b>{rep}</b></span>
             {props.mode === 'class' && props.rank != null && (

@@ -33,26 +33,23 @@ function Bottle({ x, fill, color }: { x: number; fill: number; color: string }) 
       <rect x={x + 8} y={BOTTLE_TOP} width={BOTTLE_W - 16} height={6} rx={2} fill="#3a271c" />
       <rect x={x + 9} y={BOTTLE_TOP + 5} width={BOTTLE_W - 18} height={7} fill="#f3e6d3" stroke="#3a271c" strokeWidth={1.6} />
       <rect x={x} y={BOTTLE_TOP + 12} width={BOTTLE_W} height={body} rx={7} fill="#fffaf2" stroke="#3a271c" strokeWidth={2} />
-      <motion.rect x={x + 2.5} width={BOTTLE_W - 5} rx={5} fill={color}
-        initial={false}
-        animate={{ y: BOTTLE_TOP + 12 + body - level - 1, height: Math.max(0, level - 1.5) }}
-        transition={{ type: 'spring', stiffness: 260, damping: 26 }} />
+      {/* the level scales from the bottom (never a negative height: a tween, no spring overshoot) */}
+      <motion.rect x={x + 2.5} y={BOTTLE_TOP + 13} width={BOTTLE_W - 5} height={body - 2.5} rx={5} fill={color}
+        style={{ originY: 1 }} initial={false} animate={{ scaleY: Math.max(0, Math.min(1, level / body)) }}
+        transition={{ duration: 0.35, ease: 'easeOut' }} />
       <rect x={x + 5} y={BOTTLE_TOP + 17} width={4} height={body - 12} rx={2} fill="#fff" opacity={0.55} />
     </motion.g>
   );
 }
 
 function Jar({ x, id, fill, count }: { x: number; id: ToppingId; fill: number; count: number }) {
-  const inner = JAR_H - 10;
-  const level = inner * fill;
   return (
     <g>
       <rect x={x + 10} y={JAR_TOP - 6} width={JAR_W - 20} height={8} rx={3} fill="#c9772a" stroke="#3a271c" strokeWidth={1.6} />
       <rect x={x} y={JAR_TOP} width={JAR_W} height={JAR_H} rx={12} fill="#fffaf2" stroke="#3a271c" strokeWidth={2} />
-      <motion.rect x={x + 3} width={JAR_W - 6} rx={9} fill={JAR_FILL[id]}
-        initial={false}
-        animate={{ y: JAR_TOP + JAR_H - 3 - level, height: level }}
-        transition={{ type: 'spring', stiffness: 240, damping: 22 }} />
+      <motion.rect x={x + 3} y={JAR_TOP + 7} width={JAR_W - 6} height={JAR_H - 10} rx={9} fill={JAR_FILL[id]}
+        style={{ originY: 1 }} initial={false} animate={{ scaleY: Math.max(0, Math.min(1, fill)) }}
+        transition={{ duration: 0.35, ease: 'easeOut' }} />
       <rect x={x + 7} y={JAR_TOP + 6} width={5} height={JAR_H - 16} rx={2.5} fill="#fff" opacity={0.6} />
       <text x={x + JAR_W / 2} y={JAR_TOP + JAR_H + 25} textAnchor="middle" className="shelf__label">
         {TOPPING_NAMES[id]} · <tspan className="shelf__num">{count}</tspan>
@@ -150,8 +147,30 @@ export function DeliveryVan({ onArrived }: { onArrived: () => void }) {
         initial={{ y: 0, opacity: 0 }}
         animate={{ y: [0, -46, -30], opacity: [0, 1, 1] }}
         transition={{ delay: reduced ? 0 : 1.0, duration: 0.5, ease: 'easeOut' }}>
-        <span>📦</span><span>🧋</span><span>📦</span>
+        <svg viewBox="0 0 120 44" aria-hidden="true">
+          <Box x={2} />
+          {/* a cup of milk tea between the boxes */}
+          <g transform="translate(46 2)">
+            <rect x="9" y="0" width="3" height="12" rx="1.5" fill="#de4f5a" transform="rotate(12 10 6)" />
+            <path d="M2 10 H26 L23 40 Q22 42 20 42 H8 Q6 42 5 40 Z" fill="#f3d7a8" stroke="#2a1d15" strokeWidth="2.4" strokeLinejoin="round" />
+            <rect x="1" y="8" width="26" height="5" rx="2.5" fill="#fffcf7" stroke="#2a1d15" strokeWidth="2.4" />
+            <circle cx="10" cy="35" r="2.4" fill="#3a271c" /><circle cx="16" cy="37" r="2.4" fill="#3a271c" /><circle cx="19" cy="32" r="2.2" fill="#3a271c" />
+          </g>
+          <Box x={78} />
+        </svg>
       </motion.div>
     </motion.div>
+  );
+}
+
+/** A cardboard box with tape. */
+function Box({ x }: { x: number }) {
+  return (
+    <g transform={`translate(${x} 10)`}>
+      <rect x="0" y="0" width="40" height="32" rx="3" fill="#d9a066" stroke="#2a1d15" strokeWidth="2.4" />
+      <path d="M0 9 H40" stroke="#2a1d15" strokeWidth="2" />
+      <rect x="16" y="0" width="8" height="32" fill="#e9c48f" />
+      <path d="M16 0 V32 M24 0 V32" stroke="#2a1d15" strokeWidth="1.4" />
+    </g>
   );
 }

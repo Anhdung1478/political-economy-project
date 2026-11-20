@@ -1,11 +1,14 @@
-// The morning (spec §5): the ward's bulletin, then the plan: the price of an M cup, the tea grade and millilitres,
-// the topping portions, an upgrade, what it all costs against the cash, the capacity line, yesterday's hint and the
-// three quick-fill buttons. The shelf fills as stock is added; "Mở cửa" calls the delivery van, then the shop opens.
+// The morning (spec §5): the ward's bulletin, then the plan: the price of an M cup, the stock (quick fill, the shelf,
+// tea millilitres and topping portions), the tea grade, an upgrade; the till shows what it all costs against the
+// cash, the capacity line and "Mở cửa". The shelf fills as stock is added; "Mở cửa" calls the delivery van, then the
+// shop opens. On a phone held upright yesterday's street table starts folded, so the price is in the first view.
 //
 // Edits are kept locally and reach the run store (which saves the draft) after a short pause, so a slider drag or a
 // held stepper does not write to storage on every input event. Everything shown is computed from the local plan.
-import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
+import {
+  useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent,
+} from 'react';
 import { CONFIG } from '../../../../shared/sim/config';
 import { capacityEstimate, morningBrief, planCost, validatePlan } from '../../../../shared/sim/day';
 import type {
@@ -22,15 +25,19 @@ import { Stepper } from './controls';
 import { DeliveryVan, Shelf } from './MorningArt';
 import {
   ISSUE_FIELD, bulletinRows, clampPrice, entryNote, hintLine, issueText, newsLine, planIntents, priceRange, ruleLines,
-  samePlan, stepCount, stepTea, type Entrant,
+  samePlan, stepCount, stepTea, streetAverage, streetSummary, type Entrant,
 } from './morning';
 
 /** Pause after the last edit before the draft is saved. */
 const SAVE_DELAY_MS = 300;
+/** After `open` is dispatched, the screen must be leaving within this; otherwise the store refused it. */
+const OPEN_CHECK_MS = 400;
 
 const TEAS: readonly TeaGrade[] = ['skimp', 'standard', 'premium'];
 const TOPPINGS: readonly ToppingId[] = CONFIG.customers.toppingOrder;
 const UPGRADES: readonly UpgradeId[] = ['staff', 'machine', 'banner'];
+
+const portrait = () => typeof window !== 'undefined' && window.matchMedia?.('(orientation: portrait)').matches === true;
 
 export interface MorningScreenProps {
   run: RunState;
@@ -38,19 +45,27 @@ export interface MorningScreenProps {
   dispatch: (intent: Intent) => void;
   /** Shops opening today with their price (from the street), for the bulletin's note. */
   entrants: readonly Entrant[];
+  /** Move the keyboard focus to the price when the screen appears (after the day title). */
+  focusPrice?: boolean;
 }
 
-export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScreenProps) {
+export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }: MorningScreenProps) {
   const brief = useMemo(() => morningBrief(run), [run]);
   const [local, setLocal] = useState(planDraft);
   const [leaving, setLeaving] = useState(false);
+  const [openError, setOpenError] = useState(false);
+  const [tableOpen, setTableOpen] = useState(() => !portrait());
+  const [cue, setCue] = useState(false);
   const body = useRef<HTMLDivElement>(null);
-  const planRef = useRef<HTMLElement>(null);
-  const [planSeen, setPlanSeen] = useState(true);
+  const priceRef = useRef<HTMLDivElement>(null);
   const timer = useRef<number | null>(null);
   const stored = useRef(planDraft);
   const localRef = useRef(local);
   localRef.current = local;
+  const present = useIsPresent();
+  const presentRef = useRef(present);
+  presentRef.current = present;
+  const tableId = useId();
 
   /** Sends the local edits to the store now. */
   const flush = useCallback(() => {
@@ -67,23 +82,25 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
 
   useEffect(() => flush, [flush]);
 
-  // Phone upright: the plan sits under the bulletin; a cue points to it until it scrolls into view.
+  // Focus the price after the title; on a phone held upright, point to the price if it starts out of view.
   useEffect(() => {
+    if (focusPrice) priceRef.current?.querySelector<HTMLElement>('[role="spinbutton"]')?.focus({ preventScroll: true });
     const root = body.current;
-    const target = planRef.current;
-    if (root === null || target === null || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) setPlanSeen(true); }, { root, threshold: 0.12 });
-    setPlanSeen(root.scrollHeight <= root.clientHeight + 4 || getComputedStyle(root).display === 'contents');
-    io.observe(target);
-    return () => io.disconnect();
-  }, []);
-  const toPlan = () => planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const price = priceRef.current;
+    if (root === null || price === null || getComputedStyle(root).display === 'contents') return;
+    setCue(price.getBoundingClientRect().top > root.getBoundingClientRect().bottom - 60);
+  }, [focusPrice]);
+  const toPrice = () => {
+    setCue(false);
+    priceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const edit = (patch: Partial<MorningPlan>) => {
     if (leaving) return;
     const next = { ...localRef.current, ...patch };
     localRef.current = next;
     setLocal(next);
+    setOpenError(false);
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, SAVE_DELAY_MS);
   };
@@ -103,29 +120,48 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
   const open = () => {
     if (leaving || issues.length > 0) return;
     flush();
+    setOpenError(false);
     setLeaving(true);
   };
-  const onArrived = useCallback(() => dispatch({ type: 'open' }), [dispatch]);
+  /** The van is in: open the shop. If the store refuses (the saved draft is not this plan, or not valid), come back. */
+  const runRef = useRef(run);
+  runRef.current = run;
+  const onArrived = useCallback(() => {
+    const back = () => { setLeaving(false); setOpenError(true); };
+    if (!samePlan(stored.current, localRef.current) || validatePlan(runRef.current, stored.current).length > 0) {
+      back();
+      return;
+    }
+    dispatch({ type: 'open' });
+    window.setTimeout(() => { if (presentRef.current) back(); }, OPEN_CHECK_MS);
+  }, [dispatch]);
+
+  const onTeaKey = (e: KeyboardEvent) => {
+    const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (d === undefined) return;
+    e.preventDefault();
+    const next = TEAS[(TEAS.indexOf(localRef.current.tea) + d + TEAS.length) % TEAS.length];
+    edit({ tea: next });
+    (e.currentTarget.querySelector(`[data-tea="${next}"]`) as HTMLElement | null)?.focus();
+  };
 
   const range = priceRange(brief.rules.ceiling);
   const title = dayTitle(brief.theme, brief.rules);
   const rows = bulletinRows(brief);
+  const summary = streetSummary(brief);
   const note = entryNote(brief, entrants);
-  const yesterdayAvg = (() => {
-    const xs = brief.street.flatMap(r => (r.closePrice === null ? [] : [r.closePrice]));
-    return xs.length === 0 ? null : Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 2) / 2;
-  })();
+  const average = streetAverage(brief);
   const fills = { low: CONFIG.morning.quickFillCups.low, mid: CONFIG.morning.quickFillCups.mid, high: capacity };
   const floor = CONFIG.run.creditFloor;
   const atFloor = brief.cash <= floor;
 
   return (
     <div className={cx('morning', leaving && 'is-leaving')}>
-      <div className="morning__body" ref={body}>
-        <section className="morning__news panel" aria-labelledby="news-title">
+      <div className="morning__body" ref={body} onScroll={() => cue && setCue(false)}>
+        <section className="morning__news panel scrolly" aria-labelledby="news-title">
           <header className="news__mast">
             <span>Bản tin phường</span>
-            <span>Sáng ngày {brief.day}</span>
+            <span className="news__mast-day">Sáng ngày {brief.day}</span>
           </header>
           <h2 id="news-title" className="news__headline"><span aria-hidden="true">{title.emoji}</span> {title.title}</h2>
           <ul className="news__rules">
@@ -151,30 +187,39 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
             </ul>
           )}
           {rows.length > 0 ? (
-            <table className="news__table">
-              <caption>Phố hôm qua chốt giá</caption>
-              <colgroup><col /><col className="c-num" /><col className="c-num" /><col className="c-note" /></colgroup>
-              <thead><tr><th scope="col">Quán</th><th scope="col">Giá</th><th scope="col">Bán</th><th scope="col"><span className="sr-only">Ghi chú</span></th></tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={r.id} className={cx(r.you && 'is-you', r.dim && 'is-dim')}>
-                    <th scope="row"><span aria-hidden="true">{SHOP_ICONS[r.id]}</span> {r.name}</th>
-                    <td className="num">{r.price}</td>
-                    <td className="num">{r.sold}</td>
-                    <td>{r.note && <span className={cx('tag', `tag--${r.note.tone}`)}>{r.note.text}</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="street">
+              <button type="button" className="street__toggle" aria-expanded={tableOpen} aria-controls={tableId}
+                onClick={() => setTableOpen(o => !o)}>
+                <b>Phố hôm qua chốt giá</b>
+                {!tableOpen && summary !== null && <span className="street__sum">{summary}</span>}
+                <span className="street__chev" aria-hidden="true">▾</span>
+              </button>
+              {tableOpen && (
+                <table className="news__table" id={tableId}>
+                  <colgroup><col /><col className="c-num" /><col className="c-num" /><col className="c-note" /></colgroup>
+                  <thead><tr><th scope="col">Quán</th><th scope="col">Giá</th><th scope="col">Bán</th><th scope="col"><span className="sr-only">Ghi chú</span></th></tr></thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.id} className={cx(r.you && 'is-you', r.dim && 'is-dim')}>
+                        <th scope="row"><span aria-hidden="true">{SHOP_ICONS[r.id]}</span> {r.name}</th>
+                        <td className="num">{r.price}</td>
+                        <td className="num">{r.sold}</td>
+                        <td>{r.note && <span className={cx('tag', `tag--${r.note.tone}`)}>{r.note.text}</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           ) : (
             <p className="news__first">Phố vừa mở hàng, chưa ai có số hôm qua. Bà Tư bảo giá phố quanh quanh {fmtMoney(CONFIG.morning.defaultPrice)}.</p>
           )}
         </section>
 
-        <section className="morning__plan panel" aria-label="Kế hoạch sáng nay" ref={planRef}>
-          <fieldset className="field-block" disabled={leaving}>
+        <section className="morning__plan panel scrolly" aria-label="Kế hoạch sáng nay">
+          <fieldset className="field-block blk-price" disabled={leaving}>
             <legend className="block__title">Giá ly M <small>không topping</small></legend>
-            <div className="price">
+            <div className="price" ref={priceRef}>
               <Stepper label="Giá ly M (nghìn đồng)" value={local.price} min={range.min} max={range.max}
                 step={(v, s) => clampPrice(v + s * range.step, brief.rules.ceiling)} format={fmtMoney}
                 onChange={price => edit({ price })} invalid={issuesAt('price').length > 0} className="stepper--big" />
@@ -185,16 +230,15 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
                 onChange={e => edit({ price: Number(e.target.value) })} />
               <p className="price__meta">
                 {brief.rules.ceiling !== null && <span className="tag tag--bad">Trần {fmtMoney(brief.rules.ceiling)}</span>}
-                <span>S rẻ hơn {fmtMoney(-CONFIG.pricing.sizeSurcharge.S)}, L đắt hơn {fmtMoney(CONFIG.pricing.sizeSurcharge.L)}, mỗi topping +{fmtMoney(CONFIG.pricing.toppingSurcharge)}</span>
-                {yesterdayAvg !== null && <span>Hôm qua phố trung bình <b>{fmtMoney(yesterdayAvg)}</b></span>}
+                {average !== null && <span>Hôm qua cả phố (gồm quán bạn) trung bình <b>{fmtMoney(average)}</b></span>}
+                <span>S −{fmtMoney(-CONFIG.pricing.sizeSurcharge.S)}, L +{fmtMoney(CONFIG.pricing.sizeSurcharge.L)}, mỗi topping +{fmtMoney(CONFIG.pricing.toppingSurcharge)}</span>
               </p>
             </div>
             <Issues list={issuesAt('price')} ceiling={brief.rules.ceiling} />
           </fieldset>
 
-          <fieldset className="field-block" disabled={leaving}>
+          <fieldset className="field-block blk-stock" disabled={leaving}>
             <legend className="block__title">Nhập hàng</legend>
-            <Shelf plan={local} />
             <div className="quick" role="group" aria-label="Nhập nhanh">
               {(['low', 'mid', 'high'] as const).map(level => (
                 <button key={level} type="button" className="quick__btn" onClick={() => quickFill(level)}>
@@ -203,30 +247,12 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
                 </button>
               ))}
             </div>
+            <Shelf plan={local} />
             <p className="hint"><span aria-hidden="true">💡</span> {hintLine(brief)}</p>
-
-            <div className="tea" role="radiogroup" aria-label="Loại trà">
-              {TEAS.map(t => {
-                const g = CONFIG.supplies.teaGrades[t];
-                return (
-                  <button key={t} type="button" role="radio" aria-checked={local.tea === t}
-                    className={cx('tea__opt', `tea__opt--${t}`, local.tea === t && 'is-on')}
-                    onClick={() => edit({ tea: t })}>
-                    <span className="tea__icon" aria-hidden="true">{TEA_ICONS[t]}</span>
-                    <b>{TEA_NAMES[t]}</b>
-                    <small>{fmtMoney(g.costPer100Ml)}/100 ml</small>
-                    <small className={g.rep < 0 ? 'fx--bad' : g.rep > 0 ? 'fx--good' : ''}>
-                      {g.rep === 0 ? 'uy tín ±0' : `${g.rep > 0 ? '+' : '−'}${Math.abs(g.rep)} uy tín`}
-                    </small>
-                  </button>
-                );
-              })}
-            </div>
-
             <div className="stock">
               <Stepper label="Trà (ml)" value={local.teaMl} step={(v, s) => stepTea(v, s)} format={v => fmtNumber(v)}
                 valueText={v => `${fmtNumber(v)} ml`} onChange={teaMl => edit({ teaMl })} invalid={issuesAt('tea').length > 0}>
-                <span>🍵 Trà (ml)</span><small>bước {fmtNumber(CONFIG.supplies.teaStepMl)} ml</small>
+                <span>🍵 Trà (ml)</span><small>bước {fmtNumber(CONFIG.supplies.teaStepMl)}</small>
               </Stepper>
               {TOPPINGS.map(id => (
                 <Stepper key={id} label={`${TOPPING_NAMES[id]} (phần)`} value={local.toppings[id]} step={stepCount}
@@ -241,7 +267,29 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
             <Issues list={[...issuesAt('tea'), ...issuesAt('toppings')]} ceiling={brief.rules.ceiling} />
           </fieldset>
 
-          <fieldset className="field-block" disabled={leaving}>
+          <fieldset className="field-block blk-tea" disabled={leaving}>
+            <legend className="block__title">Loại trà</legend>
+            <div className="tea" role="radiogroup" aria-label="Loại trà" onKeyDown={onTeaKey}>
+              {TEAS.map(t => {
+                const g = CONFIG.supplies.teaGrades[t];
+                const on = local.tea === t;
+                return (
+                  <button key={t} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1} data-tea={t}
+                    className={cx('tea__opt', `tea__opt--${t}`, on && 'is-on')}
+                    onClick={() => edit({ tea: t })}>
+                    <span className="tea__icon" aria-hidden="true">{TEA_ICONS[t]}</span>
+                    <b>{TEA_NAMES[t]}</b>
+                    <small>{fmtMoney(g.costPer100Ml)}/100 ml</small>
+                    <small className={g.rep < 0 ? 'fx--bad' : g.rep > 0 ? 'fx--good' : ''}>
+                      {g.rep === 0 ? 'uy tín ±0' : `${g.rep > 0 ? '+' : '−'}${Math.abs(g.rep)} uy tín`}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <fieldset className="field-block blk-upgrade" disabled={leaving}>
             <legend className="block__title">Nâng cấp <small>tối đa 1 món mỗi sáng</small></legend>
             <div className="upgrades">
               {UPGRADES.map(u => {
@@ -266,10 +314,10 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
 
       <footer className="morning__foot panel">
         <AnimatePresence>
-          {!planSeen && !leaving && (
-            <motion.button key="cue" type="button" className="plan-cue" onClick={toPlan}
-              initial={{ opacity: 0, y: 12, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: 12, x: '-50%' }}>
-              Đặt giá và nhập hàng <span aria-hidden="true">↓</span>
+          {cue && !leaving && (
+            <motion.button key="cue" type="button" className="plan-cue" onClick={toPrice}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
+              Đặt giá <span aria-hidden="true">↓</span>
             </motion.button>
           )}
         </AnimatePresence>
@@ -282,6 +330,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants }: MorningScr
               onClick={() => edit({ teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 }, upgrade: null })}>Dọn kệ</button>
           </p>
         )}
+        {openError && <p className="issue" role="alert">Xe hàng quay đầu: chưa mở được cửa. Kiểm tra lại kế hoạch rồi bấm Mở cửa lần nữa.</p>}
         <div className="money">
           <div className="money__row">
             <span>Nhập hàng</span>
