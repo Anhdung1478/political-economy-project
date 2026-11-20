@@ -1,27 +1,36 @@
 import { useState, type FormEvent } from 'react';
-import { LIMITS } from '../../../../shared/protocol';
-import { connect } from '../../net/socket';
+import { type Ack, LIMITS } from '../../../../shared/protocol';
 import { Button } from '../../ui/Button';
 import { InvisibleHand, VisibleHand } from '../../ui/Hands';
 import { Input } from '../../ui/Input';
 
-export function JoinScreen({ onJoined }: { onJoined: (playerId: string, token: string) => void }) {
-  const [name, setName] = useState('');
+interface Props {
+  /** The name remembered from an earlier visit (the host reset the session, or the phone lost its token). */
+  initialName?: string;
+  /** Joins the session; the server's refusal comes back as `error` and is shown under the field. */
+  onSubmit: (name: string) => Promise<Ack>;
+}
+
+export function JoinScreen({ initialName = '', onSubmit }: Props) {
+  const [name, setName] = useState(initialName);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) { setError('Nhập tên đã rồi mới mở quán được 😅'); return; }
+    if (busy) return;
+    const trimmed = name.trim();
+    if (!trimmed) { setError('Nhập tên đã rồi mới mở quán được 😅'); return; }
     setBusy(true);
-    const r = await connect().join(name);
+    let r: Ack;
+    try { r = await onSubmit(trimmed); } catch { r = { ok: false, error: 'Chưa vào được, thử lại nhé' }; }
+    // On success this screen is replaced; only a refusal comes back here.
     setBusy(false);
-    if (r.ok) onJoined(r.playerId, r.token);
-    else setError(r.error);
+    if (!r.ok) setError(r.error);
   };
 
   return (
-    <form className="join" onSubmit={submit} noValidate>
+    <form className="join card" onSubmit={submit} noValidate>
       <div className="join__hands" aria-hidden="true">
         <InvisibleHand size={84} float />
         <VisibleHand size={84} float />

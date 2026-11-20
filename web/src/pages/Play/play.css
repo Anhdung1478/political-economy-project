@@ -14,12 +14,22 @@
 .play h2 { font-size: 24px; }
 .play__sub { color: var(--ink-soft); font-size: 16px; }
 
+/* The ambient street behind the join form, the lobby and the "session over" notice. */
+.play--street { position: relative; z-index: 0; }
+.play__street {
+  position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  background: linear-gradient(#fbe3c4, #fff6ea 70%, var(--milk-deep));
+}
+.play__street canvas { width: 100%; height: 100%; object-fit: cover; object-position: 50% 100%; }
+.play--street .play__brand { padding: 6px 12px; border-radius: var(--r-pill); background: rgba(255, 252, 247, 0.85); box-shadow: var(--shadow-sm); }
+
 /* Join */
-.join { display: grid; gap: 18px; padding-top: 12px; }
+.join { display: grid; gap: 18px; padding: 22px 20px 24px; margin-top: 8px; }
 .join__hands { display: flex; gap: 8px; margin-bottom: 4px; }
 
 /* Lobby */
-.lobby { display: grid; gap: 22px; padding-top: 4px; }
+.lobby { display: grid; gap: 14px; padding-top: 4px; }
+.vote { padding: 18px 16px 16px; }
 .shop-card {
   display: grid; gap: 4px; padding: 18px 20px; border-radius: var(--r-lg);
   background: var(--ink); color: var(--paper); box-shadow: 0 6px 0 #000, var(--shadow-md);
@@ -39,8 +49,9 @@
 .vote__opt:active { transform: scale(0.97); }
 .vote__opt--invisible.is-on { border-color: var(--matcha); background: var(--matcha-soft); transform: scale(1.03); }
 .vote__opt--visible.is-on { border-color: var(--caramel); background: var(--caramel-soft); transform: scale(1.03); }
-.vote__thanks { font-weight: 600; color: var(--matcha-deep); font-size: 14px; }
-.wait-card { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: var(--r-lg); border: 2px dashed var(--line-strong); }
+.vote__thanks { font-weight: 600; color: var(--matcha-deep); font-size: 14px; text-align: center; }
+.vote__opt span { color: var(--ink-soft); font-size: 13px; }
+.wait-card { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--r-lg); border: 2px dashed var(--line-strong); }
 .wait-card p { font-size: 15px; color: var(--ink-soft); }
 .wait-card b { color: var(--ink); }
 .wait-card__emoji { font-size: 34px; animation: wobble 1.6s ease-in-out infinite; }
@@ -60,3 +71,27 @@
 .award-row__emoji { font-size: 30px; }
 .award-row b { display: block; font-size: 16px; }
 .award-row small { color: var(--ink-soft); font-size: 13px; }
+
+.awards-phone.card { padding: 22px 18px; }
+.award-top { list-style: none; padding: 0; margin: 6px 0 0; }
+.award-top__head { font-family: var(--font-display); font-weight: 800; font-size: 17px; padding: 2px 4px; }
+.awards-phone__actions { width: 100%; display: grid; gap: 10px; margin-top: 8px; }
+.ended__emoji { font-size: 54px; }
+
+/* Over a run in progress: a thin strip on top (the game, a fixed full-screen layer, moves down by its height) and the
+   awards sheet. */
+.play-strip {
+  position: fixed; z-index: 120; top: 0; left: 0; right: 0; height: 34px; padding: 0 12px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: var(--ink);
+}
+html.play-strip-on .game { top: 34px; height: calc(100vh - 34px); height: calc(100dvh - 34px); }
+.play-pill {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 12px;
+  border: 0; border-radius: var(--r-pill); font: 700 13px var(--font); cursor: pointer; white-space: nowrap;
+  background: var(--paper); color: var(--ink);
+}
+.play-pill--awards { background: var(--caramel); color: #fff; }
+.play-pill:active { transform: translateY(1px); }
+.play-overlay { position: fixed; inset: 0; z-index: 150; overflow-y: auto; background: var(--cream); }
+.play--overlay { min-height: 100%; display: block; }
