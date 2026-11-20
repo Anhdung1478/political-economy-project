@@ -342,6 +342,7 @@
   font-size: 12px; font-weight: 700; pointer-events: none;
 }
 .end-vote__done { margin: 0; font-weight: 700; color: var(--matcha-deep); }
+.end__offline { margin: 0; text-align: center; font-size: 13px; font-weight: 700; color: var(--ink-soft, #6b5a4c); }
 .end__wait { margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; font-weight: 700; padding: 8px 0; }
 
 /* ================= Phone on its side: two columns ================= */

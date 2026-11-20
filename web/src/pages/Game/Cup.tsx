@@ -606,6 +606,15 @@ function CupView({ craft, machine, tea, time, reduced, ready, sloshRef }: CupPro
       step(performance.now(), true);
     });
     ro?.observe(el);
+    // A window moved to a screen with another pixel ratio: refit. The query is for one ratio, so re-arm after each change.
+    let mq: MediaQueryList | null = null;
+    const onDpr = () => { arm(); fit(); step(performance.now(), true); };
+    const arm = () => {
+      mq?.removeEventListener('change', onDpr);
+      mq = typeof window.matchMedia === 'function' ? window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      mq?.addEventListener?.('change', onDpr);
+    };
+    arm();
     let raf = 0;
     const loop = (wall: number) => {
       raf = requestAnimationFrame(loop);
@@ -617,6 +626,8 @@ function CupView({ craft, machine, tea, time, reduced, ready, sloshRef }: CupPro
     return () => {
       cancelAnimationFrame(raf);
       ro?.disconnect();
+      mq?.removeEventListener?.('change', onDpr);
+      mq = null;
       drawNow.current = null;
     };
   }, [hasCup]);

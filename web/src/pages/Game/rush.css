@@ -256,18 +256,15 @@
 .rcraft.is-dragging .cstage__cup { cursor: grabbing; z-index: 50; }
 .rcraft.is-selected .cstage__cup .rcup { filter: drop-shadow(0 0 10px rgba(201, 119, 42, 0.8)); }
 .cstage__cup.is-sent { pointer-events: none; }
+/* The straw rises above the box and the canvas takes no pointer events: a strip over the straw (about 27%..58% across,
+   up to its tip) belongs to the cup, so the straw starts a drag and a tap as the body and the lid do. */
+.cstage__cup.is-ready::after { content: ''; position: absolute; left: 24%; width: 32%; top: -30%; height: 30%; }
 .rcup { display: block; width: 100%; height: 100%; overflow: visible; }
 /* The cup's canvas covers the view box from (−20, −70), 220 × 280 units, over the cup's 160 × 200 box: room for the
    straw, the pitcher and the drop-in (Cup.tsx VX..VH). The box under it takes the presses and the drag. */
 .rcup--canvas { position: absolute; left: -12.5%; top: -35%; width: 137.5%; height: 140%; pointer-events: none; }
 .rcup__shadow { fill: rgba(42, 29, 21, 0.16); }
 .rcup__ghost { fill: none; stroke: var(--ink-faint); stroke-width: 2; stroke-dasharray: 6 6; opacity: 0.6; }
-.rcup__glass { fill: none; stroke: #6e5b4d; stroke-width: 2.6; stroke-linejoin: round; }
-.rcup__mark { stroke: rgba(110, 91, 77, 0.35); stroke-width: 1.5; stroke-dasharray: 3 4; }
-.rcup__sticker circle { fill: var(--caramel); stroke: #fff; stroke-width: 2; }
-.rcup__sticker text { fill: #fff; font-family: var(--font-display); font-weight: 800; font-size: 14px; }
-.rcup__lid { fill: rgba(255, 255, 255, 0.72); stroke: #6e5b4d; stroke-width: 2.2; stroke-linejoin: round; }
-.rcup__rim { fill: #fffcf7; stroke: #6e5b4d; stroke-width: 2.2; }
 /* the ready glow: a soft halo behind the cup, opacity only (no SVG filter repaint every frame) */
 .cstage__cup::before {
   content: ''; position: absolute; left: 5%; right: 5%; top: 8%; bottom: 2%; border-radius: 40% 40% 30% 30%; z-index: -1;

@@ -4,7 +4,7 @@
 // done. Solo: the personal best and "Chơi lại". Class: the rank and "chờ trao giải" (props), and the reporter card for
 // a player who lost early, so everyone gets to vote (§7).
 import { motion, useReducedMotion } from 'framer-motion';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CARDS } from '../../../../shared/sim/cards';
 import { CONFIG } from '../../../../shared/sim/config';
 import { ending, score } from '../../../../shared/sim/run';
@@ -100,7 +100,22 @@ function Shutter() {
   );
 }
 
+/** True while the browser says it is online; follows the online and offline events. */
+function useOnline(): boolean {
+  const [on, setOn] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const up = () => setOn(true);
+    const down = () => setOn(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    setOn(navigator.onLine !== false);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
+  }, []);
+  return on;
+}
+
 export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onReporterVote, unsent = 0 }: EndScreenProps) {
+  const online = useOnline();
   const reduced = useReducedMotion() ?? false;
   const end = useMemo(() => ending(run), [run]);
   const sc = score(run);
@@ -246,6 +261,9 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
                 <Button variant="secondary" size="md" block onClick={onNewRun} disabled={unsent > 0} aria-busy={unsent > 0}>
                   {unsent > 0 ? 'Đang gửi kết quả…' : 'Chơi lại (solo)'}
                 </Button>
+              )}
+              {onNewRun && unsent > 0 && !online && (
+                <p className="end__offline" role="status">Mất mạng, kết quả sẽ gửi khi có mạng lại</p>
               )}
             </>
           )}
