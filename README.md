@@ -1,86 +1,88 @@
-# Hai Bàn Tay 🥤
+# Phố Trà Sữa
 
-Web thuyết trình môn Kinh tế chính trị Mác – Lênin:
+Game quản lý quán trà sữa trong 5 ngày, minh hoạ câu hỏi "bàn tay vô hình hay bàn tay hữu hình": mỗi ngày người chơi quyết định giá và nguyên liệu, pha chế trong giờ cao điểm và chọn một thẻ tình huống. Thiết kế đầy đủ nằm ở `docs/superpowers/specs/2026-11-19-pho-tra-sua-design.md`.
 
-> Nền kinh tế thị trường hoàn hảo nên được vận hành bởi **"bàn tay vô hình"** hay **"bàn tay hữu hình"**?
+## Ba chế độ
 
-- **10 phút thuyết trình** (3 người, 14 slide) với poll trực tiếp và biểu đồ cung – cầu động.
-- **6 phút game "Chợ Trà Sữa Hỗn Loạn"**: cả lớp quét QR, mỗi người làm chủ một quán trà sữa, mỗi vòng chọn giá bán và mức nguyên liệu (ăn bớt thì mất uy tín vòng sau). 6 vòng: chợ tự do (2 lần) → giá trần → thuế → tin đồn → chợ tự do.
-
-## Ba màn hình
-
-| Đường dẫn | Ai mở | Dùng để |
+| Đường dẫn | Ai dùng | Việc |
 |---|---|---|
-| `/` | Laptop chiếu | Slide thuyết trình |
-| `/host?key=<HOST_KEY>` | Laptop chiếu | Điều khiển và chiếu game |
-| `/play` | Điện thoại khán giả | Bình chọn và chơi game (quét QR trên slide) |
+| `/` và `/solo` | Một người, trên điện thoại hoặc máy tính | Chơi một mình; ván lưu trong trình duyệt |
+| `/play` | Điện thoại của cả lớp | Vào buổi lớp: nhập tên, bình chọn, chờ host mở chợ, chơi, xem giải |
+| `/host?key=<HOST_KEY>` | Laptop của giảng viên | Bảng điều khiển riêng: màn chiếu, bảng theo dõi, nút Mở chợ, Trao giải, Reset |
 
-Phím tắt ở màn slide: `←` `→` chuyển slide · `N` ghi chú người nói · `F` toàn màn hình.
-Ở màn host, `→` / PageDown (bút trình chiếu) cũng bấm được nút chính.
+Hướng dẫn chạy một buổi lớp: [`docs/huong-dan-host.md`](docs/huong-dan-host.md).
 
 ## Chạy trên máy
 
-Cần Node 22+.
+Cần Node 22 trở lên (Dockerfile dùng Node 24).
 
 ```bash
 npm ci
-npm run dev        # server :3000 + Vite :5173 → mở http://localhost:5173
+npm run dev    # server :3000 + Vite :5173, mở http://localhost:5173
 ```
 
-## Deploy lên server
+Vite chuyển `/socket.io` và `/api` sang server ở cổng 3000.
+
+## Build và chạy thật
 
 ```bash
 npm ci
-npm run build
-HOST_KEY=mat-khau-host PUBLIC_URL=https://ten-mien-cua-ban PORT=3000 npm start
+npm run build   # web vào dist/web, server vào dist/server.js
+HOST_KEY=mat-khau-host PUBLIC_URL=https://ten-mien-cua-ban PORT=3000 NODE_ENV=production npm start
 ```
 
-Hoặc dùng Docker:
+Docker:
 
 ```bash
-docker build -t hai-ban-tay .
-docker run -d -p 3000:3000 -e HOST_KEY=mat-khau-host -e PUBLIC_URL=https://ten-mien-cua-ban hai-ban-tay
+docker build -t pho-tra-sua .
+docker run -d -p 3000:3000 -e HOST_KEY=mat-khau-host -e PUBLIC_URL=https://ten-mien-cua-ban pho-tra-sua
 ```
+
+Sau reverse proxy (nginx) phải bật WebSocket (`proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). `GET /healthz` trả `ok`.
+
+## Biến môi trường
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `PORT` | `3000` | Cổng HTTP |
-| `HOST_KEY` | `hai-ban-tay` | Mã để vào `/host` (**nhớ đổi**) |
-| `PUBLIC_URL` | origin của trang | Địa chỉ in trong QR (đặt khi chạy sau reverse proxy) |
+| `HOST_KEY` | `pho-tra-sua` | Mã vào `/host`. Khi `NODE_ENV=production` mà thiếu biến này, server không chạy |
+| `PUBLIC_URL` | origin của trang | Địa chỉ in trong mã QR; đặt khi chạy sau proxy |
+| `SESSION_FILE` | `.data/session.json` | File lưu buổi lớp (ghi định kỳ và trước khi xác nhận mỗi lượt vào, bình chọn, ngày chơi) |
+| `STATIC_DIR` | `dist/web` cạnh `server.js` | Thư mục web đã build |
 
-Nếu đặt sau nginx, nhớ bật WebSocket (`proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`).
-Trạng thái game nằm trong RAM, restart server là ván mới.
+Buổi lớp được nạp lại từ `SESSION_FILE` khi server khởi động. File nằm trong hệ thống file của container, nên **sống qua lần khởi động lại tiến trình nhưng mất khi deploy lại container**, trừ khi mount volume vào thư mục của file. File hỏng được đổi tên thành `<file>.corrupt` và server mở buổi mới.
 
-## Kịch bản ngày thuyết trình
+## Bot
 
-1. Trước giờ: deploy với `HOST_KEY` và `PUBLIC_URL` đúng tên miền; mở thử `/` trên laptop chiếu.
-2. Mở sẵn 2 tab: tab 1 là `/` (slide), tab 2 là `/host?key=<HOST_KEY>` (mã tự biến khỏi thanh địa chỉ sau khi vào).
-3. Slide 1: cả lớp quét QR, nhập tên, bình chọn. Giữ điện thoại lại cho phần game.
-4. Slide 14 là QR to để cả lớp quét. Xong thì chuyển sang tab host, bấm nút xanh (hoặc `→` trên bút trình chiếu) để đi qua từng bước. Nút tự khoá ~1 giây sau mỗi bước nên bấm đúp không bị trôi vòng.
-5. Muốn chơi lại: **Reset**. Quán của người đã thoát sẽ bị dọn.
-
-Khi `NODE_ENV=production` (mặc định trong Docker), server từ chối khởi động nếu thiếu `HOST_KEY`.
-
-Flow chi tiết từng bước: [docs/huong-dan-thuyet-trinh.md](docs/huong-dan-thuyet-trinh.md).
-
-## Sửa nội dung
-
-- Tên 3 người nói: `web/src/content/speakers.ts`
-- Nội dung slide và ghi chú: `web/src/content/slides.tsx`
-- Luật game và các vòng: `shared/config.ts`
-
-## Tổng duyệt với bot
+Bot giả lập học sinh để thử tải và thử luồng buổi lớp. Cần server đang chạy.
 
 ```bash
-HOST_KEY=... node scripts/bots.mjs auto 15   # 15 bot chơi trọn một ván, host tự bấm mỗi 3 giây
-node scripts/bots.mjs join 10                # thêm 10 bot vào chợ
+npm run bots -- join 20    # 20 bot (1 đến 200) vào buổi, bình chọn, chờ chợ mở rồi chơi đủ 5 ngày
+npm run bots -- open       # lệnh host: mở chợ
+npm run bots -- awards     # lệnh host: trao giải, in giải và top
+npm run bots -- reset      # lệnh host: buổi mới
 ```
 
-## Kiểm thử
+Biến: `BOT_URL` (mặc định `http://localhost:3000`), `HOST_KEY` (mặc định `pho-tra-sua`), `BOT_OFFSET` (dịch chỉ số tên bot).
+
+## Kiểm thử và công cụ
 
 ```bash
-npm test          # logic chợ, engine, server Socket.IO
-npm run typecheck
+npm test                 # vitest
+npm run typecheck        # tsc --noEmit
+npm run balance -- [--seeds N] [--from S] [--check ID] [--json]
+npm run shoot -- --route "/dev/scene?day=3&seed=7" [--size 390x844] [--dpr 2] [--out .shots/ten]
 ```
 
-Ảnh tư liệu: Wikimedia Commons, phạm vi công cộng (public domain).
+- `balance`: giả lập nhiều chiến lược trên nhiều seed (mặc định 400, khoảng 50 giây) và báo từng điều kiện cân bằng. Thoát 0 khi đạt hết, 1 khi có điều kiện hỏng, 2 khi sai tham số.
+- `shoot`: chụp màn hình bằng Chrome không giao diện (puppeteer-core). Đường dẫn Chrome lấy từ `CHROME_PATH`, mặc định là Chrome của Windows. Ảnh vào `.shots/` (không commit). Xem đầu `scripts/shoot.ts` để biết hết cờ (`--frames`, `--every`, `--cpu`, `--ready`, `--full`).
+
+## Đường dẫn dev
+
+Chỉ có khi chạy `npm run dev` (Vite):
+
+| Đường dẫn | Nội dung |
+|---|---|
+| `/dev/scene` | Con phố (canvas), tham số `day`, `seed` |
+| `/dev/characters` | Bảng nhân vật |
+| `/dev/game` | Xem từng màn của game ở trạng thái dựng sẵn |
