@@ -95,9 +95,9 @@ export interface Bot {
 
 /**
  * One fake student. It keeps its token and resumes after a reconnect or a server restart, resends a day whose ack
- * timed out, was refused as `unknownPlayer` or came back `durable: false`, goes back to the day the server expects
- * when a `notNext` names an earlier one (a restarted server lost days), and on a session reset keeps its identity,
- * votes again and plays the new seed.
+ * timed out, was refused as `unknownPlayer` or `notOpen`, or came back `durable: false`, goes back to the day the
+ * server expects when a `notNext` names an earlier one (a restarted server lost days), and on a session reset keeps
+ * its identity, votes again and plays the new seed.
  */
 export function startBot(o: BotOptions): Bot {
   const rnd = o.rnd ?? Math.random;
@@ -192,7 +192,8 @@ export function startBot(o: BotOptions): Bot {
         s.emit('player:progress', { day: summary.day, phase: 'report' });
         const r = await emitAck<{ rank: number }>(s, cb => s.emit('player:day', { code, runId, summary }, cb));
         if (r.ok && isDurable(r)) { accepted++; say(`day ${summary.day} sent, rank ${r.rank}`); i++; break; }
-        if (r.ok || r.error === 'timeout' || r.error === 'unknownPlayer') {
+        // `notOpen` is transient (a server restarted in the lobby phase): resend, never a final refusal.
+        if (r.ok || r.error === 'timeout' || r.error === 'unknownPlayer' || r.error === 'notOpen') {
           if (!r.ok && r.error === 'unknownPlayer') identified = false;
           say(`day ${summary.day}: ${r.ok ? 'not saved by the server' : r.error}, will resend`);
           await sleep(500);

@@ -157,7 +157,7 @@ describe('resync', () => {
 describe('outbox', () => {
   type Sent = { item: QueueItem; reply: (r: Ack | 'timeout' | Error) => void };
   function setup(initial: Record<string, string> = {}, onReply?: (item: QueueItem, r: Ack) => void,
-    source?: (runId: string, from: Day) => DaySummary[]) {
+    source?: (runId: string, from: Day) => DaySummary[], retryMs = 1) {
     const store = memoryStore(initial);
     const sent: Sent[] = [];
     const replies: [QueueItem, Ack][] = [];
@@ -168,7 +168,7 @@ describe('outbox', () => {
       })),
       isTimeout: r => !r.ok && r.error === 'timeout',
       onReply: onReply ?? ((item, r) => replies.push([item, r])),
-      retryMs: 1,
+      retryMs,
       resync: source,
     });
     const tick = () => new Promise(r => setTimeout(r, 5));
@@ -370,20 +370,55 @@ describe('outbox', () => {
 
   it('gives up after MAX_RESYNCS requests for the same day, waiting the retry delay between them', async () => {
     const reports = [1, 2, 3].map(d => daySummary({ day: d as Day }));
-    const { sent, box, tick } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from));
+    const RETRY = 60;
+    const { sent, box, tick } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from), RETRY);
     box.setCode('ABCD');
     box.online(true);
     box.push('day', day(3));
     for (let k = 0; k < MAX_RESYNCS + 1; k++) {
       // A broken server that keeps losing day 2: it is accepted, then day 3 is refused notNext(2).
+      const before = sent.length;
       sent[sent.length - 1].reply({ ok: false, error: 'notNext', expected: 2 } as Ack);
       await tick();
+      if (k >= 1 && k < MAX_RESYNCS) {
+        // A repeat waits the retry delay, even through a push or a reconnect.
+        box.push('vote', vote('after'));
+        box.online(true);
+        await tick();
+        expect(sent).toHaveLength(before);
+        await new Promise(r => setTimeout(r, RETRY + 20));
+      }
       if (k < MAX_RESYNCS) {
+        expect(sent).toHaveLength(before + 1);
         sent[sent.length - 1].reply({ ok: true, rank: 1 } as Ack); // day 2
         await tick();
       }
     }
-    expect(sent.map(x => (x.item.kind === 'day' ? x.item.payload.summary.day : 0))).toEqual([3, 2, 3, 2, 3, 2, 3]);
+    expect(sent.map(x => (x.item.kind === 'day' ? x.item.payload.summary.day : 0))).toEqual([3, 2, 3, 2, 3, 2, 3, 0]);
+    expect(box.pending()).toBe(1); // the vote, sent once the run gave up
+    expect(sent).toHaveLength(8);
+    expect(sent[7].item.kind).toBe('vote');
+  });
+
+  it('resends a day answered notOpen (transient) and then delivers every day', async () => {
+    const { sent, replies, box, tick, store } = setup();
+    box.setCode('ABCD');
+    box.online(true);
+    box.push('day', day(1));
+    sent[0].reply({ ok: false, error: 'notOpen' });
+    await tick();
+    expect(sent).toHaveLength(2);
+    expect(sent[1].item.id).toBe(sent[0].item.id);
+    expect(JSON.parse(store.get(QUEUE_KEY)!).refused).toEqual([]);
+    sent[1].reply({ ok: true, rank: 1 } as Ack); // the market is open now
+    await tick();
+    for (const d of [2, 3, 4, 5] as Day[]) {
+      box.push('day', day(d));
+      sent[sent.length - 1].reply({ ok: true, rank: 1 } as Ack);
+      await tick();
+    }
+    expect(sent.map(x => (x.item.kind === 'day' ? x.item.payload.summary.day : 0))).toEqual([1, 1, 2, 3, 4, 5]);
+    expect(replies).toHaveLength(5);
     expect(box.pending()).toBe(0);
   });
 });

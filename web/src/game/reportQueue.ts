@@ -39,8 +39,12 @@ export const MAX_RESYNCS = 3;
 /** The one storage key of the queue; the session code is inside, so an old session's queue is overwritten. */
 export const QUEUE_KEY = 'pts.queue';
 
-/** Replies that mean "not handled yet": the socket is not attached to its player (before `player:resume`). */
-const RETRY_ERRORS: readonly string[] = ['unknownPlayer'];
+/**
+ * Replies that mean "not handled yet", resent after the retry delay: the socket is not attached to its player
+ * (before `player:resume`), or the market is not open yet (`notOpen`: transient, e.g. a server restarted in the lobby
+ * phase, so never a final refusal).
+ */
+const RETRY_ERRORS: readonly string[] = ['unknownPlayer', 'notOpen'];
 
 const dayKey = (p: DayPayload) => `${p.runId}:${p.summary.day}`;
 const keyOf = (runId: string, day: number) => `${runId}:${day}`;
@@ -214,15 +218,20 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   const save = () => { if (q.code !== null) opts.store.set(QUEUE_KEY, serialize(q)); };
+  /** While set, nothing is sent (not even on `push` or `online`): the wait before a day asked for again. */
+  let hold: ReturnType<typeof setTimeout> | null = null;
   const later = () => {
     if (retry === null) retry = setTimeout(() => { retry = null; pump(); }, retryMs);
+  };
+  const holdThenPump = () => {
+    if (hold === null) hold = setTimeout(() => { hold = null; pump(); }, retryMs);
   };
   const retryLater = (id: string) => {
     q = timeout(q, id);
     later();
   };
   const pump = () => {
-    if (!isOnline) return;
+    if (!isOnline || hold !== null) return;
     const n = next(q);
     if (!n) return;
     q = n.queue;
@@ -242,7 +251,7 @@ export function createOutbox(opts: OutboxOptions): Outbox {
           q = fixed;
           save();
           // The first time at once; a day asked for again waits the normal retry delay.
-          if ((fixed.resyncs[keyOf(item.payload.runId, expected)] ?? 0) > 1) later(); else pump();
+          if ((fixed.resyncs[keyOf(item.payload.runId, expected)] ?? 0) > 1) holdThenPump(); else pump();
           return;
         }
       }
