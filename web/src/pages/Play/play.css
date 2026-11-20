@@ -46,64 +46,6 @@
 .wait-card__emoji { font-size: 34px; animation: wobble 1.6s ease-in-out infinite; }
 @keyframes wobble { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
 
-/* Event */
-.event { display: grid; gap: 16px; justify-items: start; padding-top: 6px; perspective: 900px; }
-.event-card {
-  width: 100%; display: grid; gap: 10px; padding: 26px 22px; border-radius: var(--r-xl);
-  background: var(--paper); box-shadow: var(--shadow-lg); border-top: 10px solid var(--matcha);
-}
-.event-card--visible { border-top-color: var(--caramel); }
-.event-card--chaos { border-top-color: var(--strawberry); }
-.event-card__emoji { font-size: 58px; line-height: 1; }
-.event-card h1 { font-size: 28px; }
-.event-card p { color: var(--ink-soft); font-size: 17px; }
-.event-card__chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-.event__hint { animation: nudge 1.4s ease-in-out infinite; }
-@keyframes nudge { 50% { transform: translateY(-3px); } }
-
-/* Pricing */
-.pricing { display: grid; gap: 16px; }
-.pricing__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.pricing__head .chip { font-size: 13px; white-space: normal; }
-.pricing__head h1 { margin-top: 8px; }
-.pricing__card { padding: 18px 20px 20px; display: grid; gap: 16px; }
-.pricing__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.pricing__facts > div { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--r-md); background: var(--milk); }
-.pricing__facts small { font-size: 13px; color: var(--ink-soft); font-weight: 600; }
-.pricing__facts b { font-family: var(--font-display); font-size: 26px; }
-.pricing__margin { background: var(--matcha-soft) !important; color: var(--matcha-deep); }
-.pricing__margin.is-zero { background: var(--milk) !important; color: var(--ink); }
-.pricing__margin.is-loss { background: var(--strawberry-soft) !important; color: var(--strawberry-deep); }
-.pricing__tip { font-size: 14px; color: var(--ink-soft); font-weight: 500; }
-.pricing__tip.is-warn { color: var(--strawberry-deep); font-weight: 600; }
-.pricing__status { display: grid; gap: 8px; }
-.pricing__status p { padding: 10px 14px; border-radius: var(--r-md); background: var(--milk); font-size: 14px; line-height: 1.4; }
-.pricing__status p.is-bad { background: var(--strawberry-soft); }
-.pricing__status p.is-good { background: var(--matcha-soft); }
-.pricing__wait { text-align: center; }
-
-/* Reveal */
-.reveal { display: grid; gap: 18px; }
-.reveal__head { display: grid; gap: 8px; justify-items: start; }
-.reveal__profit { font-size: 64px !important; color: var(--matcha-deep); }
-.reveal__profit.is-loss { color: var(--strawberry-deep); }
-.cups { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.cup { display: grid; place-items: center; aspect-ratio: 1; border-radius: var(--r-md); background: var(--milk); font-size: 28px; filter: grayscale(1) opacity(0.35); }
-.cup.is-sold { background: var(--caramel-soft); filter: none; }
-.cups__label { font-size: 15px; color: var(--ink-soft); }
-.cups__label b { color: var(--ink); }
-.lesson { display: flex; gap: 12px; padding: 16px 18px; border-radius: var(--r-lg); background: var(--ink); color: var(--paper); font-size: 15px; line-height: 1.45; }
-.lesson span { font-size: 26px; }
-.emoji-bar { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-.emoji-bar__btn {
-  aspect-ratio: 1; min-height: 48px; border: 0; border-radius: var(--r-md); background: var(--paper);
-  box-shadow: 0 4px 0 var(--milk-deep), var(--shadow-sm); font-size: 26px; cursor: pointer;
-  transition: transform 0.15s var(--ease-spring), box-shadow 0.15s;
-}
-.emoji-bar__btn:hover { transform: translateY(-2px); }
-.emoji-bar__btn:active { transform: translateY(3px) scale(0.92); box-shadow: 0 1px 0 var(--milk-deep); }
-.emoji-bar__burst { position: absolute; left: 50%; bottom: 40px; font-size: 32px; pointer-events: none; }
-
 /* Awards */
 .awards-phone { position: relative; display: grid; gap: 14px; justify-items: center; text-align: center; padding-top: 10px; }
 .rank-badge {

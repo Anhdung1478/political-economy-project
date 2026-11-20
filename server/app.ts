@@ -1,136 +1,160 @@
+// The class-session server (spec §10, §11): express + socket.io around one `Session`. Phones join, vote and send
+// their days; the host opens the market, freezes the awards and resets. Every mutation is followed by a coalesced
+// `state` broadcast and a throttled `host:board` to the authenticated host sockets only.
 import compression from 'compression';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { Server } from 'socket.io';
-import { EMOJIS, GAME, type Emoji } from '../shared/config';
-import type { ClientToServer, ServerToClient } from '../shared/types';
-import { GameRoom } from './game/engine';
+import type { Ack, ClientToServer, ServerToClient } from '../shared/protocol';
+import { Session } from './session';
 
 interface SocketData {
   playerId?: string;
   isHost?: boolean;
-  tokens: number;
-  refill: number;
 }
 
 export interface AppOptions {
   hostKey: string;
   staticDir?: string;
   publicUrl?: string;
+  /** The session to serve (loaded from the session file); a new one otherwise. */
+  session?: Session;
+  /** At most one `host:board` per this many ms (the board can be ~0.5 MB at 200 players). */
+  boardThrottleMs?: number;
 }
+
+/** Bursts of changes (200 phones sending a day at once) go out as one `state`. */
+const STATE_COALESCE_MS = 100;
+const BOARD_THROTTLE_MS = 1000;
+const HOSTS = 'hosts';
+
+type Reply = (r: Ack<object>) => void;
+const field = (p: unknown, key: string): unknown =>
+  typeof p === 'object' && p !== null ? (p as Record<string, unknown>)[key] : undefined;
 
 export function createApp(opts: AppOptions) {
   const app = express();
   const http = createServer(app);
   // Short heartbeats so a phone that silently lost Wi-Fi notices within ~10 s.
   const io = new Server<ClientToServer, ServerToClient, object, SocketData>(http, { pingInterval: 5000, pingTimeout: 5000 });
-  const room = new GameRoom();
+  const session = opts.session ?? new Session();
+  const boardThrottle = opts.boardThrottleMs ?? BOARD_THROTTLE_MS;
 
   app.use(compression());
   app.get('/healthz', (_req, res) => { res.type('text').send('ok'); });
   app.get('/api/config', (_req, res) => { res.json({ publicUrl: opts.publicUrl ?? null }); });
   if (opts.staticDir && existsSync(opts.staticDir)) {
-    const dir = opts.staticDir;
+    const dir = path.resolve(opts.staticDir);
     app.use(express.static(dir, { index: false, maxAge: '1h' }));
-    app.get(['/', '/host', '/play'], (_req, res) => { res.sendFile(path.join(dir, 'index.html')); });
+    app.get(['/', '/solo', '/play', '/host'], (_req, res) => { res.sendFile(path.join(dir, 'index.html')); });
   }
 
-  // Coalesce bursts of mutations (e.g. 50 phones submitting at once) into one broadcast.
-  let queued = false;
-  const broadcast = () => {
-    if (queued) return;
-    queued = true;
-    // While 80 phones lock in prices, batch updates more aggressively.
-    setTimeout(() => { queued = false; io.emit('state', room.snapshot()); }, room.phase === 'pricing' ? 300 : 50);
+  let stateTimer: NodeJS.Timeout | null = null;
+  let boardTimer: NodeJS.Timeout | null = null;
+  let lastBoard = 0;
+  const sendBoard = () => {
+    boardTimer = null;
+    lastBoard = Date.now();
+    if ((io.sockets.adapter.rooms.get(HOSTS)?.size ?? 0) > 0) io.to(HOSTS).emit('host:board', session.board());
+  };
+  const changed = () => {
+    stateTimer ??= setTimeout(() => { stateTimer = null; io.emit('state', session.snapshot()); }, STATE_COALESCE_MS);
+    boardTimer ??= setTimeout(sendBoard, Math.max(STATE_COALESCE_MS, lastBoard + boardThrottle - Date.now()));
   };
 
-  let timer: NodeJS.Timeout | undefined;
-  const armTimer = () => {
-    clearTimeout(timer);
-    if (room.phase !== 'pricing' || room.deadline === null) return;
-    const round = room.roundIndex;
-    timer = setTimeout(() => {
-      if (room.phase === 'pricing' && room.roundIndex === round) { room.next(); broadcast(); }
-    }, Math.max(0, room.deadline - Date.now()));
+  /** Open sockets per player, so a player with two tabs stays connected until the last one closes. */
+  const sockets = new Map<string, number>();
+  const detach = (id: string) => {
+    const n = (sockets.get(id) ?? 1) - 1;
+    if (n > 0) { sockets.set(id, n); return; }
+    sockets.delete(id);
+    session.setConnected(id, false);
+    changed();
   };
 
-  let emojiSeq = 0;
   io.on('connection', socket => {
-    socket.data.tokens = GAME.emojiPerSecond;
-    socket.data.refill = Date.now();
-    socket.emit('state', room.snapshot());
+    socket.emit('state', session.snapshot());
 
-    const reply = (ack: unknown, value: unknown) => { if (typeof ack === 'function') ack(value); };
-    const attach = (playerId: string) => {
-      socket.data.playerId = playerId;
-      room.setConnected(playerId, true);
-      broadcast();
+    const attach = (id: string) => {
+      if (socket.data.playerId === id) return;
+      if (socket.data.playerId) detach(socket.data.playerId);
+      socket.data.playerId = id;
+      sockets.set(id, (sockets.get(id) ?? 0) + 1);
+      session.setConnected(id, true);
+      changed();
+    };
+    /** Runs a handler; garbage that makes it throw is answered with an error, never left hanging. */
+    const handle = (ack: unknown, fn: (reply: Reply) => void) => {
+      const reply: Reply = r => { if (typeof ack === 'function') ack(r); };
+      try { fn(reply); } catch { reply({ ok: false, error: 'badRequest' }); }
+    };
+    /** The player behind this socket, if it still exists. */
+    const me = (): string | null => {
+      const id = socket.data.playerId;
+      return id !== undefined && session.hasPlayer(id) ? id : null;
+    };
+    const hostOnly = (fn: () => void) => () => {
+      if (!socket.data.isHost) return;
+      fn();
+      changed();
     };
 
-    socket.on('player:join', (p, ack) => {
-      const r = room.join(String(p?.nickname ?? ''));
+    socket.on('player:join', (p, ack) => handle(ack, reply => {
+      const r = session.join(field(p, 'nickname') as string);
       if (r.ok) attach(r.playerId);
-      reply(ack, r);
-    });
-    socket.on('player:resume', (p, ack) => {
-      const id = room.resume(String(p?.token ?? ''));
-      if (id) { attach(id); reply(ack, { ok: true, playerId: id }); }
-      else reply(ack, { ok: false, error: 'Không tìm thấy quán của bạn' });
-    });
-    socket.on('player:vote', p => {
-      if (!socket.data.playerId) return;
-      room.vote(socket.data.playerId, p?.choice);
-      broadcast();
-    });
-    socket.on('player:price', (p, ack) => {
-      if (!socket.data.playerId) return reply(ack, { ok: false, error: 'Bạn chưa vào chợ' });
-      const r = room.submitPrice(socket.data.playerId, Number(p?.price), p?.cost === undefined ? undefined : Number(p.cost));
-      reply(ack, r);
-      if (r.ok) broadcast();
-    });
-    socket.on('player:emoji', p => {
-      if (!socket.data.playerId || !EMOJIS.includes(p?.emoji as Emoji)) return;
-      const now = Date.now();
-      socket.data.tokens = Math.min(
-        GAME.emojiPerSecond,
-        socket.data.tokens + ((now - socket.data.refill) / 1000) * GAME.emojiPerSecond,
-      );
-      socket.data.refill = now;
-      if (socket.data.tokens < 1) return;
-      socket.data.tokens -= 1;
-      io.to('hosts').emit('emoji', { emoji: p.emoji, id: ++emojiSeq });
-    });
+      reply(r);
+    }));
+    socket.on('player:resume', (p, ack) => handle(ack, reply => {
+      const r = session.resume(field(p, 'token') as string);
+      if (!r) { reply({ ok: false, error: 'Không tìm thấy quán của bạn' }); return; }
+      attach(r.playerId);
+      reply({ ok: true, ...r });
+    }));
+    socket.on('player:vote', (p, ack) => handle(ack, reply => {
+      const id = me();
+      if (!id) { reply({ ok: false, error: 'unknownPlayer' }); return; }
+      const r = session.vote(id, field(p, 'code') as string,
+        { choice: field(p, 'choice'), when: field(p, 'when') } as never);
+      reply(r);
+      if (r.ok) changed();
+    }));
+    socket.on('player:progress', p => handle(undefined, () => {
+      const id = me();
+      if (!id) return;
+      session.progress(id, field(p, 'day') as never, field(p, 'phase') as never);
+      changed();
+    }));
+    socket.on('player:day', (p, ack) => handle(ack, reply => {
+      const id = me();
+      if (!id) { reply({ ok: false, error: 'unknownPlayer' }); return; }
+      const r = session.submitDay(id, field(p, 'code') as string, field(p, 'runId') as string, field(p, 'summary') as never);
+      reply(r);
+      if (r.ok) changed();
+    }));
 
-    socket.on('host:auth', (p, ack) => {
-      if (String(p?.key ?? '') !== opts.hostKey) return reply(ack, { ok: false, error: 'Sai mã host' });
+    socket.on('host:auth', (p, ack) => handle(ack, reply => {
+      if (String(field(p, 'key') ?? '') !== opts.hostKey) { reply({ ok: false, error: 'Sai mã host' }); return; }
       socket.data.isHost = true;
-      socket.join('hosts');
-      reply(ack, { ok: true });
-    });
-    socket.on('host:next', p => {
-      if (!socket.data.isHost) return;
-      if (p?.phase !== room.phase || p?.roundIndex !== room.roundIndex) return; // stale or double click
-      room.next();
-      armTimer();
-      broadcast();
-    });
-    socket.on('host:reset', () => {
-      if (!socket.data.isHost) return;
-      clearTimeout(timer);
-      room.reset();
-      broadcast();
-    });
+      void socket.join(HOSTS);
+      reply({ ok: true });
+      socket.emit('host:board', session.board());
+    }));
+    socket.on('host:open', hostOnly(() => session.open()));
+    socket.on('host:awards', hostOnly(() => session.awards()));
+    socket.on('host:reset', hostOnly(() => session.reset()));
 
     socket.on('disconnect', () => {
       const id = socket.data.playerId;
-      if (!id) return;
-      const stillHere = [...io.sockets.sockets.values()].some(s => s.id !== socket.id && s.data.playerId === id);
-      if (!stillHere) { room.setConnected(id, false); broadcast(); }
+      if (id !== undefined) detach(id);
     });
   });
 
-  const close = () => new Promise<void>(res => { clearTimeout(timer); io.close(() => res()); });
-  return { app, http, io, room, close };
+  const close = () => new Promise<void>(res => {
+    if (stateTimer) clearTimeout(stateTimer);
+    if (boardTimer) clearTimeout(boardTimer);
+    io.close(() => res());
+  });
+  return { app, http, io, session, close };
 }

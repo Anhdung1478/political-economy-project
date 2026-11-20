@@ -1,0 +1,182 @@
+import { describe, expect, it } from 'vitest';
+import { daySummary } from '../../../shared/protocol.fixtures';
+import type { Ack } from '../../../shared/protocol';
+import {
+  ack, createOutbox, emptyQueue, enqueue, next, queueKey, restore, serialize, setCode, timeout,
+  type QueueItem, type ReportQueue,
+} from './reportQueue';
+import { memoryStore } from './storage';
+
+const day = (d: 1 | 2 | 3 | 4 | 5, runId = 'r1') => ({ runId, summary: daySummary({ day: d }) });
+const vote = (when: 'before' | 'after', choice: 'invisible' | 'visible' = 'visible') => ({ when, choice });
+
+function drain(q: ReportQueue): { q: ReportQueue; sent: QueueItem[] } {
+  const sent: QueueItem[] = [];
+  for (let n = next(q); n; n = next(q)) {
+    sent.push(n.item);
+    q = ack(n.queue, n.item.id);
+  }
+  return { q, sent };
+}
+
+describe('report queue', () => {
+  it('sends items in order, one at a time, tagged with the session code', () => {
+    let q = emptyQueue();
+    q = enqueue(q, 'ABCD', 'vote', vote('before'));
+    q = enqueue(q, 'ABCD', 'day', day(1));
+    q = enqueue(q, 'ABCD', 'day', day(2));
+    const first = next(q)!;
+    expect(first.item).toMatchObject({ kind: 'vote', code: 'ABCD' });
+    // While the first is in flight, nothing else goes out.
+    expect(next(first.queue)).toBeNull();
+    const { sent } = drain(q);
+    expect(sent.map(i => i.kind)).toEqual(['vote', 'day', 'day']);
+    expect(sent.map(i => (i.kind === 'day' ? i.payload.summary.day : 0))).toEqual([0, 1, 2]);
+    expect(new Set(sent.map(i => i.id)).size).toBe(3);
+  });
+
+  it('drops an item on any reply and resends only after a timeout', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(1));
+    q = enqueue(q, 'ABCD', 'day', day(2));
+    const a = next(q)!;
+    q = timeout(a.queue, a.item.id);
+    const again = next(q)!;
+    expect(again.item.id).toBe(a.item.id);
+    q = ack(again.queue, a.item.id); // an error reply (e.g. wrongSession) is handled the same way
+    expect(q.items.map(i => (i.kind === 'day' ? i.payload.summary.day : 0))).toEqual([2]);
+    expect(next(q)!.item.kind).toBe('day');
+  });
+
+  it('ignores stale acks and timeouts', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(1));
+    const a = next(q)!;
+    q = ack(a.queue, 'nope');
+    expect(q.items).toHaveLength(1);
+    expect(next(q)).toBeNull(); // still in flight
+    q = timeout(q, 'nope');
+    expect(next(q)).toBeNull();
+  });
+
+  it('never queues the same day twice', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(1));
+    q = enqueue(q, 'ABCD', 'day', day(1));
+    expect(q.items).toHaveLength(1);
+    // Already sent and acked: queued again it would be a duplicate too.
+    q = drain(q).q;
+    q = enqueue(q, 'ABCD', 'day', day(1));
+    expect(q.items).toHaveLength(0);
+    q = enqueue(q, 'ABCD', 'day', day(2));
+    expect(q.items).toHaveLength(1);
+  });
+
+  it('keeps one pending vote per moment: a newer choice replaces a queued one', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'vote', vote('before', 'visible'));
+    q = enqueue(q, 'ABCD', 'vote', vote('before', 'invisible'));
+    expect(q.items).toHaveLength(1);
+    expect(q.items[0].payload).toEqual(vote('before', 'invisible'));
+    // Same choice again: nothing to send.
+    q = enqueue(q, 'ABCD', 'vote', vote('before', 'invisible'));
+    expect(q.items).toHaveLength(1);
+    // In flight: a change is queued after it rather than rewriting what is on the wire.
+    const f = next(q)!;
+    q = enqueue(f.queue, 'ABCD', 'vote', vote('before', 'visible'));
+    expect(q.items).toHaveLength(2);
+    q = enqueue(q, 'ABCD', 'vote', vote('after'));
+    expect(q.items).toHaveLength(3);
+  });
+
+  it('drops the queue of an old session code', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(1));
+    q = setCode(q, 'ABCD');
+    expect(q.items).toHaveLength(1);
+    q = setCode(q, 'WXYZ');
+    expect(q).toMatchObject({ code: 'WXYZ', items: [] });
+    // Enqueuing under a new code also starts over.
+    q = enqueue(enqueue(q, 'WXYZ', 'day', day(1)), 'EFGH', 'day', day(1, 'r2'));
+    expect(q.items.map(i => i.code)).toEqual(['EFGH']);
+    // A day 1 of a new session is not a duplicate of the old one.
+    expect(q.items).toHaveLength(1);
+  });
+
+  it('survives a reload through serialize/restore, for the same code only', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'vote', vote('before'));
+    q = enqueue(q, 'ABCD', 'day', day(1));
+    q = enqueue(q, 'ABCD', 'day', day(2));
+    q = drain(q).q; // everything acked
+    q = enqueue(q, 'ABCD', 'day', day(3));
+    const f = next(q)!; // in flight when the page reloads
+    const text = serialize(f.queue);
+    const back = restore(text, 'ABCD');
+    expect(back.items).toHaveLength(1);
+    // In flight is not kept: after a reload it is sent again (a duplicate the server ignores).
+    expect(next(back)!.item.id).toBe(f.item.id);
+    // Ids keep counting, and acked days stay remembered.
+    const more = enqueue(back, 'ABCD', 'day', day(2));
+    expect(more.items).toHaveLength(1);
+    const d4 = enqueue(back, 'ABCD', 'day', day(4));
+    expect(d4.items[1].id).not.toBe(d4.items[0].id);
+    expect(restore(text, 'WXYZ')).toEqual(emptyQueue('WXYZ'));
+    expect(restore('not json', 'ABCD')).toEqual(emptyQueue('ABCD'));
+    expect(restore(null, 'ABCD')).toEqual(emptyQueue('ABCD'));
+    expect(restore(JSON.stringify({ v: 1, code: 'ABCD', seq: 1, items: [{ junk: true }], sent: [] }), 'ABCD'))
+      .toEqual(emptyQueue('ABCD'));
+    expect(queueKey('ABCD')).not.toBe(queueKey('WXYZ'));
+  });
+});
+
+describe('outbox', () => {
+  type Sent = { item: QueueItem; reply: (r: Ack | 'timeout') => void };
+  function setup(initial: Record<string, string> = {}) {
+    const store = memoryStore(initial);
+    const sent: Sent[] = [];
+    const replies: [QueueItem, Ack][] = [];
+    const box = createOutbox({
+      store,
+      send: item => new Promise(res => sent.push({ item, reply: r => res(r === 'timeout' ? { ok: false, error: 'timeout' } : r) })),
+      isTimeout: r => !r.ok && r.error === 'timeout',
+      onReply: (item, r) => replies.push([item, r]),
+      retryMs: 1,
+    });
+    const tick = () => new Promise(r => setTimeout(r, 5));
+    return { store, sent, replies, box, tick };
+  }
+
+  it('sends when online, one at a time, and persists what is left', async () => {
+    const { sent, replies, box, store, tick } = setup();
+    box.setCode('ABCD');
+    box.push('day', day(1));
+    box.push('day', day(2));
+    expect(sent).toHaveLength(0); // offline
+    box.online(true);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(store.get(queueKey('ABCD'))!).items).toHaveLength(2);
+    sent[0].reply({ ok: true, rank: 3 } as Ack);
+    await tick();
+    expect(replies[0][1]).toEqual({ ok: true, rank: 3 });
+    expect(sent).toHaveLength(2);
+    sent[1].reply('timeout');
+    await tick();
+    expect(sent).toHaveLength(3); // retried
+    expect(sent[2].item.id).toBe(sent[1].item.id);
+    box.online(false);
+    sent[2].reply({ ok: false, error: 'wrongSession' });
+    await tick();
+    expect(box.pending()).toBe(0);
+    expect(JSON.parse(store.get(queueKey('ABCD'))!).items).toHaveLength(0);
+  });
+
+  it('restores a saved queue and clears the old code on a reset', async () => {
+    const first = setup();
+    first.box.setCode('ABCD');
+    first.box.push('vote', vote('before'));
+    const saved = first.store.get(queueKey('ABCD'))!;
+    const { box, sent, store } = setup({ [queueKey('ABCD')]: saved });
+    box.setCode('ABCD');
+    expect(box.pending()).toBe(1);
+    box.setCode('WXYZ');
+    expect(box.pending()).toBe(0);
+    expect(store.get(queueKey('ABCD'))).toBeNull();
+    box.online(true);
+    expect(sent).toHaveLength(0);
+  });
+});

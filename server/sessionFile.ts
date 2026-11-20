@@ -66,7 +66,10 @@ export function createSaver(file: string, delayMs: number, log: Log = defaultLog
   let chain: Promise<void> = Promise.resolve();
 
   const arm = () => {
-    if (timer === null) timer = setTimeout(fire, delayMs);
+    if (timer !== null) return;
+    timer = setTimeout(fire, delayMs);
+    // A pending save must not keep the process alive; shutdown calls `flush()`.
+    timer.unref?.();
   };
   const write = async (get: () => unknown) => {
     let text: string;

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { GAME } from '../../../../shared/config';
-import { api } from '../../net/socket';
+import { LIMITS } from '../../../../shared/protocol';
+import { connect } from '../../net/socket';
 import { Button } from '../../ui/Button';
 import { InvisibleHand, VisibleHand } from '../../ui/Hands';
 import { Input } from '../../ui/Input';
@@ -14,7 +14,7 @@ export function JoinScreen({ onJoined }: { onJoined: (playerId: string, token: s
     e.preventDefault();
     if (!name.trim()) { setError('Nhập tên đã rồi mới mở quán được 😅'); return; }
     setBusy(true);
-    const r = await api.join(name);
+    const r = await connect().join(name);
     setBusy(false);
     if (r.ok) onJoined(r.playerId, r.token);
     else setError(r.error);
@@ -32,7 +32,7 @@ export function JoinScreen({ onJoined }: { onJoined: (playerId: string, token: s
         label="Tên của bạn"
         placeholder="VD: Dũng đẹp trai"
         value={name}
-        maxLength={GAME.nicknameMax}
+        maxLength={LIMITS.nickname}
         autoComplete="nickname"
         enterKeyHint="go"
         onChange={e => { setName(e.target.value); setError(null); }}
