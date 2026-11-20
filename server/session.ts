@@ -99,6 +99,12 @@ export class Session {
 
   hasPlayer(id: string): boolean { return this.players.has(id); }
 
+  /** The id and token of a known player (a repeated join on the same socket is answered with these). */
+  credentials(id: string): { playerId: string; token: string } | null {
+    const p = this.players.get(id);
+    return p ? { playerId: p.id, token: p.token } : null;
+  }
+
   /** Not persisted: connection is runtime state, so no save is triggered. */
   setConnected(id: string, connected: boolean): void {
     const p = this.players.get(id);

@@ -39,6 +39,8 @@ const STATE_COALESCE_MS = 100;
 const BOARD_THROTTLE_MS = 1000;
 const PERSIST_TIMEOUT_MS = 5000;
 const HOSTS = 'hosts';
+/** Wrong host keys one socket may send before it is disconnected. */
+const HOST_TRIES = 5;
 
 type Reply = (r: Ack<object>) => void;
 const field = (p: unknown, key: string): unknown =>
@@ -106,6 +108,7 @@ export function createApp(opts: AppOptions) {
 
   io.on('connection', socket => {
     socket.emit('state', session.snapshot());
+    let hostTries = 0;
 
     const attach = (id: string) => {
       if (socket.data.playerId === id) return;
@@ -134,6 +137,10 @@ export function createApp(opts: AppOptions) {
     };
 
     socket.on('player:join', (p, ack) => handle(ack, reply => {
+      // One player per socket: a join again (a retry after a lost ack, or a flood) gets the same player back.
+      const mine = me();
+      const known = mine === null ? null : session.credentials(mine);
+      if (known) { replyWhenSaved(reply, { ok: true, ...known }); return; }
       const r = session.join(field(p, 'nickname') as string);
       if (!r.ok) { reply(r); return; }
       attach(r.playerId);
@@ -171,7 +178,13 @@ export function createApp(opts: AppOptions) {
     }));
 
     socket.on('host:auth', (p, ack) => handle(ack, reply => {
-      if (String(field(p, 'key') ?? '') !== opts.hostKey) { reply({ ok: false, error: 'Sai mã host' }); return; }
+      const key = field(p, 'key');
+      if (typeof key !== 'string' || key !== opts.hostKey) {
+        reply({ ok: false, error: 'Sai mã host' });
+        // A guessing socket gets a few tries, then is cut off (it can reconnect, but each try costs a handshake).
+        if (++hostTries >= HOST_TRIES) socket.disconnect(true);
+        return;
+      }
       socket.data.isHost = true;
       void socket.join(HOSTS);
       reply({ ok: true });
