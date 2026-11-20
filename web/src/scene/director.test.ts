@@ -140,6 +140,70 @@ describe('walkers come in on the director\'s schedule and read the boards before
     at(d, 0, enter(0, 0, 'bus'));
     expect(near(actor(d, 0), PORTRAIT.busStop)).toBe(true);
   });
+
+  for (const [name, L] of [['portrait', PORTRAIT], ['landscape', LANDSCAPE]] as const) {
+    it(`day 5, ${name}: riders step off a stopped bus with its doors open, wait at the shelter, and still read the `
+      + 'boards in time', () => {
+      const r = replayOf(7, 5, 'reasonable');
+      const d = new Director(L);
+      d.reset(r.rush);
+      const riders = r.rush.customers.filter(c => c.entry === 'bus');
+      expect(riders.length).toBeGreaterThan(5);
+      const visits = d.busVisits;
+      // Fewer buses than riders: they come in groups.
+      expect(visits.length).toBeGreaterThan(1);
+      expect(visits.length).toBeLessThan(riders.length);
+      for (let i = 1; i < visits.length; i++) expect(visits[i].arrive).toBeGreaterThanOrEqual(visits[i - 1].depart);
+      for (const c of riders) {
+        const v = visits.find(x => x.riders.some(q => q.id === c.id));
+        expect(v).toBeDefined();
+        const off = d.enterTime(c.id);
+        expect(off).toBeGreaterThanOrEqual((v?.open ?? 0) + 3);
+        expect(off).toBeLessThanOrEqual(v?.close ?? 0);
+      }
+      const seen = new Set<number>();
+      let choices = 0;
+      walkRush(r, (t, events) => {
+        // Each rider appears at the door.
+        for (const c of riders) {
+          const a = d.actor(c.id);
+          if (a !== undefined && !seen.has(c.id)) seen.add(c.id);
+        }
+        d.advanceTo(t);
+        for (const e of events) {
+          if (e.type === 'customerEnter') expect(d.actor(e.customer)).toBeDefined();
+          if (e.type === 'customerConsider' && !e.reshop) {
+            expect(actor(d, e.customer).activity).toBe('lookBoard');
+            choices++;
+          }
+        }
+        d.apply(events);
+      });
+      expect(choices).toBe(r.rush.customers.length);
+    });
+  }
+
+  it('a rider appears at the door when their bus lets them off and walks over to wait at the shelter', () => {
+    const r = replayOf(7, 5, 'reasonable');
+    const d = new Director(PORTRAIT);
+    d.reset(r.rush);
+    const v = d.busVisits.find(x => x.open > 50 && x.riders.length >= 2);
+    if (v === undefined) throw new Error('no fixture bus');
+    const first = v.riders[0];
+    play(d, first.off + 0.01);
+    expect(near(actor(d, first.id), PORTRAIT.busStop, 1)).toBe(true);
+    play(d, first.off + 8);
+    expect(actor(d, first.id).y).toBeGreaterThan(PORTRAIT.road.y1);
+  });
+
+  it('the same buses after a rebuild mid-rush', () => {
+    const r = replayOf(7, 5, 'reasonable');
+    const a = new Director(LANDSCAPE);
+    a.reset(r.rush);
+    const b = new Director(LANDSCAPE);
+    b.reset(stateAt(r, 300));
+    expect(b.busVisits).toEqual(a.busVisits);
+  });
 });
 
 // ── Walkers and queues ──────────────────────────────────────────────────────────────────────────────────────────────

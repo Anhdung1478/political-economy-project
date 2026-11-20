@@ -57,8 +57,13 @@ export interface StreetLayout {
   lanes: readonly [number, number];
   /** In `STREET` order. */
   shops: readonly ShopSlot[];
-  /** Where bus passengers step off (bus-stop days); the bus pulls in on the road beside it. */
+  /**
+   * Where bus passengers step off (bus-stop days): the bus's door, on the near walking lane; the bus pulls in on the
+   * road just behind it.
+   */
   busStop: Pt;
+  /** The bus shelter's foot, on the bottom sidewalk by the stop; riders let off early wait around it. */
+  busShelter: Pt;
 }
 
 interface RowSpec { y: number; h: number; x0: number; w: number; gap: number; queueY: number }
@@ -67,7 +72,7 @@ interface Spec {
   /** From the shop's left edge to the head of its queue. */
   counterInset: number;
   back: Band; sidewalkTop: Band; road: Band; sidewalkBottom: Band; front: Band;
-  top: RowSpec; bottom: RowSpec; busStop: Pt;
+  top: RowSpec; bottom: RowSpec; busStop: Pt; busShelter: Pt;
 }
 
 /** Walking speed as a share of the actor's height per tick: 3 body heights a second, a brisk lunch-hour walk. */
@@ -96,7 +101,7 @@ function build(s: Spec): StreetLayout {
     kind: s.kind, width: s.width, height: s.height, actorH: s.actorH, walk: s.actorH * WALK_PER_HEIGHT,
     queueGap: s.queueGap, queueSlots: 5, browse: { x0: s.width * BROWSE_FROM, x1: s.width * (1 - BROWSE_FROM) },
     back: s.back, sidewalkTop: s.sidewalkTop, road: s.road, sidewalkBottom: s.sidewalkBottom, front: s.front,
-    lanes, shops, busStop: s.busStop,
+    lanes, shops, busStop: s.busStop, busShelter: s.busShelter,
   };
 }
 
@@ -113,7 +118,8 @@ export const PORTRAIT: StreetLayout = build({
   sidewalkBottom: { y0: 396, y1: 490 },
   bottom: { y: 490, h: 182, x0: 4, w: 116, gap: 6, queueY: 470 },
   front: { y0: 672, y1: 760 },
-  busStop: { x: 377, y: 466 },
+  busStop: { x: 364, y: 384 },
+  busShelter: { x: 372, y: 416 },
 });
 
 /** A phone on its side or a computer. The bottom-row queue stands more than half a body clear of the shops. */
@@ -126,7 +132,8 @@ export const LANDSCAPE: StreetLayout = build({
   sidewalkBottom: { y0: 292, y1: 372 },
   bottom: { y: 372, h: 98, x0: 76, w: 200, gap: 24, queueY: 346 },
   front: { y0: 470, y1: 470 },
-  busStop: { x: 762, y: 344 },
+  busStop: { x: 748, y: 277 },
+  busShelter: { x: 768, y: 306 },
 });
 
 export function slotOf(L: StreetLayout, id: ShopId): ShopSlot {
@@ -146,6 +153,23 @@ export function queuePoint(L: StreetLayout, slot: ShopSlot, i: number): Pt {
 export function asidePoint(L: StreetLayout, slot: ShopSlot, i: number): Pt {
   const q = queuePoint(L, slot, i);
   return { x: q.x + L.queueGap * 0.4, y: q.y + (slot.facing === 'down' ? 1 : -1) * L.actorH * 0.55 };
+}
+
+/**
+ * Where the k-th rider let off one bus waits for their time to walk on: two loose columns in front of the shelter,
+ * rows toward the shops; past eight they stand a little to the side of the first eight.
+ */
+export function busWaitPoint(L: StreetLayout, k: number): Pt {
+  const s = L.busShelter;
+  const i = k % 8;
+  const round = Math.floor(k / 8) % 3;
+  const col = i % 2;
+  const row = Math.floor(i / 2);
+  const u = L.actorH;
+  return {
+    x: s.x - col * u * 0.48 - (row % 2) * u * 0.18 - round * u * 0.3,
+    y: s.y + u * 0.32 + row * u * (L.kind === 'portrait' ? 0.34 : 0.4) + round * u * 0.12,
+  };
 }
 
 /** The y of a walking lane (0 by the top sidewalk, 1 by the bottom one). */

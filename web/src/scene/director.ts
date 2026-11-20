@@ -23,8 +23,9 @@ import type {
   SimEvent, StockItem, Tick,
 } from '../../../shared/sim/types';
 import {
-  asidePoint, fullView, queuePoint, slotOf, type Pt, type Rect, type ShopSlot, type StreetLayout,
+  asidePoint, busWaitPoint, fullView, queuePoint, slotOf, type Pt, type Rect, type ShopSlot, type StreetLayout,
 } from './layout';
+import { planBus, type BusVisit } from './schedule';
 import { clamp } from './tween';
 
 /** How far the picture may lag the sim (spec §9: 1.5 s). */
@@ -216,7 +217,9 @@ type Target =
   | { k: 'aside'; shop: ShopId; i: number }
   /** The actor's lane at x; x null: wherever the actor is when the step starts. */
   | { k: 'lane'; x: number | null }
-  | { k: 'exit'; side: Side };
+  | { k: 'exit'; side: Side }
+  /** Waiting spot `i` at the bus shelter. */
+  | { k: 'busWait'; i: number };
 
 interface Step {
   /** null: a pause. */
@@ -294,6 +297,9 @@ export class Director {
   private bubbles: BubbleRequest[] = [];
   private cues: Cue[] = [];
   private endedV = false;
+  /** Bus-stop days: the bus's visits, and when each rider steps off, where they wait and how long. */
+  private busVisitsV: BusVisit[] = [];
+  private readonly busRide = new Map<number, { off: number; spot: number; wait: number }>();
   /** Queue places drawn now, AI shops and the player's (lowered past the cap). */
   private shownAi: number;
   private shownPlayer: number;
@@ -314,6 +320,8 @@ export class Director {
   get layout(): StreetLayout { return this.L; }
   get view(): Rect { return this.viewRect; }
   get moments(): readonly Moment[] { return this.momentList; }
+  /** The bus's visits today (bus-stop days; empty otherwise), for the street to drive it. */
+  get busVisits(): readonly BusVisit[] { return this.busVisitsV; }
   /** In `STREET` order. */
   get shops(): ShopView[] { return STREET.flatMap(id => this.shopViews.get(id) ?? []); }
   get actors(): IterableIterator<Actor> { return this.cast.values(); }
@@ -331,6 +339,13 @@ export class Director {
    * the street and read the boards there for BROWSE_TICKS before they arrive (R44). Depends on the layout and view.
    */
   enterTime(id: number): number {
+    const ride = this.busRide.get(id);
+    if (ride !== undefined) return ride.off;
+    return this.ownEnterTime(id);
+  }
+
+  /** When customer `id` would come in on their own (for a bus rider: stepping off right as they need to). */
+  private ownEnterTime(id: number): number {
     const c = this.customers[id];
     const L = this.L;
     const lane = laneOf(c.look, c.entry);
@@ -405,6 +420,7 @@ export class Director {
         this.settle(a, s.tick);
       });
     }
+    this.planBusRides();
     this.pending = s.arrivalOrder.slice(s.nextArrival).map(id => ({ id, at: this.enterTime(id) }));
     this.pending.sort((a, b) => a.at - b.at);
     this.comeIn(s.tick, false);
@@ -455,6 +471,7 @@ export class Director {
         a.y *= sy;
       }
     }
+    this.planBusRides();
     this.reschedule();
     this.enforceCap();
   }
@@ -699,12 +716,17 @@ export class Director {
    * A customer comes in at their entry (or steps off the bus), walks along the road to their spot in the middle of
    * the street and reads the boards there until they choose.
    */
-  private walkIn(id: number, entry: Customer['entry']): ActorState {
+  private walkIn(id: number, entry: Customer['entry'], ride?: { spot: number; wait: number }): ActorState {
     const a = this.spawn(id, entry);
     const start = entry === 'bus' ? this.L.busStop : this.resolve(a, { k: 'exit', side: entry }, a);
     a.x = start.x;
     a.y = start.y;
     a.activity = 'walk';
+    if (entry === 'bus' && ride !== undefined) {
+      // Let off early: over to the shelter, wait there for their time, then on like everyone.
+      a.plan.push(walkStep({ k: 'busWait', i: ride.spot }, { hold: true }));
+      if (ride.wait > 0) a.plan.push(pauseStep(ride.wait, 'idle', { hold: true }));
+    }
     if (entry === 'bus') a.plan.push(walkStep({ k: 'lane', x: null }, { hold: true }));
     const bx = this.browseX(a.look);
     a.plan.push(
@@ -720,10 +742,44 @@ export class Director {
       const { id, at } = this.pending.shift() as { id: number; at: number };
       if (this.cast.has(id)) continue;
       const entry = this.customers[id].entry;
-      const a = this.walkIn(id, entry);
+      const a = this.walkIn(id, entry, this.busRide.get(id));
       a.since = at;
       if (cue) this.cues.push({ kind: 'enter', t: at, customer: id, entry });
       this.advanceActor(a, now - at, at);
+    }
+  }
+
+  /**
+   * Bus-stop days: the bus's visits for the day's riders (all of them, so a rebuild mid-rush gives the same buses).
+   * Each rider's latest step-off leaves time to walk from the door to the shelter and on to the boards; the bus lets
+   * them off at or before it and they wait at the shelter for the rest (R44's schedule, never later: the lag rule
+   * holds).
+   */
+  private planBusRides(): void {
+    this.busRide.clear();
+    const L = this.L;
+    const riders = this.customers.filter(c => c.entry === 'bus');
+    if (riders.length === 0) {
+      this.busVisitsV = [];
+      return;
+    }
+    // From the door by way of a waiting spot: never more than this many ticks longer than straight to the lane.
+    let detour = 0;
+    for (let k = 0; k < 8; k++) {
+      const p = busWaitPoint(L, k);
+      detour = Math.max(detour, (Math.hypot(p.x - L.busStop.x, p.y - L.busStop.y) + 2 * Math.abs(p.y - L.lanes[1])) / L.walk);
+    }
+    this.busVisitsV = planBus(riders.map(c => ({ id: c.id, latest: this.ownEnterTime(c.id) - detour })));
+    for (const v of this.busVisitsV) {
+      for (const r of v.riders) {
+        const c = this.customers[r.id];
+        const p = busWaitPoint(L, r.spot);
+        const y = L.lanes[laneOf(c.look, c.entry)] + laneOffsetOf(c.look, L);
+        const walk = (Math.hypot(p.x - L.busStop.x, p.y - L.busStop.y) + Math.abs(y - p.y)
+          + Math.abs(this.browseX(c.look) - p.x)) / L.walk;
+        const wait = Math.max(0, c.arriveTick - BROWSE_TICKS - walk - r.off);
+        this.busRide.set(r.id, { off: r.off, spot: r.spot, wait });
+      }
     }
   }
 
@@ -753,6 +809,7 @@ export class Director {
       case 'aside': return asidePoint(L, slotOf(L, to.shop), to.i);
       case 'lane': return { x: to.x ?? from.x, y: this.laneY(a) };
       case 'exit': return { x: this.exitX(to.side), y: this.laneY(a) };
+      case 'busWait': return busWaitPoint(L, to.i);
     }
   }
 
