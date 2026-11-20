@@ -17,7 +17,6 @@ const fresh = (): Play => {
 
 export default function Solo() {
   const [info] = useState(() => titleInfo(storage));
-  const [titleSeed] = useState(() => randomSeed());
   const [play, setPlay] = useState<Play | null>(null);
 
   if (play !== null) return <Game key={play.runId} mode="solo" seed={play.seed} runId={play.runId} />;
@@ -32,7 +31,7 @@ export default function Solo() {
   return (
     <main className="solo">
       <div className="solo__street" aria-hidden="true">
-        <StreetCanvas snapshot={null} mode="ambient" timeOfDay="morning" seed={titleSeed} />
+        <StreetCanvas snapshot={null} mode="ambient" timeOfDay="morning" />
       </div>
       <section className="solo__card">
         <h1 className="solo__name">Phố Trà Sữa</h1>
