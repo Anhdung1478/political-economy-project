@@ -4,6 +4,7 @@ import type { Award, BoardMember, HostBoard, VoteChoice } from '../../../../shar
 import { CHOICE_LABELS } from '../../../../shared/protocol';
 import type { CardId, ChoiceLabel, DaySummary, Phase, TeaGrade, UpgradeId } from '../../../../shared/sim/types';
 import { fmtMoney, fmtMoneySigned, fmtNumber, fmtPercent } from '../../game/format';
+import { TEA_NAMES, UPGRADE_NAMES } from '../Game/copy';
 
 /** Spec §11 "Nhãn lựa chọn". */
 export const LABEL_INFO: Record<ChoiceLabel, { icon: string; text: string }> = {
@@ -102,8 +103,8 @@ export function awardDetail(a: Pick<Award, 'id' | 'value'>): string {
   }
 }
 
-export const TEA_TEXT: Record<TeaGrade, string> = { skimp: 'Ăn bớt', standard: 'Thường', premium: 'Thượng hạng' };
-export const UPGRADE_TEXT: Record<UpgradeId, string> = { staff: 'Nhân viên', machine: 'Máy pha', banner: 'Băng rôn' };
+export const TEA_TEXT: Record<TeaGrade, string> = TEA_NAMES;
+export const UPGRADE_TEXT: Record<UpgradeId, string> = UPGRADE_NAMES;
 export const CARD_TEXT: Record<CardId, string> = {
   cartel: 'Cartel', shockTopping: 'Topping sốc', blackMarket: 'Chợ đen', tax: 'Thuế', inspection: 'Kiểm định',
   reporter: 'Phóng viên', kol: 'KOL', tab: 'Ghi nợ', student: 'Sinh viên', complaint: 'Phàn nàn',

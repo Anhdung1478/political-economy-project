@@ -118,4 +118,8 @@ describe('text cells', () => {
     expect(at('Nhãn')).toBe('🥄 🐀');
     expect(dayCells(daySummary())[0]).toBe('1');
   });
+  it('names tea grades as the students see them (spec words)', () => {
+    const tea = (t: 'skimp' | 'standard' | 'premium') => dayCells(daySummary({ tea: t }))[DAY_COLUMNS.indexOf('Loại trà')];
+    expect([tea('skimp'), tea('standard'), tea('premium')]).toEqual(['Ăn bớt', 'Chuẩn', 'Cao cấp']);
+  });
 });
