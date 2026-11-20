@@ -9,7 +9,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "balance": "tsx scripts/balance.ts",
-    "shoot": "tsx scripts/shoot.ts"
+    "shoot": "tsx scripts/shoot.ts",
+    "bots": "tsx scripts/bots.ts"
   },
   "dependencies": {
     "@types/compression": "^1.8.1",
