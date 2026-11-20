@@ -56,7 +56,7 @@ Sau ngày 5 là màn kết.
 **Điểm = tổng lãi + giá trị thương hiệu.**
 
 - Tổng lãi = tiền cuối ván − 300k vốn ban đầu.
-- Giá trị thương hiệu = uy tín cuối ván × 8k. Nhờ khoản này, uy tín còn ý nghĩa tới ngày cuối.
+- Giá trị thương hiệu = uy tín cuối ván × 12k. Nhờ khoản này, uy tín còn ý nghĩa tới ngày cuối.
 
 Ván kết thúc sớm nếu uy tín về 0 (mục 4).
 
@@ -76,7 +76,7 @@ Thẻ bài học hiện số liệu thật của ván (mục 8) và có biến t
 
 ## 4. Mô hình kinh tế
 
-Mọi con số trong mục này là **giá trị khởi điểm**, nằm trong `shared/sim/config.ts` và được chỉnh bằng bộ giả lập (mục 14).
+Mọi con số trong mục này nằm trong `shared/sim/config.ts` và **đã được chỉnh bằng bộ giả lập** (mục 14). Giá trị khởi điểm của những số đã đổi nằm trong lịch sử git.
 
 ### Nguyên tắc: hàng khan hơn khách
 
@@ -86,13 +86,13 @@ Số khách của phố là cố định mỗi ngày, không phụ thuộc số 
 - Quán đóng cửa nhường khách cho quán còn lại, giá cân bằng tăng.
 - Giá trần dưới giá cân bằng gây thiếu hụt thật (ngày 3).
 
-Với số liệu khởi điểm: 130 khách, túi tiền trải đều 15–60k.
+Với 130 khách, túi tiền trải đều 15–60k. Cột cuối là số đo của bộ giả lập trên lối chơi hợp lý (trung bình 400 seed):
 
-| Tình huống | Tổng sức pha | Giá cân bằng ly M |
+| Tình huống | Tổng sức pha (chưa nâng cấp) | Giá đóng cửa trung bình của phố |
 |---|---|---|
 | Ngày 1: bạn + 5 quán AI | 78 ly | khoảng 33k |
-| Ngày 2: thêm Chuỗi Tập Đoàn | 96 ly | khoảng 27k |
-| Ngày 3: giá trần 20k, 2 quán nghỉ bán | 72 ly cho khoảng 115 người muốn mua | thiếu khoảng 38% |
+| Ngày 2: thêm Chuỗi Tập Đoàn | 96 ly | khoảng 29k |
+| Ngày 3: giá trần 20k, 2 quán nghỉ bán | 72 ly cho khoảng 115 người muốn mua | 20k, khoảng 31% người đủ tiền về tay không |
 
 ### Giá và chi phí của người chơi
 
@@ -103,9 +103,9 @@ Với số liệu khởi điểm: 130 khách, túi tiền trải đều 15–60k
 
 | Loại trà | Giá mỗi 100 ml | Uy tín (tính vào buổi tối) |
 |---|---|---|
-| 🥄 Ăn bớt | 2k | −6 |
+| 🥄 Ăn bớt | 2k | −10 |
 | Chuẩn | 3k | 0 |
-| 💎 Cao cấp | 4k | +4 |
+| 💎 Cao cấp | 4k | +6 |
 
 - Topping: trân châu, thạch, pudding. Mỗi phần giá vốn 2k. Đá miễn phí.
 - Cuối ngày trà và topping thừa đều bỏ.
@@ -129,7 +129,7 @@ Thang 0–100, khởi đầu 50. Uy tín tác động theo bốn cách:
 
 - **Cộng hoặc trừ điểm hấp dẫn** của quán trong mắt từng khách (công thức ở phần Khách).
 - **Thu hẹp số khách chịu ghé:** mỗi khách có một ngưỡng tin tưởng từ seed, trải đều 0–50. Khách chỉ xét những quán có uy tín từ ngưỡng của mình trở lên. Uy tín từ 50 thì mọi khách đều xét, uy tín 25 thì còn một nửa.
-- **Giá trị thương hiệu** trong điểm cuối: mỗi điểm uy tín đáng 8k.
+- **Giá trị thương hiệu** trong điểm cuối: mỗi điểm uy tín đáng 12k.
 - **Uy tín về 0 là thua:** ván kết thúc ngay sau báo cáo tối với màn kết "Mất hết lòng tin". Điều này áp dụng cả ở tối ngày 5.
 
 Uy tín thay đổi ở hai thời điểm, luôn kẹp trong 0–100:
@@ -168,18 +168,18 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 
 - Nhập hàng theo ly nguyên, luôn nhập đủ sức pha. Phục vụ được mọi đơn cho tới khi hết ly.
 - Pha tự động theo nhịp cố định, không giao sai.
-- Sổ sách chỉ tính theo giá ly M: lãi ngày = (giá − giá vốn − thuế) × số ly bán − giá vốn × số ly thừa − 100k tiền mặt bằng.
+- Sổ sách chỉ tính theo giá ly M: lãi ngày = (giá − giá vốn − thuế) × số ly bán − giá vốn × số ly thừa − 80k tiền mặt bằng.
 - Uy tín cố định cả ván, trừ khoản trừ tạm của ngày tin đồn.
 - Hàng khách, kiên nhẫn 25 giây và cách khách chấm điểm thì giống hệt quán người chơi.
 
 | Quán | Có mặt | Giá ngày đầu | Giá vốn | Uy tín | Sức pha | Luật giá mỗi sáng |
 |---|---|---|---|---|---|---|
-| 🧋 Quán Bà Tư | ngày 1 | 27k | 13k | 50 | 12 ly, 7s/ly | Giá đóng cửa hôm qua của mình, nhích 1k về phía trung bình các quán khác |
-| 💸 Chuỗi GiáRẻ | ngày 1 | 22k | 10k | 35 | 12 ly, 7s/ly | Giá đóng cửa thấp nhất của các quán khác − 2k |
-| 🐢 Quán Ông Cố Chấp | ngày 1 | 30k | 14k | 55 | 12 ly, 7s/ly | Luôn 30k |
-| 📈 Anh Lướt Sóng | ngày 1 | 29k | 13k | 50 | 12 ly, 7s/ly | Chép giá đóng cửa của quán kiếm nhiều nhất hôm qua |
-| 🎲 Quán Sinh Viên Khởi Nghiệp | ngày 1 | 34k | 15k | 45 | 12 ly, 7s/ly | Mỗi sáng đổi 3k theo hướng đang thử (ban đầu là giảm); đảo hướng nếu hôm qua kiếm ít hơn hôm kia |
-| 🏢 Chuỗi Tập Đoàn | ngày 2 | trung bình phố − 2k | 11k | 60 | 18 ly, 5s/ly | Trung bình giá đóng cửa của các quán khác − 2k |
+| 🧋 Quán Bà Tư | ngày 1 | 36k | 13k | 50 | 12 ly, 7s/ly | Giá đóng cửa hôm qua của mình, nhích 1k về phía trung bình các quán khác |
+| 💸 Chuỗi GiáRẻ | ngày 1 | 30k | 10k | 35 | 12 ly, 7s/ly | Giá đóng cửa thấp nhất của các quán khác − 3k |
+| 🐢 Quán Ông Cố Chấp | ngày 1 | 25k | 14k | 55 | 12 ly, 7s/ly | Luôn 25k |
+| 📈 Anh Lướt Sóng | ngày 1 | 40k | 13k | 50 | 12 ly, 7s/ly | Chép giá đóng cửa của quán kiếm nhiều nhất hôm qua |
+| 🎲 Quán Sinh Viên Khởi Nghiệp | ngày 1 | 40k | 15k | 45 | 12 ly, 7s/ly | Mỗi sáng đổi 3k theo hướng đang thử (ban đầu là giảm); đảo hướng nếu hôm qua kiếm ít hơn hôm kia |
+| 🏢 Chuỗi Tập Đoàn | ngày 2 | trung bình phố − 4k | 11k | 60 | 18 ly, 5s/ly | Trung bình giá đóng cửa của các quán khác − 4k |
 
 Định nghĩa dùng chung:
 
@@ -191,8 +191,8 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 
 **Chỉnh giá giữa trưa.** Ở giây 30 và giây 60, mỗi quán AI trừ Ông Cố Chấp và Chuỗi GiáRẻ xét lại giá:
 
-- +2k nếu hàng đang có từ 3 người, hoặc đã bán được 25% hàng (giây 30) hay 60% hàng (giây 60).
-- −2k nếu không ai xếp hàng và mới bán dưới 20% hàng (giây 30) hay dưới 50% hàng (giây 60).
+- +2k nếu hàng đang có từ 4 người, hoặc đã bán được 33% hàng (giây 30) hay 66% hàng (giây 60), tức là bán kịp hết công suất từ đầu trưa.
+- −2k nếu không ai xếp hàng và mới bán dưới 33% hàng (giây 30) hay dưới 66% hàng (giây 60).
 
 Bảng giá trên phố đổi ngay, nên người chơi thấy giá hội tụ trong lúc bán. Khách đang xếp hàng ở quán đổi giá chấm lại điểm theo luật ở mục 6.
 
@@ -302,8 +302,8 @@ Mỗi thẻ có nhân vật, 1–2 câu thoại và 2 lựa chọn, chọn bằn
 
 | Người chơi làm gì ở ngày 2 | Kết quả |
 |---|---|
-| **Giữ lời:** giá sáng và giá sau khi đổi đều từ 36k | Lãi mỗi ly cao vì cả phố cùng giữ giá. Tối ngày 2 Cục Cạnh tranh phạt 150k và −5 uy tín. |
-| **Phá thoả thuận:** có lúc bán dưới 36k | Hốt khách của cả phố. Tối ngày 2 vẫn bị phạt 150k và −5 uy tín vì đã ký thoả thuận. Sáng ngày 3 cả phố nói xấu, −8 uy tín. |
+| **Giữ lời:** giá sáng và giá sau khi đổi đều từ 36k | Lãi mỗi ly cao vì cả phố cùng giữ giá. Tối ngày 2 Cục Cạnh tranh phạt 150k và −2 uy tín. |
+| **Phá thoả thuận:** có lúc bán dưới 36k | Hốt khách của cả phố. Tối ngày 2 vẫn bị phạt 150k và −2 uy tín vì đã ký thoả thuận. Sáng ngày 3 cả phố nói xấu, −8 uy tín. |
 
 Thẻ phóng viên cũng xuất hiện trong màn kết của người thua sớm, để ai cũng có bình chọn sau.
 
@@ -328,7 +328,7 @@ Ngày 1–3 mỗi ngày rút 1 thẻ từ bộ 6 thẻ theo seed, không lặp.
 - Khách: đã phục vụ, giao sai, bỏ về vì chờ lâu, không ghé vì hết món.
 - Uy tín: từng khoản thay đổi và lý do.
 - Phố hôm nay: đường đi của giá từng quán từ mở cửa tới đóng cửa, số ly bán, quán nào bán hết, nghỉ bán hay đóng cửa hẳn, số khách về tay không.
-- Thẻ bài học của ngày, dùng số liệu vừa xảy ra. Ví dụ ngày 1: "Sáng nay giá trên phố từ 22k đến 34k. Đến cuối trưa còn 29–33k."
+- Thẻ bài học của ngày, dùng số liệu vừa xảy ra. Ví dụ ngày 1: "Sáng nay giá trên phố từ 25k đến 40k. Đến cuối trưa còn 25–38k."
 - Chế độ lớp học: hạng của bạn trong số người đã xong ngày này.
 
 **Màn kết:**
@@ -632,7 +632,7 @@ Các điểm sau chốt những chỗ các mục trên để ngỏ; chúng có h
 
 | # | Mục | Chốt |
 |---|---|---|
-| 1 | 4, chỉnh giá giữa trưa | Ngưỡng tăng giá là 25% (giây 30) và 60% (giây 60), vì với nhịp 7s/ly quán AI chỉ bán tối đa 33% và 67% hàng ở hai mốc đó |
+| 1 | 4, chỉnh giá giữa trưa | Ngưỡng là 33% (giây 30) và 66% (giây 60) cho cả tăng lẫn giảm: đó là mức tối đa một quán AI bán kịp ở hai mốc này (7s/ly: 4 và 8 trên 12 ly; 5s/ly: 6 và 12 trên 18 ly). Vì vậy quán chỉ tăng giá khi bán hết công suất hoặc hàng có từ 4 người, và giảm giá khi không ai xếp hàng mà chưa bán kịp mức đó |
 | 2 | 4, khách | Khách không vào hàng đã có từ 5 người; lý do ghi là "đông quá" |
 | 3 | 6, còn hàng | Ly đang pha "giữ chỗ" cho khách đầu tiên trong 4 khách ở quầy có cùng size và gọi đủ mọi topping đã có trong ly; khách đó không bị đuổi khi kho hết vì chính ly ấy |
 | 4 | 6, bấm trước | Chỉ 4 bước đầu (size, đá, trà, topping) bấm trước được. Giao tính tiền ngay khi thả, rồi quầy bận 0,4s |

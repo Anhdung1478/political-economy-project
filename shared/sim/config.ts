@@ -51,15 +51,15 @@ const days: Record<Day, DaySchedule> = {
 };
 
 const aiShops: Record<AiShopId, AiShopSpec> = {
-  batu: { firstDay: 1, openPrice: 27, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
+  batu: { firstDay: 1, openPrice: 36, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
-  giare: { firstDay: 1, openPrice: 22, cost: 10, rep: 35, capacity: 12, ticksPerCup: 70,
+  giare: { firstDay: 1, openPrice: 30, cost: 10, rep: 35, capacity: 12, ticksPerCup: 70,
     midRush: false, selfCertified: false, rumorSkimpDays: 4 },
-  cochap: { firstDay: 1, openPrice: 30, cost: 14, rep: 55, capacity: 12, ticksPerCup: 70,
+  cochap: { firstDay: 1, openPrice: 25, cost: 14, rep: 55, capacity: 12, ticksPerCup: 70,
     midRush: false, selfCertified: true, rumorSkimpDays: 0 },
-  luotsong: { firstDay: 1, openPrice: 29, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
+  luotsong: { firstDay: 1, openPrice: 40, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
-  sinhvien: { firstDay: 1, openPrice: 34, cost: 15, rep: 45, capacity: 12, ticksPerCup: 70,
+  sinhvien: { firstDay: 1, openPrice: 40, cost: 15, rep: 45, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
   tapdoan: { firstDay: 2, openPrice: null, cost: 11, rep: 60, capacity: 18, ticksPerCup: 50,
     midRush: true, selfCertified: true, rumorSkimpDays: 0 },
@@ -78,7 +78,7 @@ export const CONFIG = {
     minRep: 0,
     maxRep: 100,
     /** Brand value per reputation point in the final score (§3). */
-    brandPerRep: 8,
+    brandPerRep: 12,
   },
 
   days,
@@ -155,9 +155,9 @@ export const CONFIG = {
     sizeMl: sizeTable(250, 350, 500),
     teaStepMl: 250,
     teaGrades: {
-      skimp: { costPer100Ml: 2, rep: -6 },
+      skimp: { costPer100Ml: 2, rep: -10 },
       standard: { costPer100Ml: 3, rep: 0 },
-      premium: { costPer100Ml: 4, rep: 4 },
+      premium: { costPer100Ml: 4, rep: 6 },
     } as Record<TeaGrade, { costPer100Ml: K; rep: number }>,
     toppingCost: 2,
     /** Sold-out sign below this much tea (§6). */
@@ -219,7 +219,7 @@ export const CONFIG = {
     /** Rests when the highest allowed price < cost + restMargin. */
     restMargin: 7,
     /** Paid every day, resting or not. */
-    rent: 100,
+    rent: 80,
     /** Closes for good after this many losing days in a row. */
     exitLossDays: 2,
     /** Added to every AI price on tax days, after the rule. */
@@ -227,21 +227,21 @@ export const CONFIG = {
     /** "Earned most" = (closePrice − earnedCost) × sold, for every shop. */
     earnedCost: 13,
     batuNudge: 1,
-    giareUndercut: 2,
-    cochapPrice: 30,
+    giareUndercut: 3,
+    cochapPrice: 25,
     sinhvienStep: 3,
     sinhvienFirstDir: -1 as -1 | 1,
-    tapdoanUndercut: 2,
+    tapdoanUndercut: 4,
   },
 
   /** §4 Chỉnh giá giữa trưa, §16.1. Sold thresholds are percent of capacity. */
   midRush: {
     step: 2,
     /** Raise when at least this many wait in the queue. */
-    queueUp: 3,
+    queueUp: 4,
     checkpoints: [
-      { tick: 300, soldUpPercent: 25, soldDownPercent: 20 },
-      { tick: 600, soldUpPercent: 60, soldDownPercent: 50 },
+      { tick: 300, soldUpPercent: 33, soldDownPercent: 33 },
+      { tick: 600, soldUpPercent: 66, soldDownPercent: 66 },
     ],
   },
 
@@ -259,7 +259,7 @@ export const CONFIG = {
   /** §7 Thẻ nhân vật: amounts and effects. Delays are in days after the day the card is played;
    *  delayed effects land in the morning, immediate rep in the evening. */
   cards: {
-    cartel: { price: 36, refuseRep: 3, fine: 150, fineRep: -5, breakRep: -8, breakDelayDays: 1 },
+    cartel: { price: 36, refuseRep: 3, fine: 150, fineRep: -2, breakRep: -8, breakDelayDays: 1 },
     shockTopping: { toppingCost: 0.5, days: [3, 4] as Day[], repPerDay: -3 },
     blackMarket: { cash: 50, exposeRep: -8, exposeDelayDays: 1, refuseRep: 2 },
     tax: { evadeRep: -10 },

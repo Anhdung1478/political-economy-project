@@ -261,10 +261,10 @@ describe('nextDay', () => {
 });
 
 describe('score', () => {
-  it('is the profit over the starting cash plus 8k a point of rep (§3)', () => {
-    expect(score({ ...newRun(1, 'x'), cash: 450, rep: 60 })).toEqual({ profit: 150, brand: 480, total: 630 });
+  it('is the profit over the starting cash plus 12k a point of rep (§3)', () => {
+    expect(score({ ...newRun(1, 'x'), cash: 450, rep: 60 })).toEqual({ profit: 150, brand: 720, total: 870 });
     expect(score({ ...newRun(1, 'x'), cash: -100.5, rep: 0 })).toEqual({ profit: -400.5, brand: 0, total: -400.5 });
-    expect(score(newRun(1, 'x'))).toEqual({ profit: 0, brand: 400, total: 400 });
+    expect(score(newRun(1, 'x'))).toEqual({ profit: 0, brand: 600, total: 600 });
   });
 
   it("is the day summary's running score after each evening", () => {

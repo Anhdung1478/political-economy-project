@@ -503,11 +503,12 @@ describe('openDay', () => {
   it('opens Chuỗi Tập Đoàn on day 2 with a price from day 1, the player included (§3, §4)', () => {
     const r = seasoned(2);
     const { run: next, rush } = openDay(r, r.plan);
-    // Others' closes 27, 22, 30, 29, 34 and the player's 30: mean 28.67 → 28.5, less the 2k undercut.
-    expect(next.shops.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'active', todayPrice: 26.5, resting: false });
-    expect(rush.shops.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'open', price: 26.5, grandOpening: true });
+    // Others' closes 27, 22, 30, 29, 34 and the player's 30: mean 28.67 → 28.5, less the 4k undercut.
+    expect(CONFIG.aiPricing.tapdoanUndercut).toBe(4);
+    expect(next.shops.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'active', todayPrice: 24.5, resting: false });
+    expect(rush.shops.find(s => s.id === 'tapdoan')).toMatchObject({ status: 'open', price: 24.5, grandOpening: true });
     const dearer = seasoned(2, 42);   // mean 30.67 → 30.5
-    expect(openDay(dearer, dearer.plan).run.shops.find(s => s.id === 'tapdoan')!.todayPrice).toBe(28.5);
+    expect(openDay(dearer, dearer.plan).run.shops.find(s => s.id === 'tapdoan')!.todayPrice).toBe(26.5);
   });
 
   it("prices the AI shops with morningPrices from the AI books and the player's reports (R27)", () => {
@@ -742,12 +743,12 @@ describe('closeDay: money (R27, §16 row 13)', () => {
 });
 
 describe('closeDay: the evening reputation (§4 Uy tín, §16 rows 10–11)', () => {
-  it('tea grade: skimp −6, premium +4, standard nothing', () => {
+  it('tea grade: skimp −10, premium +6, standard nothing', () => {
     const r = run();
-    expect(eveningItems(quiet(r, { ...r.plan, tea: 'skimp' }))).toEqual([{ reason: 'tea', delta: -6, when: 'evening' }]);
-    expect(eveningItems(quiet(r, { ...r.plan, tea: 'premium' }))).toEqual([{ reason: 'tea', delta: 4, when: 'evening' }]);
+    expect(eveningItems(quiet(r, { ...r.plan, tea: 'skimp' }))).toEqual([{ reason: 'tea', delta: -10, when: 'evening' }]);
+    expect(eveningItems(quiet(r, { ...r.plan, tea: 'premium' }))).toEqual([{ reason: 'tea', delta: 6, when: 'evening' }]);
     expect(eveningItems(quiet(r))).toEqual([]);
-    expect(quiet(r, { ...r.plan, tea: 'skimp' }).rep).toBe(44);
+    expect(quiet(r, { ...r.plan, tea: 'skimp' }).rep).toBe(40);
   });
 
   it('counts no tea grade on a day with no tea bought (R31)', () => {
@@ -829,8 +830,8 @@ describe('closeDay: the evening reputation (§4 Uy tín, §16 rows 10–11)', ()
   it('sums the evening items, then clamps once to 0–100', () => {
     const r = run({ rep: 98 });
     expect(quiet(r, { ...r.plan, tea: 'premium' }, { cups: 2 }).rep).toBe(100);
-    const low = run({ rep: 4 });
-    expect(quiet(low, { ...low.plan, tea: 'skimp' }, { cups: 2 }).rep).toBe(1);   // 4 − 6 + 3, not max(0, −2) + 3
+    const low = run({ rep: 8 });
+    expect(quiet(low, { ...low.plan, tea: 'skimp' }, { cups: 2 }).rep).toBe(1);   // 8 − 10 + 3, not max(0, −2) + 3
     expect(last(quiet(low, { ...low.plan, tea: 'skimp' }, { cups: 2 })).summary.rep).toBe(1);
   });
 });
@@ -843,8 +844,8 @@ describe('closeDay: losing all trust (§4 Uy tín)', () => {
     expect(e.outcome).toBe('lostTrust');
     expect(e.phase).toBe('report');
     expect(last(e).summary.lost).toBe(true);
-    expect(quiet(run({ rep: 7 }), { ...r.plan, tea: 'skimp' }).outcome).toBeNull();
-    expect(last(quiet(run({ rep: 7 }), { ...r.plan, tea: 'skimp' })).summary.lost).toBe(false);
+    expect(quiet(run({ rep: 11 }), { ...r.plan, tea: 'skimp' }).outcome).toBeNull();   // 11 − 10 leaves 1
+    expect(last(quiet(run({ rep: 11 }), { ...r.plan, tea: 'skimp' })).summary.lost).toBe(false);
   });
 
   it('ends the run on the evening of day 5 too', () => {
@@ -883,25 +884,25 @@ describe('closeDay: the cartel on the evening of day 2 (§7)', () => {
     expect(e.flags.cartelBroken).toBe(false);
   });
 
-  it('kept: fined 150k and −5 rep', () => {
+  it('kept: fined 150k and −2 rep', () => {
     const r = seasoned(2, 36, { flags: agreed() });
     const a = afternoon(r, { ...r.plan, price: 36 }, QUIET);
     expect(a.rushResult!.player.brokeCartel).toBe(false);
     const e = evening(a);
     expect(last(e).summary).toMatchObject({ fines: 150, labels: ['cartelKept'] });
-    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -5, when: 'evening' }]);
+    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -2, when: 'evening' }]);
     expect(e.cash).toBe(a.cash - 150);
     expect(e.flags.cartelBroken).toBe(false);
     expect(e.pending).toEqual([]);
   });
 
-  it('broken: fined 150k and −5 rep all the same, and the street gossips on the morning of day 3 (−8)', () => {
+  it('broken: fined 150k and −2 rep all the same, and the street gossips on the morning of day 3 (−8)', () => {
     const r = seasoned(2, 36, { flags: agreed() });
     const a = afternoon(r, { ...r.plan, price: 30 }, QUIET);
     expect(a.rushResult!.player.brokeCartel).toBe(true);
     const e = evening(a);
     expect(last(e).summary).toMatchObject({ fines: 150, labels: ['cartelBroke'] });
-    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -5, when: 'evening' }]);
+    expect(eveningItems(e)).toEqual([{ reason: 'cartel', delta: -2, when: 'evening' }]);
     expect(e.flags.cartelBroken).toBe(true);
     expect(e.pending).toEqual([{ day: 3, source: 'cartelBreak', rep: -8 }]);
   });
@@ -932,7 +933,7 @@ describe('closeDay: the AI books (§4 Rút lui)', () => {
     }
     if (day === 3) {
       expect(lastEntry(e.shops.find(s => s.id === 'cochap')!.history))
-        .toStrictEqual({ day: 3, closePrice: null, sold: 0, profit: -100, rested: true });
+        .toStrictEqual({ day: 3, closePrice: null, sold: 0, profit: -CONFIG.aiPricing.rent, rested: true });
     } else {
       // On the tax day every cup sold pays 5k: the books are below the tax-free figure by 5k a cup.
       const batu = a.rushResult!.shops.find(x => x.id === 'batu')!;
@@ -951,7 +952,9 @@ describe('closeDay: the AI books (§4 Rút lui)', () => {
     const r = seasoned(3, 20);
     const loser = r.shops.map(s => (s.id === 'batu'
       ? { ...s, history: s.history.map(h => (h.day === 2 ? { ...h, profit: -10 } : h)) } : s));
-    const e = quiet({ ...r, shops: loser }, at20(r));
+    // At the 80k rent Bà Tư breaks even when she sells out at the ceiling; a dearer rent makes today a loss for sure.
+    const dear: SimConfig = { ...CONFIG, aiPricing: { ...CONFIG.aiPricing, rent: 1000 } };
+    const e = evening(afternoon({ ...r, shops: loser }, at20(r), QUIET), [], dear);
     expect(e.shops.find(s => s.id === 'batu')).toMatchObject({ status: 'closed', closedOn: 3 });
     expect(e.shops.find(s => s.id === 'giare')).toMatchObject({ status: 'active', closedOn: null });
   });
@@ -980,7 +983,7 @@ describe('closeDay: the day summary (§11)', () => {
       wasteValue: (p.left.teaMl * 4) / 100 + 2 * left,
       cups: p.cups, wrong: p.wrong, walkouts: p.walkouts,
       revenue: p.revenue, cost: 220 + 54, tax: p.tax, fines: 0, profit: p.revenue - 274 - p.tax,
-      cash: e.cash, rep: e.rep, score: e.cash - 300 + e.rep * 8,
+      cash: e.cash, rep: e.rep, score: e.cash - 300 + e.rep * CONFIG.run.brandPerRep,
       upgrade: null, cards: [{ id: 'tax', choice: 'B' }, { id: 'inspection', choice: 'A' }],
       labels: ['taxEvaded', 'inspectPass'], lost: false,
     });
@@ -1019,7 +1022,7 @@ describe('closeDay: the lesson card (§3, §8)', () => {
     expect(last(e).lesson).toStrictEqual({ id: 'freeMarket', data: {
       openMin: Math.min(...open), openMax: Math.max(...open), closeMin: Math.min(...close), closeMax: Math.max(...close),
     } });
-    expect(last(e).lesson.data).toMatchObject({ openMin: 22, openMax: 34 });
+    expect(last(e).lesson.data).toMatchObject({ openMin: 25, openMax: 40 });   // Ông Cố Chấp 25k … Lướt Sóng, Sinh Viên 40k
   });
 
   it('day 2: a variant for refusing, keeping and breaking the cartel, with the average closes and the fine', () => {

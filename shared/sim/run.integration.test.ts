@@ -183,8 +183,8 @@ describe('a whole run, five days', () => {
 describe('a run with a mid-rush price change every day', () => {
   for (const seed of [11, 12]) {
     it(`keeps seed ${seed}'s opening and closing prices apart, for the player and the AI shops`, () => {
-      // Day 1 at 40k: the player's open tops the street's range, its close (38k) does not.
-      const run = play(seed, { price: 40, day2Price: 30, tea: 'standard', card: honest('B'),
+      // Day 1 at 44k: the player's open tops the street's range (the AI shops open at 25–40k), its close (42k) does not.
+      const run = play(seed, { price: 44, day2Price: 30, tea: 'standard', card: honest('B'),
         reprice: { at: 300, delta: -2 } });
       expect(run.outcome).toBe('finished');
       checkReports(run);

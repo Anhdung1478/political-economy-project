@@ -91,7 +91,7 @@ describe('morningPrices', () => {
   it('opens day 1 at the configured prices; Tập Đoàn is not there yet', () => {
     const shops = day1Shops().map(s => ({ ...s, history: [] }));
     const out = morningPrices(shops, [], rules(1), flags());
-    expect(out.map(s => s.todayPrice)).toEqual([27, 22, 30, 29, 34, null]);
+    expect(out.map(s => s.todayPrice)).toEqual([36, 30, 25, 40, 40, null]);
     expect(out.find(s => s.id === 'tapdoan')!.status).toBe('notYet');
     expect(out.every(s => !s.resting)).toBe(true);
   });
@@ -105,13 +105,13 @@ describe('morningPrices', () => {
     expect(priceOf(out, 'batu')).toBe(26);
   });
 
-  it('Chuỗi GiáRẻ undercuts the lowest other close by 2k', () => {
-    // others: 27, 30, 29, 34, 31 → 27 − 2
-    expect(priceOf(morningPrices(day1Shops(), day1Player, rules(2), flags()), 'giare')).toBe(25);
+  it('Chuỗi GiáRẻ undercuts the lowest other close by 3k', () => {
+    // others: 27, 30, 29, 34, 31 → 27 − 3
+    expect(priceOf(morningPrices(day1Shops(), day1Player, rules(2), flags()), 'giare')).toBe(24);
   });
 
-  it('Ông Cố Chấp always asks 30k', () => {
-    expect(priceOf(morningPrices(day1Shops(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(30);
+  it('Ông Cố Chấp always asks 25k', () => {
+    expect(priceOf(morningPrices(day1Shops(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(25);
   });
 
   it('Lướt Sóng copies whoever earned most yesterday, the player included', () => {
@@ -150,12 +150,12 @@ describe('morningPrices', () => {
     expect(out[0].todayPrice).toBe(31);
   });
 
-  it('Chuỗi Tập Đoàn opens on day 2 at the average of the street − 2k, rounded to 0.5k', () => {
-    // all six closes: 27 + 22 + 30 + 29 + 34 + 31 = 173 → 28.83 − 2 = 26.83 → 27
+  it('Chuỗi Tập Đoàn opens on day 2 at the average of the street, rounded to 0.5k, − 4k', () => {
+    // all six closes: 27 + 22 + 30 + 29 + 34 + 31 = 173 → 28.83 → 29, − 4 = 25
     const out = morningPrices(day1Shops(), day1Player, rules(2), flags());
     const td = out.find(s => s.id === 'tapdoan')!;
     expect(td.status).toBe('active');
-    expect(td.todayPrice).toBe(27);
+    expect(td.todayPrice).toBe(25);
   });
 
   it('Chuỗi Tập Đoàn rounds to the nearest 0.5k, halves up', () => {
@@ -164,10 +164,10 @@ describe('morningPrices', () => {
         ai((['batu', 'giare', 'cochap'] as AiShopId[])[i], [h(1, c, 10)]))];
       return priceOf(morningPrices(shops, [p(1, others[0], 10)], rules(2), flags()), 'tapdoan');
     };
-    expect(td([28, 29])).toBe(26.5); // 28.5 − 2
-    expect(td([28, 29, 29])).toBe(26.5); // 28.67 − 2 = 26.67
-    expect(td([28, 28, 28, 29])).toBe(26.5); // 28.25 − 2 = 26.25, half up
-    expect(td([28, 28, 28, 28])).toBe(26);
+    expect(td([28, 29])).toBe(24.5); // 28.5 − 4
+    expect(td([28, 29, 29])).toBe(24.5); // 28.67 → 28.5, − 4
+    expect(td([28, 28, 28, 29])).toBe(24.5); // 28.25 → 28.5 (half up), − 4
+    expect(td([28, 28, 28, 28])).toBe(24);
   });
 
   it('agreed cartel: on day 2 all six shops ask exactly 36k, Tập Đoàn opens at 36k', () => {
@@ -189,7 +189,7 @@ describe('morningPrices', () => {
     expect(priceOf(out, 'sinhvien')).toBeNull();
     expect(priceOf(out, 'batu')).toBe(20); // rule says 28
     expect(priceOf(out, 'luotsong')).toBe(20); // rule says 31
-    expect(priceOf(out, 'giare')).toBe(20); // rule says 25
+    expect(priceOf(out, 'giare')).toBe(20); // rule says 24
   });
 
   it('morning of day 4 uses day-2 closes, not the capped day 3, then adds 3k tax pass-through', () => {
@@ -201,8 +201,8 @@ describe('morningPrices', () => {
     const out = morningPrices(shops, player, rules(4), flags());
     // batu: own 28, others (25 + 30) / 2 = 27.5 → 27, + 3 = 30
     expect(priceOf(out, 'batu')).toBe(30);
-    // giare: min(28, 30) − 2 = 26, + 3 = 29
-    expect(priceOf(out, 'giare')).toBe(29);
+    // giare: min(28, 30) − 3 = 25, + 3 = 28
+    expect(priceOf(out, 'giare')).toBe(28);
   });
 
   it('morning of day 4 on the agreed-cartel branch falls back to day-1 closes', () => {
@@ -214,8 +214,8 @@ describe('morningPrices', () => {
     const out = morningPrices(shops, player, rules(4), flags({ cartel: 'agreed' }));
     // batu: own 27, others (22 + 31) / 2 = 26.5 → 26, + 3 = 29
     expect(priceOf(out, 'batu')).toBe(29);
-    // giare: min(27, 31) − 2 = 25, + 3 = 28
-    expect(priceOf(out, 'giare')).toBe(28);
+    // giare: min(27, 31) − 3 = 24, + 3 = 27
+    expect(priceOf(out, 'giare')).toBe(27);
   });
 
   const day5Shops = () => [
@@ -230,20 +230,20 @@ describe('morningPrices', () => {
     // day-4 closes become batu 27, giare 26, luotsong 28; the player stays 33.
     // batu: others (26 + 28 + 33) / 3 = 29 > 27 → 28
     expect(priceOf(out, 'batu')).toBe(28);
-    // giare: min(27, 28, 33) − 2 = 25
-    expect(priceOf(out, 'giare')).toBe(25);
+    // giare: min(27, 28, 33) − 3 = 24
+    expect(priceOf(out, 'giare')).toBe(24);
     // earned: batu 14 × 12 = 168, giare 13 × 12 = 156, luotsong 15 × 5 = 75, player 20 × 15 = 300 → copy 33
     expect(priceOf(out, 'luotsong')).toBe(33);
   });
 
   it('morning of day 5: a player day-4 close at the street minimum is read as is (R7)', () => {
     const out = morningPrices(day5Shops(), day5Player(25), rules(5), flags());
-    // giare: min(27, 28, 25) − 2 = 23 (taking 3k off the player too would give 20)
-    expect(priceOf(out, 'giare')).toBe(23);
+    // giare: min(27, 28, 25) − 3 = 22 (taking 3k off the player too would give 19)
+    expect(priceOf(out, 'giare')).toBe(22);
   });
 
   it('clamps the rule result', () => {
-    // giare undercuts a 10k player: 8k → floor 11k
+    // giare undercuts a 10k player: 7k → floor 11k
     const out = morningPrices([ai('giare', [h(1, 22, 12)])], [p(1, 10, 18)], rules(2), flags());
     expect(priceOf(out, 'giare')).toBe(11);
   });
@@ -275,29 +275,49 @@ const rushShop = (id: RushShop['id'], over: Partial<RushShop> = {}, ai: Partial<
 describe('midRushPrice', () => {
   const at = (tick: number, sold: number, queue: number, over: Partial<RushShop> = {}, r = rules(1)) =>
     midRushPrice(rushShop('batu', { sold, queue: Array.from({ length: queue }, (_, i) => i), ...over }), tick, r);
+  /** A shop stocking 100 cups, so the cups sold are the percent sold. */
+  const at100 = (tick: number, sold: number, queue: number) =>
+    midRushPrice(rushShop('batu', { sold, queue: Array.from({ length: queue }, (_, i) => i) },
+      { capacity: 100, cupsLeft: 100 - sold }), tick, rules(1));
+  /** A shop of the real street: `capacity` cups, `sold` of them gone, `queue` people waiting. */
+  const real = (id: 'batu' | 'tapdoan', capacity: number, sold: number, queue: number, tick: number) =>
+    midRushPrice(rushShop(id, { sold, queue: Array.from({ length: queue }, (_, i) => i) },
+      { capacity, cupsLeft: capacity - sold }), tick, rules(2));
 
-  it('raises 2k at tick 300 when 3 or more wait', () => {
-    expect(at(300, 0, 3)).toBe(29);
-    expect(at(300, 0, 2)).toBeNull();
+  it('raises 2k at tick 300 when 4 or more wait', () => {
+    expect(at(300, 0, 4)).toBe(29);
+    expect(at(300, 0, 3)).toBeNull();
   });
 
-  it('raises 2k at tick 300 once 25% of the stock is sold (inclusive)', () => {
-    expect(at(300, 5, 1)).toBe(29); // 5 / 20 = 25%
-    expect(at(300, 4, 1)).toBeNull();
+  it('raises 2k at tick 300 once 33% of the stock is sold (inclusive)', () => {
+    expect(at100(300, 33, 1)).toBe(29);
+    expect(at100(300, 32, 1)).toBeNull();
   });
 
-  it('cuts 2k at tick 300 only with an empty queue and under 20% sold (strict)', () => {
-    expect(at(300, 3, 0)).toBe(25);
-    expect(at(300, 4, 0)).toBeNull(); // exactly 20%
-    expect(at(300, 0, 1)).toBeNull(); // someone waits
+  it('cuts 2k at tick 300 only with an empty queue and under 33% sold (strict)', () => {
+    expect(at100(300, 32, 0)).toBe(25);
+    expect(at100(300, 33, 0)).toBe(29); // exactly 33%: the raise wins
+    expect(at100(300, 0, 1)).toBeNull(); // someone waits
+    expect(at(300, 6, 0)).toBe(25); // 6 / 20 = 30%
   });
 
-  it('uses 60% / 50% at tick 600', () => {
-    expect(at(600, 12, 0)).toBe(29); // 60%
-    expect(at(600, 11, 0)).toBeNull();
-    expect(at(600, 10, 0)).toBeNull(); // exactly 50%
-    expect(at(600, 9, 0)).toBe(25);
-    expect(at(600, 0, 3)).toBe(29);
+  it('uses 66% / 66% at tick 600', () => {
+    expect(at100(600, 66, 0)).toBe(29);
+    expect(at100(600, 65, 1)).toBeNull();
+    expect(at100(600, 65, 0)).toBe(25);
+    expect(at100(600, 0, 4)).toBe(29);
+  });
+
+  it('the thresholds are the most a shop can have sold: 4 and 8 of 12 cups at 7 s a cup, 6 and 12 of 18 at 5 s (§16 row 1)', () => {
+    for (const id of ['batu', 'tapdoan'] as const) {
+      const { capacity, ticksPerCup } = CONFIG.aiShops[id];
+      for (const tick of [300, 600]) {
+        const most = Math.floor(tick / ticksPerCup);
+        expect(real(id, capacity, most, 1, tick)).toBe(29);        // selling flat out: up
+        expect(real(id, capacity, most - 1, 1, tick)).toBeNull();  // one cup short, someone waits: stays
+        expect(real(id, capacity, most - 1, 0, tick)).toBe(25);    // one cup short, nobody waits: down
+      }
+    }
   });
 
   it('does nothing at other ticks', () => {
@@ -334,21 +354,21 @@ const result = (id: ShopDayResult['id'], over: Partial<ShopDayResult>): ShopDayR
 });
 
 describe('aiProfit', () => {
-  it('sums the price at each sale, pays cost for unsold cups and the 100k rent', () => {
-    // 8 cups at 27 + 2 at 29 = 274; − 13 × 10 sold − 13 × 2 unsold − 100 = 18
+  it('sums the price at each sale, pays cost for unsold cups and the 80k rent', () => {
+    // 8 cups at 27 + 2 at 29 = 274; − 13 × 10 sold − 13 × 2 unsold − 80 = 38
     const r = result('batu', { sold: 10, revenue: 274, closePrice: 29, trail: [[0, 27], [300, 29]] });
-    expect(aiProfit('batu', r, rules(1))).toBe(18);
+    expect(aiProfit('batu', r, rules(1))).toBe(38);
   });
 
   it('pays the tax on every cup sold', () => {
-    // 18 × 25 = 450; − 11 × 18 − 5 × 18 − 100 = 62
+    // 18 × 25 = 450; − 11 × 18 − 5 × 18 − 80 = 82
     const r = result('tapdoan', { sold: 18, capacity: 18, revenue: 450, soldOut: true });
-    expect(aiProfit('tapdoan', r, rules(4))).toBe(62);
+    expect(aiProfit('tapdoan', r, rules(4))).toBe(82);
   });
 
   it('a resting day costs only the rent', () => {
     const r = result('cochap', { status: 'resting', openPrice: null, closePrice: null, trail: [] });
-    expect(aiProfit('cochap', r, rules(3))).toBe(-100);
+    expect(aiProfit('cochap', r, rules(3))).toBe(-80);
   });
 });
 
