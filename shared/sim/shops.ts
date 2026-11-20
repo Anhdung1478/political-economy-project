@@ -124,29 +124,45 @@ function rulePrice(shop: AiShopState, today: Day, shops: readonly AiShopState[],
  * Morning prices of the AI shops. Opens shops whose first day has come; closed and not-yet shops
  * get no price; a resting shop gets no price. With an agreed cartel every shop asks the cartel price
  * (the rush freezes them). Otherwise each rule reads the latest free day (§16.12), then the tax
- * pass-through is added and the result clamped.
+ * pass-through is added; on the morning a shop opens, every incumbent not listed in
+ * `aiPricing.entryReaction.exempt` is capped at the entrant's opening price + `gap` (§4 "Phản ứng khi
+ * có quán mới"); last the result is clamped.
  */
 export function morningPrices(shops: readonly AiShopState[], playerHistory: readonly PlayerDay[],
   rules: DayRules, flags: RunFlags, cfg: SimConfig = CONFIG): AiShopState[] {
-  return shops.map(shop => {
+  // First pass: each shop's own price before the clamp (null when it gets none or asks the cartel price).
+  const firstPass = shops.map(shop => {
     const opens = shop.status === 'notYet' && cfg.aiShops[shop.id].firstDay <= rules.day;
     if (shop.status === 'closed' || (shop.status === 'notYet' && !opens)) {
-      return { ...shop, todayPrice: null, resting: false };
+      return { opens, raw: null, state: { ...shop, todayPrice: null, resting: false } };
     }
     const active: AiShopState = { ...shop, status: 'active' };
-    if (restsToday(shop.id, rules, cfg)) return { ...active, todayPrice: null, resting: true };
+    if (restsToday(shop.id, rules, cfg)) return { opens, raw: null, state: { ...active, todayPrice: null, resting: true } };
     if (rules.cartel) {
-      return { ...active, todayPrice: clampAiPrice(shop.id, cfg.cards.cartel.price, rules, cfg), resting: false };
+      const price = clampAiPrice(shop.id, cfg.cards.cartel.price, rules, cfg);
+      return { opens, raw: null, state: { ...active, todayPrice: price, resting: false } };
     }
     const { price, probeDir } = rulePrice(shop, rules.day, shops, playerHistory, flags, cfg);
     const pass = rules.taxPerCup > 0 ? cfg.aiPricing.taxPassThrough : 0;
-    return { ...active, todayPrice: clampAiPrice(shop.id, price + pass, rules, cfg), resting: false, probeDir };
+    const raw = price + pass;
+    return { opens, raw, state: { ...active, todayPrice: clampAiPrice(shop.id, raw, rules, cfg), resting: false, probeDir } };
+  });
+
+  // Entry reaction: the entrants' opening prices (their own rule, clamped) cap the incumbents.
+  const { gap, exempt } = cfg.aiPricing.entryReaction;
+  const entrants = firstPass.flatMap(x => (x.opens && x.raw !== null && x.state.todayPrice !== null ? [x.state.todayPrice] : []));
+  if (entrants.length === 0) return firstPass.map(x => x.state);
+  const cap = Math.min(...entrants) + gap;
+  return firstPass.map(({ opens, raw, state }) => {
+    if (opens || raw === null || exempt.includes(state.id)) return state;
+    return { ...state, todayPrice: clampAiPrice(state.id, Math.min(raw, cap), rules, cfg) };
   });
 }
 
 /**
  * Price nudge at a mid-rush checkpoint (ticks 300 and 600), or null when the price stays.
- * +2k if 3+ wait or sold ≥ 25% / 60% of stock; −2k only if nobody waits and sold < 20% / 50%.
+ * +`midRush.step` if `midRush.queueUp` or more wait, or sold ≥ the checkpoint's `soldUpPercent` of capacity;
+ * −`midRush.step` only if nobody waits and sold < its `soldDownPercent` (§4, §16 row 1).
  * Ông Cố Chấp, Chuỗi GiáRẻ, frozen (cartel) shops and shops that are not open never move.
  */
 export function midRushPrice(shop: RushShop, tick: Tick, rules: DayRules, cfg: SimConfig = CONFIG): K | null {

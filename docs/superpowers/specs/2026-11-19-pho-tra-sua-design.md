@@ -189,6 +189,8 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 - **Thuế:** ngày 4 mọi quán AI cộng thêm 3k vào giá sau khi áp luật, tức chuyển một phần thuế sang khách.
 - **Kẹp giá:** mọi giá của quán AI nằm trong khoảng từ giá vốn + thuế + 1k đến mức thấp hơn giữa 50k và giá trần.
 
+**Phản ứng khi có quán mới.** Sáng ngày một quán AI khai trương, mọi quán AI đang mở trừ Ông Cố Chấp đặt giá không cao hơn giá khai trương của quán mới cộng 2k, sau khi áp luật riêng của mình. Khách bị chia: quán nào giữ giá cao sẽ mất khách sang quán mới.
+
 **Chỉnh giá giữa trưa.** Ở giây 30 và giây 60, mỗi quán AI trừ Ông Cố Chấp và Chuỗi GiáRẻ xét lại giá:
 
 - +2k nếu hàng đang có từ 4 người, hoặc đã bán được 33% hàng (giây 30) hay 66% hàng (giây 60), tức là bán kịp hết công suất từ đầu trưa.
@@ -603,6 +605,8 @@ Giả lập báo lỗi khi:
 - Một thẻ hai nhánh có nhánh luôn hơn nhánh kia quá 80k điểm.
 - Luôn cao cấp hơn hoặc kém lối chơi hợp lý quá 100k điểm.
 - Dưới 70% số seed có ít nhất một quán AI đóng cửa trước ngày 5 trên lối chơi hợp lý.
+- Trên lối chơi hợp lý, tỉ lệ khách về tay không ngày giá trần thấp hơn 2 lần trung bình của ngày 1 và ngày 2.
+- Việc Chuỗi Tập Đoàn mở cửa làm giá đóng cửa trung bình của phố ngày 2 giảm dưới 2k so với chạy đối chứng không có quán mới. Chạy đối chứng: cùng seed, lối chơi hợp lý, Chuỗi Tập Đoàn không bao giờ mở; so theo cặp seed.
 
 **Test server:** vào buổi, khôi phục, bình chọn, mở chợ, gửi ngày theo thứ tự, bỏ qua ngày trùng và mã ván khác, xếp hạng theo ngày, giải và luật hoà, reset đổi mã buổi, bảng host chỉ đến socket đã xác thực, ghi và nạp lại file buổi, `/solo` trả về trang.
 
@@ -648,3 +652,4 @@ Các điểm sau chốt những chỗ các mục trên để ngỏ; chúng có h
 | 14 | 7, thẻ | Tiền của thẻ luôn được trừ, kể cả khi tiền đã dưới −150k. Thẻ phụ trước, thẻ cốt truyện sau |
 | 15 | 11, giao thức | Bình chọn gửi bằng `player:vote { when: 'before' \| 'after' }`, gửi qua hàng đợi kết quả. Snapshot lúc trao giải có hạng của mọi người |
 | 16 | 14, cân bằng | Ngưỡng tính trên trung bình các seed; riêng "thua vì uy tín" là bất kỳ seed nào. "Giá trung bình phố" gồm cả người chơi |
+| 17 | 4 và 14, quán mới | Người dùng chốt ngày 2026-11-20: đổi luật thay vì nới điều kiện giá ngày 2. Để giá ngày 2 giảm ít nhất 3k mà chỉ nhờ quán mới thì giá ngày đầu phải đặt rất cao, làm ngày thường có tỉ lệ khách về tay không ngang ngày giá trần. Nay sáng ngày quán AI khai trương, các quán cũ (trừ Ông Cố Chấp) hạ giá về không quá giá khai trương + 2k; luật này áp sau thuế, trước kẹp giá, không áp ngày cartel, không ép người chơi. Khoảng 2k và danh sách quán không phản ứng nằm trong config. Thêm hai điều kiện cân bằng ở mục 14 (tỉ lệ về tay không ngày giá trần; giá ngày 2 so với chạy đối chứng) |

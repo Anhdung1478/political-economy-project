@@ -41,6 +41,11 @@ const day1Shops = (): AiShopState[] => [
   ai('tapdoan', [], { status: 'notYet' }),
 ];
 const day1Player = [p(1, 31, 15)];
+/** The day-1 street without the entrant, to test each shop's own rule on day 2 apart from the entry reaction. */
+const incumbents = (): AiShopState[] => day1Shops().filter(s => s.id !== 'tapdoan');
+
+/** CONFIG with some `aiPricing` fields replaced. */
+const withPricing = (over: Partial<typeof CONFIG.aiPricing>) => ({ ...CONFIG, aiPricing: { ...CONFIG.aiPricing, ...over } });
 
 describe('STREET', () => {
   it('lists the slots: top row batu, giare, cochap, luotsong; bottom row sinhvien, player, tapdoan', () => {
@@ -98,7 +103,7 @@ describe('morningPrices', () => {
 
   it('Bà Tư nudges her own close 1k toward the average of the others', () => {
     // others on day 1: 22, 30, 29, 34, player 31 → average 29.2 > 27 → 28
-    expect(priceOf(morningPrices(day1Shops(), day1Player, rules(2), flags()), 'batu')).toBe(28);
+    expect(priceOf(morningPrices(incumbents(), day1Player, rules(2), flags()), 'batu')).toBe(28);
     // others 22 and 24 → average 23 < 27 → 26
     const out = morningPrices([ai('batu', [h(1, 27, 12)]), ai('giare', [h(1, 22, 12)])],
       [p(1, 24, 10)], rules(2), flags());
@@ -107,25 +112,25 @@ describe('morningPrices', () => {
 
   it('Chuỗi GiáRẻ undercuts the lowest other close by 3k', () => {
     // others: 27, 30, 29, 34, 31 → 27 − 3
-    expect(priceOf(morningPrices(day1Shops(), day1Player, rules(2), flags()), 'giare')).toBe(24);
+    expect(priceOf(morningPrices(incumbents(), day1Player, rules(2), flags()), 'giare')).toBe(24);
   });
 
   it('Ông Cố Chấp always asks 25k', () => {
-    expect(priceOf(morningPrices(day1Shops(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(25);
+    expect(priceOf(morningPrices(incumbents(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(25);
   });
 
   it('Lướt Sóng copies whoever earned most yesterday, the player included', () => {
-    expect(priceOf(morningPrices(day1Shops(), day1Player, rules(2), flags()), 'luotsong')).toBe(31);
+    expect(priceOf(morningPrices(incumbents(), day1Player, rules(2), flags()), 'luotsong')).toBe(31);
     // player sells 4 at 31: earned 72; Ông Cố Chấp (170) and Lướt Sóng (176) lead → Lướt Sóng keeps 29
-    const quiet = morningPrices(day1Shops(), [p(1, 31, 4)], rules(2), flags());
+    const quiet = morningPrices(incumbents(), [p(1, 31, 4)], rules(2), flags());
     expect(priceOf(quiet, 'luotsong')).toBe(29);
     // Ông Cố Chấp sells 12: earned 204 → copy 30
-    const shops = day1Shops().map(s => s.id === 'cochap' ? ai('cochap', [h(1, 30, 12)]) : s);
+    const shops = incumbents().map(s => s.id === 'cochap' ? ai('cochap', [h(1, 30, 12)]) : s);
     expect(priceOf(morningPrices(shops, [p(1, 31, 4)], rules(2), flags()), 'luotsong')).toBe(30);
   });
 
   it('Sinh Viên starts by going down 3k, with no flip when there is no day before', () => {
-    const out = morningPrices(day1Shops(), day1Player, rules(2), flags());
+    const out = morningPrices(incumbents(), day1Player, rules(2), flags());
     const sv = out.find(s => s.id === 'sinhvien')!;
     expect(sv.todayPrice).toBe(31);
     expect(sv.probeDir).toBe(-1);
@@ -255,6 +260,62 @@ describe('morningPrices', () => {
     expect(out[0].status).toBe('closed');
     expect(out[0].todayPrice).toBeNull();
     expect(out[0].resting).toBe(false);
+  });
+
+  describe('entry reaction (§4 "Phản ứng khi có quán mới")', () => {
+    it('the morning Tập Đoàn opens, every incumbent but Ông Cố Chấp asks at most its open price + 2k', () => {
+      // Tập Đoàn opens at 25 (see above) → cap 27. Own rules: batu 28, giare 24, luotsong 31, sinhvien 31.
+      const out = morningPrices(day1Shops(), day1Player, rules(2), flags(), withPricing({ cochapPrice: 40 }));
+      expect(priceOf(out, 'tapdoan')).toBe(25);
+      expect(priceOf(out, 'batu')).toBe(27);
+      expect(priceOf(out, 'giare')).toBe(24);
+      expect(priceOf(out, 'luotsong')).toBe(27);
+      expect(priceOf(out, 'sinhvien')).toBe(27);
+      expect(priceOf(out, 'cochap')).toBe(40);   // not reacting (config)
+      // The reaction does not touch Sinh Viên's direction.
+      expect(out.find(s => s.id === 'sinhvien')!.probeDir).toBe(-1);
+    });
+
+    it('takes the gap and the shops that do not react from config', () => {
+      const ap = CONFIG.aiPricing.entryReaction;
+      expect(ap).toEqual({ gap: 2, exempt: ['cochap'] });
+      const out = morningPrices(day1Shops(), day1Player, rules(2),
+        flags(), withPricing({ cochapPrice: 40, entryReaction: { gap: 0, exempt: [] } }));
+      expect(priceOf(out, 'batu')).toBe(25);
+      expect(priceOf(out, 'cochap')).toBe(25);
+      expect(priceOf(out, 'giare')).toBe(24);
+    });
+
+    it('does not apply on the cartel day: the cartel price wins', () => {
+      const out = morningPrices(day1Shops(), day1Player, rules(2, { cartel: true }), flags({ cartel: 'agreed' }),
+        withPricing({ entryReaction: { gap: 0, exempt: [] } }));
+      expect(out.map(s => s.todayPrice)).toEqual([36, 36, 36, 36, 36, 36]);
+    });
+
+    it('does not apply once the entrant has opened: day 3 onwards is unchanged', () => {
+      const shops = [
+        ai('batu', [h(1, 27, 12), h(2, 28, 12), h(3, 20, 12)]),
+        ai('tapdoan', [h(2, 15, 18), h(3, 20, 18)]),
+      ];
+      const out = morningPrices(shops, [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18)], rules(4), flags());
+      // batu: own 28, others (15 + 30) / 2 = 22.5 → 27, + 3 = 30; no cap at Tập Đoàn's close + 2k
+      expect(priceOf(out, 'batu')).toBe(30);
+    });
+
+    it('caps after the tax pass-through and before the clamp', () => {
+      // An entrant opening on day 4: Tập Đoàn = avg(28 batu, 30 player) − 4 = 25, + 3 = 28 → cap 30.
+      // batu: own 28, others 30 → 29, + 3 = 32 → 30.
+      const cfg = { ...CONFIG, aiShops: { ...CONFIG.aiShops, tapdoan: { ...CONFIG.aiShops.tapdoan, firstDay: 4 as Day } } };
+      const shops = [ai('batu', [h(1, 27, 12), h(2, 28, 12), h(3, 20, 12)]), ai('tapdoan', [], { status: 'notYet' })];
+      const out = morningPrices(shops, [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18)], rules(4), flags(), cfg);
+      expect(priceOf(out, 'tapdoan')).toBe(28);
+      expect(priceOf(out, 'batu')).toBe(30);
+      // The clamp still applies to the capped price: Sinh Viên (floor 16) under an entrant at its floor of 12.
+      const low = morningPrices([ai('sinhvien', [h(1, 20, 10)]), ai('tapdoan', [], { status: 'notYet' })],
+        [p(1, 12, 10)], rules(2), flags());
+      expect(priceOf(low, 'tapdoan')).toBe(12);
+      expect(priceOf(low, 'sinhvien')).toBe(16);   // rule 17, cap 14, floor 16
+    });
   });
 
   it('does not change its input', () => {

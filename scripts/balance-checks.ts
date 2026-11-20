@@ -2,7 +2,8 @@
 // each run. Aggregation (§16 row 16): thresholds on the mean over seeds; "lost to trust" on any seed; "always" on
 // every seed; the street's average price includes the player. Strategies on a seed share the bot's randomness (R39),
 // so comparisons are on paired means. Money is in k (thousands of đồng), as in the sim.
-import type { RunState } from '../shared/sim/types';
+import type { SimConfig } from '../shared/sim/config';
+import type { Day, RunState } from '../shared/sim/types';
 
 /** What a day of a run leaves for the checks. */
 export interface DayRecord {
@@ -67,6 +68,19 @@ const EXTREMES = ['flat15', 'flat45', 'skimp', 'plainS', 'day5cheat'] as const;
 export const NEEDED_KEYS: string[] = [...new Set<string>([
   ...STYLE_KEYS, ...Object.values(CARTEL_KEYS), ...Object.values(CARD_PAIRS).flat(),
 ])];
+
+/** B14's control run: `reasonable` played with `withoutEntrant(cfg)`, on the same seeds. */
+export const NO_ENTRY_KEY = 'reasonable+no-entrant';
+
+/** `cfg` with Chuỗi Tập Đoàn's first day past the last day, so it never opens (B14's control run). */
+export function withoutEntrant(cfg: SimConfig): SimConfig {
+  const tapdoan = { ...cfg.aiShops.tapdoan, firstDay: (cfg.run.dayCount + 1) as Day };
+  return { ...cfg, aiShops: { ...cfg.aiShops, tapdoan } };
+}
+
+/** Keys that play exactly the run of another key, so the simulator plays it once (`reasonable` already refuses the
+ *  cartel and makes every other story choice of the base combination). */
+export const ALIASES: Record<string, string> = { [CARTEL_KEYS.refuse]: 'reasonable' };
 
 /** What the checks need from a finished run. */
 export function recordRun(seed: number, run: RunState, total: number): RunRecord {
@@ -301,11 +315,39 @@ const B12: Check = r => {
   return { id: 'B12', pass: m >= 3, measured: m, threshold: '>= 3', worstSeed: argBy(xs, false) };
 };
 
+const share = (d: DayRecord | null) => (d === null || d.eligible === 0 ? null : d.emptyHanded / d.eligible);
+
+/** B13: on `reasonable`, the ceiling day's (day 3) mean empty-handed share is under twice the mean of days 1 and 2. */
+const B13: Check = r => {
+  const runs = runsOf(r, 'reasonable');
+  const s3 = perSeed(runs, x => share(dayOf(x, 3)));
+  const m3 = mean(vals(s3));
+  const m12 = (mean(vals(perSeed(runs, x => share(dayOf(x, 1))))) + mean(vals(perSeed(runs, x => share(dayOf(x, 2)))))) / 2;
+  // Per seed: how far day 3 sits above twice the mean of its own days 1 and 2.
+  const margin = perSeed(runs, x => {
+    const [a, b, c] = [1, 2, 3].map(d => share(dayOf(x, d)));
+    return a === null || b === null || c === null ? null : c - (a + b);
+  });
+  return {
+    id: 'B13', pass: m3 >= 2 * m12, measured: m3 / m12, threshold: '>= 2 (day-3 share / mean of days 1–2)',
+    worstSeed: argBy(margin, false),
+  };
+};
+
+/** B14: Chuỗi Tập Đoàn opening lowers the day-2 street average by under 2k against the run without it (paired). */
+const B14: Check = r => {
+  const xs = paired(r, NO_ENTRY_KEY, 'reasonable', x => dayOf(x, 2)?.streetAvg ?? null);
+  const m = mean(vals(xs));
+  return {
+    id: 'B14', pass: m >= 2, measured: m, threshold: '>= 2 (day 2 without entrant − with)', worstSeed: argBy(xs, false),
+  };
+};
+
 export const CHECKS: { id: string; run: Check }[] = [
   { id: 'B1', run: B1 }, { id: 'B2', run: B2 }, { id: 'B3', run: B3 }, { id: 'B4', run: B4 }, { id: 'B5', run: B5 },
   { id: 'B6', run: B6 }, { id: 'B7', run: B7 }, { id: 'B8a', run: B8a }, { id: 'B8b', run: B8b },
   { id: 'B8c', run: B8c }, { id: 'B9', run: B9 }, { id: 'B10', run: B10 }, { id: 'B11', run: B11 },
-  { id: 'B12', run: B12 },
+  { id: 'B12', run: B12 }, { id: 'B13', run: B13 }, { id: 'B14', run: B14 },
 ];
 
 /** Every check on the results, in order. A NaN measure (no data) fails. */

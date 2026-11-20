@@ -1,8 +1,10 @@
 // The balance checks of spec §14 (Task 12), on hand-built results: one passing and one failing case per check.
 import { describe, expect, it } from 'vitest';
-import { STRATEGIES, playRun } from '../shared/sim/autoplay';
+import { STRATEGIES, playRun, storyCombos } from '../shared/sim/autoplay';
+import { CONFIG } from '../shared/sim/config';
 import {
-  CARTEL_KEYS, CARD_PAIRS, CHECKS, recordRun, runChecks, type CheckResult, type DayRecord, type Results, type RunRecord,
+  ALIASES, CARTEL_KEYS, CARD_PAIRS, CHECKS, NO_ENTRY_KEY, recordRun, runChecks, withoutEntrant,
+  type CheckResult, type DayRecord, type Results, type RunRecord,
 } from './balance-checks';
 
 const SEEDS = [1, 2, 3];
@@ -33,6 +35,12 @@ function good(): Results {
       return r;
     }),
     [CARTEL_KEYS.break]: all(2380),
+    // The control run without Chuỗi Tập Đoàn: day 2 closes 2k above the run with it (28k).
+    [NO_ENTRY_KEY]: SEEDS.map(s => {
+      const r = run(s, 2500);
+      r.days[1] = day(2, { streetAvg: 30 });
+      return r;
+    }),
   };
   for (const [a, b] of Object.values(CARD_PAIRS)) {
     runs[a] ??= all(2480);
@@ -58,10 +66,10 @@ function edit(r: Results, key: string, f: (x: RunRecord, i: number) => void): Re
 }
 
 describe('runChecks', () => {
-  it('lists B1–B12 in order, every one passing on healthy results', () => {
+  it('lists B1–B14 in order, every one passing on healthy results', () => {
     const out = runChecks(good());
     expect(out.map(c => c.id)).toEqual(
-      ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8a', 'B8b', 'B8c', 'B9', 'B10', 'B11', 'B12']);
+      ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8a', 'B8b', 'B8c', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14']);
     expect(CHECKS.map(c => c.id)).toEqual(out.map(c => c.id));
     for (const c of out) expect(c.pass, c.id).toBe(true);
   });
@@ -221,6 +229,67 @@ describe('runChecks', () => {
     expect(c.pass).toBe(false);
     expect(c.measured).toBeCloseTo(7 / 3);
     expect(c.worstSeed).toBe(3);
+  });
+
+  it("B13: the ceiling day's empty-handed share must be at least twice the mean of days 1 and 2", () => {
+    // Days 1 and 2: 5% each; day 3 at 10% is exactly twice.
+    const ok = edit(good(), 'reasonable', x => { x.days[2].emptyHanded = 10; });
+    const c0 = check(ok, 'B13');
+    expect(c0.pass).toBe(true);
+    expect(c0.measured).toBeCloseTo(2);
+    const bad = edit(good(), 'reasonable', (x, i) => { x.days[2].emptyHanded = i === 0 ? 6 : 10; });
+    const c = check(bad, 'B13');
+    expect(c.pass).toBe(false);
+    expect(c.measured).toBeCloseTo((26 / 300) / 0.05);
+    expect(c.worstSeed).toBe(1);
+    // Days 1 and 2 count as their mean: 2% and 8% average 5%.
+    const mixed = edit(edit(good(), 'reasonable', x => { x.days[0].emptyHanded = 2; x.days[1].emptyHanded = 8; }),
+      'reasonable', x => { x.days[2].emptyHanded = 10; });
+    expect(check(mixed, 'B13').pass).toBe(true);
+  });
+
+  it('B14: Chuỗi Tập Đoàn opening must lower the day-2 street average by at least 2k against the control run', () => {
+    const c0 = check(good(), 'B14');
+    expect(c0.pass).toBe(true);   // exactly 2k
+    expect(c0.measured).toBeCloseTo(2);
+    const bad = edit(good(), NO_ENTRY_KEY, (x, i) => { x.days[1].streetAvg = [29, 30, 30.5][i]; });
+    const c = check(bad, 'B14');
+    expect(c.pass).toBe(false);
+    expect(c.measured).toBeCloseTo(5.5 / 3);
+    expect(c.worstSeed).toBe(1);
+  });
+});
+
+describe('withoutEntrant', () => {
+  it("moves Chuỗi Tập Đoàn's first day past the last day and changes nothing else", () => {
+    const before = JSON.stringify(CONFIG);
+    const cfg = withoutEntrant(CONFIG);
+    expect(cfg.aiShops.tapdoan.firstDay).toBeGreaterThan(CONFIG.run.dayCount);
+    expect({ ...cfg.aiShops, tapdoan: CONFIG.aiShops.tapdoan }).toEqual(CONFIG.aiShops);
+    expect({ ...cfg, aiShops: CONFIG.aiShops }).toEqual(CONFIG);
+    expect(JSON.stringify(CONFIG)).toBe(before);
+  });
+
+  it('plays a run in which Chuỗi Tập Đoàn never opens', () => {
+    const { run: r } = playRun(5, STRATEGIES.reasonable, withoutEntrant(CONFIG));
+    expect(r.reports.length).toBe(5);
+    for (const rep of r.reports) {
+      const td = rep.street.find(s => s.id === 'tapdoan');
+      expect(td === undefined || td.closePrice === null).toBe(true);
+    }
+  });
+});
+
+describe('ALIASES', () => {
+  it('maps the cartel-refused combo to reasonable, which plays the same run', () => {
+    expect(ALIASES).toEqual({ [CARTEL_KEYS.refuse]: 'reasonable' });
+    const combo = storyCombos(STRATEGIES.reasonable).find(s => s.id === CARTEL_KEYS.refuse)!;
+    for (const seed of [3, 8]) {
+      const a = playRun(seed, STRATEGIES.reasonable);
+      const b = playRun(seed, combo);
+      expect(b.total).toBe(a.total);
+      expect(JSON.stringify(b.reports)).toBe(JSON.stringify(a.reports));
+    }
   });
 });
 

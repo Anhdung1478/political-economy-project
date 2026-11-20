@@ -366,8 +366,8 @@ function lessonOf(run: RunState, result: RushResult, fines: K, rules: DayRules, 
  * The evening (§4, §7, §8), after the last card. Money (R27, §16 row 13): stock, upgrade, takings less tax and card
  * cash were settled earlier; only fines move cash now, even below the credit floor. Day profit = revenue − tea −
  * toppings − tax − fines; the upgrade, card cash and delayed cash are report lines of their own. On the cartel day
- * with the cartel agreed: the 150k fine and −5 rep either way, and breaking it sets `cartelBroken` and the street's
- * gossip for the next morning. The evening rep items are summed and clamped once; rep 0 loses the run (§16 row 10),
+ * with the cartel agreed: the `cards.cartel.fine` and `cards.cartel.fineRep` either way, and breaking it sets
+ * `cartelBroken` and the street's gossip for the next morning. The evening rep items are summed and clamped once; rep 0 loses the run (§16 row 10),
  * on day 5 too. Every AI shop that sold or rested books the day (`aiProfit`), then the exits run (also after day 5).
  * Writes the day's `DaySummary` and `DayReport` and moves to the report.
  */

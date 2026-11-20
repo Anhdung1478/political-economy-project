@@ -340,7 +340,8 @@ function planOf(run: RunState, brief: MorningBrief, style: Style, cfg: SimConfig
 /**
  * The card choices of `reasonable`: refuse the cartel, pass on the shock toppings, refuse the black market, declare
  * the tax, wait for the state's inspection, the invisible hand; every side card accepted (each pays back more than it
- * costs in score: rep is worth 8k a point, and the helper, the ad customers and the repaid tab bring cash).
+ * costs in score: rep is worth `run.brandPerRep` a point, and the helper, the ad customers and the repaid tab bring
+ * cash).
  */
 const REASONABLE_CARDS: Record<CardId, Choice> = {
   cartel: 'B', shockTopping: 'B', blackMarket: 'B', tax: 'A', inspection: 'B', reporter: 'A',

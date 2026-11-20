@@ -232,6 +232,10 @@ export const CONFIG = {
     sinhvienStep: 3,
     sinhvienFirstDir: -1 as -1 | 1,
     tapdoanUndercut: 4,
+    /** §4 "Phản ứng khi có quán mới": the morning an AI shop opens, every other AI shop already open and not listed in
+     *  `exempt` asks at most the entrant's opening price + `gap`, after its own rule and the tax pass-through, before
+     *  the clamp. Not on a cartel day; the player is never forced. */
+    entryReaction: { gap: 2, exempt: ['cochap'] as AiShopId[] },
   },
 
   /** §4 Chỉnh giá giữa trưa, §16.1. Sold thresholds are percent of capacity. */
