@@ -3,11 +3,12 @@
 // measured frame rate (`window.__sceneFps`), then shuts everything down.
 //
 //   npm run shoot -- --route "/dev/scene?day=3&seed=7" [--size 390x844] [--dpr 2] [--wait 2000]
-//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR]
+//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR] [--full]
 //
 // The route may leave out its leading slash ("dev/scene?day=3"), which Git Bash would otherwise rewrite into a path.
 // Captures start once `--ready` matches (default on /dev/scene: the street's first frame,
-// `canvas[data-scene][data-ready="1"]`; elsewhere none, the load event only), then `--wait` ms later.
+// `canvas[data-scene][data-ready="1"]`; on /dev/characters the sheet's; elsewhere none, the load event only), then
+// `--wait` ms later. `--full` captures the whole page rather than the viewport.
 //
 // Frames go to `<out>.png` (one frame) or `<out>-01.png`, `<out>-02.png`, … under `.shots/` (git-ignored). Chrome comes
 // from CHROME_PATH, default C:\Program Files\Google\Chrome\Application\chrome.exe. `--cpu N` slows the page's CPU N
@@ -24,20 +25,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, '.shots');
 const CHROME = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const USAGE = 'usage: npm run shoot -- --route PATH [--size WxH] [--dpr N] [--wait MS] [--frames N] [--every MS] '
-  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR]';
+  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR] [--full]';
 /** What a scene route is ready on: the street's first frame (not the Suspense loader before it). */
 const SCENE_READY = 'canvas[data-scene][data-ready="1"]';
+/** The character sheet's first frame. */
+const SHEET_READY = 'canvas[data-sheet][data-ready="1"]';
 
 interface Args {
   route: string; width: number; height: number; dpr: number; wait: number; frames: number; every: number;
   out: string; cpu: number;
+  /** Capture the whole page, not just the viewport. */
+  full: boolean;
   /** A selector to wait for before capturing; '' for none; null until defaulted from the route. */
   ready: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const a: Args = { route: '', width: 390, height: 844, dpr: 2, wait: 2000, frames: 1, every: 1000,
-    out: path.join(SHOTS, 'shot'), cpu: 1, ready: null };
+    out: path.join(SHOTS, 'shot'), cpu: 1, full: false, ready: null };
   const num = (flag: string, v: string | undefined, min: number) => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n) || n < min) throw new Error(`${flag} needs a number >= ${min}`);
@@ -47,7 +52,10 @@ function parseArgs(argv: string[]): Args {
     const f = argv[i];
     const v = argv[i + 1];
     i++;
-    if (f === '--route') {
+    if (f === '--full') {
+      a.full = true;
+      i--;
+    } else if (f === '--route') {
       if (v === undefined || v.startsWith('-')) throw new Error('--route needs a path, e.g. /dev/scene?day=3');
       // Git Bash turns a lone "/host" into "C:/Program Files/Git/host"; a route without the slash is left alone.
       if (/^[A-Za-z]:[\\/]/.test(v)) {
@@ -74,7 +82,9 @@ function parseArgs(argv: string[]): Args {
     } else throw new Error(`unknown argument ${f}`);
   }
   if (a.route === '') throw new Error('--route is required');
-  if (a.ready === null) a.ready = a.route.startsWith('/dev/scene') ? SCENE_READY : '';
+  if (a.ready === null) {
+    a.ready = a.route.startsWith('/dev/scene') ? SCENE_READY : a.route.startsWith('/dev/characters') ? SHEET_READY : '';
+  }
   if (!a.out.startsWith(SHOTS + path.sep)) throw new Error('--out must be under .shots/');
   return a;
 }
@@ -140,7 +150,7 @@ async function main(): Promise<number> {
       if (i > 0) await sleep(args.every);
       await readFps();
       const file = fileOf(args, i);
-      await page.screenshot({ path: file as `${string}.png`, type: 'png' });
+      await page.screenshot({ path: file as `${string}.png`, type: 'png', fullPage: args.full });
       console.log(`  ${path.relative(ROOT, file)}`);
     }
     await sleep(Math.min(1000, Math.max(600, args.every)));

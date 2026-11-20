@@ -4,10 +4,11 @@
 // prefers-reduced-motion, and measures frames per second (`window.__sceneFps` in dev).
 //
 // What is drawn comes from a renderer registry: the street, each shop, each customer, the props, then the named
-// overlay layers in order (lighting, particles, bubbles, hud). Placeholder art fills it (draw/placeholder.ts); Tasks
-// 15–17 plug in theirs with `registerRenderers`. A renderer that keeps throwing stops the scene and calls `onFail`
-// (the street then falls back to its list, spec §13).
+// overlay layers in order (lighting, particles, bubbles, hud). The customers are draw/characters.ts (Task 15);
+// placeholder art fills the rest (draw/placeholder.ts) until Tasks 16–17 plug in theirs with `registerRenderers`. A
+// renderer that keeps throwing stops the scene and calls `onFail` (the street then falls back to its list, spec §13).
 import type { Actor, BubbleRequest, Cue, Director, ShopView } from './director';
+import { drawCustomer } from './draw/characters';
 import { placeholderRenderers } from './draw/placeholder';
 import { fitLayout, type Fit, type Rect, type ShopSlot, type StreetLayout } from './layout';
 
@@ -96,7 +97,8 @@ export interface Renderers {
 /** What a task plugs in: any of the draw functions, and any overlay layers (merged layer by layer). */
 export type RendererPatch = Partial<Omit<Renderers, 'overlays'>> & { overlays?: Partial<Record<OverlayLayer, Overlay>> };
 
-let registry: Renderers = placeholderRenderers;
+/** Placeholder art (Task 14) with the real customers (Task 15); Tasks 16–17 plug in the rest. */
+let registry: Renderers = { ...placeholderRenderers, drawCustomer };
 
 /**
  * Plugs renderers in (Tasks 15–17): `registerRenderers({ drawCustomer })` replaces only that one;

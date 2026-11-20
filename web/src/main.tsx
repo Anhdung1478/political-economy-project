@@ -15,14 +15,17 @@ import { createRoot } from 'react-dom/client';
 const Presentation = lazy(() => import('./pages/Presentation/Presentation'));
 const Host = lazy(() => import('./pages/Host/Host'));
 const Play = lazy(() => import('./pages/Play/Play'));
-// Dev builds only: `import.meta.env.DEV` is false in a production build, so the preview is not bundled.
+// Dev builds only: `import.meta.env.DEV` is false in a production build, so the previews are not bundled.
 const ScenePreview = import.meta.env.DEV ? lazy(() => import('./pages/Dev/ScenePreview')) : null;
+const CharacterSheet = import.meta.env.DEV ? lazy(() => import('./pages/Dev/CharacterSheet')) : null;
 
 const path = location.pathname.replace(/\/+$/, '') || '/';
 const page = ScenePreview !== null && path === '/dev/scene' ? 'dev-scene'
+  : CharacterSheet !== null && path === '/dev/characters' ? 'dev-characters'
   : path === '/host' ? 'host' : path === '/play' ? 'play' : 'present';
 document.documentElement.dataset.page = page;
 const Page = page === 'dev-scene' && ScenePreview !== null ? ScenePreview
+  : page === 'dev-characters' && CharacterSheet !== null ? CharacterSheet
   : page === 'host' ? Host : page === 'play' ? Play : Presentation;
 
 createRoot(document.getElementById('root')!).render(
