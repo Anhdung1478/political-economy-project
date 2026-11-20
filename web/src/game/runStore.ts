@@ -20,7 +20,8 @@ export interface RunStoreState {
 }
 
 export type Intent =
-  | { type: 'setPrice'; price: number }
+  /** The morning plan's price (the rush's price change is the action `setPrice`, sent with `act`). */
+  | { type: 'setPlanPrice'; price: number }
   | { type: 'setTea'; tea: TeaGrade }
   | { type: 'setTeaMl'; teaMl: number }
   | { type: 'setTopping'; id: ToppingId; count: number }
@@ -60,14 +61,44 @@ export function startRun(seed: number, runId: string, cfg: SimConfig = CONFIG): 
 
 const atMorning = (run: RunState): RunStoreState => ({ run, rush: null, planDraft: run.plan, beforeOpen: null });
 
-/** Applies one intent. An intent that does not fit the phase or carries bad values is ignored, never thrown. */
-export function transition(s: RunStoreState, intent: Intent, cfg: SimConfig = CONFIG): Transition {
+export type ErrorSink = (error: unknown, context: string) => void;
+
+/** The default error sink: the console, so a sim bug is visible without breaking the game. */
+export const reportError: ErrorSink = (error, context) => { console.error(`[run] ${context}`, error); };
+
+/**
+ * Applies one intent. An intent that does not fit the phase or carries bad values is ignored, never thrown. A sim
+ * call that throws is reported to `onError` and the intent ignored, except a tick (or close early): its actions that
+ * make the step throw are dropped, each reported, and the tick runs with the rest.
+ */
+export function transition(s: RunStoreState, intent: Intent, cfg: SimConfig = CONFIG,
+  onError: ErrorSink = reportError): Transition {
   const same: Transition = { state: s, events: [] };
   try {
-    return apply(s, intent, cfg) ?? same;
-  } catch {
+    return apply(s, intent, cfg, onError) ?? same;
+  } catch (e) {
+    onError(e, `intent ${String((intent as { type?: unknown } | null)?.type)} failed; ignored`);
     return same;
   }
+}
+
+/** `step`, dropping (and reporting) the actions that make it throw. */
+function safeStep(rush: RushState, actions: readonly Action[], cfg: SimConfig, onError: ErrorSink) {
+  try {
+    return step(rush, actions, cfg);
+  } catch (e) {
+    onError(e, 'tick failed; retrying without the actions that throw');
+  }
+  const kept: Action[] = [];
+  for (const a of actions) {
+    try {
+      step(rush, [...kept, a], cfg);
+      kept.push(a);
+    } catch (e) {
+      onError(e, `action dropped: ${JSON.stringify(a)}`);
+    }
+  }
+  return step(rush, kept, cfg);
 }
 
 /** `transition` without the events, on the shared config (two parameters, so `intents.reduce(reduce, s)` works). */
@@ -78,11 +109,11 @@ function edit(s: RunStoreState, patch: Partial<MorningPlan>): Transition | null 
   return { state: { ...s, planDraft: { ...s.planDraft, ...patch } }, events: [] };
 }
 
-function apply(s: RunStoreState, i: Intent, cfg: SimConfig): Transition | null {
+function apply(s: RunStoreState, i: Intent, cfg: SimConfig, onError: ErrorSink): Transition | null {
   const { run, rush } = s;
   const live = run.phase === 'rush' && rush !== null;
   switch (i.type) {
-    case 'setPrice':
+    case 'setPlanPrice':
       return isNum(i.price) && i.price >= 0 ? edit(s, { price: i.price }) : null;
     case 'setTea':
       return TEAS.includes(i.tea) ? edit(s, { tea: i.tea }) : null;
@@ -106,12 +137,12 @@ function apply(s: RunStoreState, i: Intent, cfg: SimConfig): Transition | null {
     }
     case 'tick': {
       if (!live || rush.done || !Array.isArray(i.actions)) return null;
-      const r = step(rush, i.actions, cfg);
+      const r = safeStep(rush, i.actions, cfg, onError);
       return { state: { ...s, rush: r.state }, events: r.events };
     }
     case 'closeEarly': {
       if (!live || rush.done) return null;
-      const first = step(rush, [...(i.actions ?? []), { type: 'closeEarly' }], cfg);
+      const first = safeStep(rush, [...(i.actions ?? []), { type: 'closeEarly' }], cfg, onError);
       const rest = finishRush(first.state, cfg);
       return { state: { ...s, rush: rest.state }, events: [...first.events, ...rest.events] };
     }
@@ -245,11 +276,13 @@ export interface PersistOpts {
 
 /**
  * Persistence after an intent: saves whenever the run changed (every phase change, opening the shop, each card
- * choice, a new run; rush ticks and draft edits leave the run alone), and records the best score as the run ends.
+ * choice, a new run) and on every morning draft edit (so a reload keeps the plan being made); rush ticks save
+ * nothing. Records the best score as the run ends.
  */
 export function afterTransition(store: KeyValueStore, p: PersistOpts, prev: RunStoreState, next: RunStoreState,
   cfg: SimConfig = CONFIG): void {
-  if (prev.run === next.run) return;
+  const draftEdited = next.run.phase === 'morning' && prev.planDraft !== next.planDraft;
+  if (prev.run === next.run && !draftEdited) return;
   if (p.key !== null) save(store, p.key, next, { sessionCode: p.sessionCode });
   if (p.bestKey && next.run.phase === 'end' && prev.run.phase !== 'end') {
     recordBest(store, p.bestKey, score(next.run, cfg).total);

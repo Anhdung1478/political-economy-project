@@ -52,7 +52,7 @@ describe('startRun', () => {
 describe('editing the draft plan', () => {
   it('sets the price, tea grade, tea ml, a topping and the upgrade', () => {
     const s = run(fresh(),
-      { type: 'setPrice', price: 34 }, { type: 'setTea', tea: 'premium' }, { type: 'setTeaMl', teaMl: 2000 },
+      { type: 'setPlanPrice', price: 34 }, { type: 'setTea', tea: 'premium' }, { type: 'setTeaMl', teaMl: 2000 },
       { type: 'setTopping', id: 'jelly', count: 9 }, { type: 'setUpgrade', upgrade: 'machine' });
     expect(s.planDraft).toMatchObject({ price: 34, tea: 'premium', teaMl: 2000, upgrade: 'machine' });
     expect(s.planDraft.toppings.jelly).toBe(9);
@@ -79,7 +79,7 @@ describe('editing the draft plan', () => {
   it('ignores edits that are not numbers, out of the sets, negative or fractional where whole', () => {
     const s = fresh();
     const bad: Intent[] = [
-      { type: 'setPrice', price: Number.NaN }, { type: 'setPrice', price: Infinity }, { type: 'setPrice', price: -1 },
+      { type: 'setPlanPrice', price: Number.NaN }, { type: 'setPlanPrice', price: Infinity }, { type: 'setPlanPrice', price: -1 },
       { type: 'setTea', tea: 'gold' as never }, { type: 'setTeaMl', teaMl: -100 }, { type: 'setTeaMl', teaMl: Number.NaN },
       { type: 'setTopping', id: 'boba' as never, count: 3 }, { type: 'setTopping', id: 'pearl', count: -1 },
       { type: 'setTopping', id: 'pearl', count: 1.5 }, { type: 'setUpgrade', upgrade: 'jetpack' as never },
@@ -96,7 +96,7 @@ describe('editing the draft plan', () => {
 
   it('ignores plan edits outside the morning', () => {
     for (const s of [opened(), atCards(), atReport()]) {
-      expect(reduce(s, { type: 'setPrice', price: 34 })).toBe(s);
+      expect(reduce(s, { type: 'setPlanPrice', price: 34 })).toBe(s);
       expect(reduce(s, { type: 'quickFill', level: 'low' })).toBe(s);
     }
   });
@@ -104,7 +104,7 @@ describe('editing the draft plan', () => {
 
 describe('opening the shop', () => {
   it('opens with the draft: the rush starts, the plan is paid, the morning run is kept', () => {
-    const s0 = run(fresh(), { type: 'setPrice', price: 32 });
+    const s0 = run(fresh(), { type: 'setPlanPrice', price: 32 });
     const s = reduce(s0, { type: 'open' });
     expect(s.run.phase).toBe('rush');
     expect(s.run.plan.price).toBe(32);
@@ -114,7 +114,7 @@ describe('opening the shop', () => {
   });
 
   it('ignores an invalid plan (no throw) and opening outside the morning', () => {
-    const s = run(fresh(), { type: 'setPrice', price: 5 }); // below the price range
+    const s = run(fresh(), { type: 'setPlanPrice', price: 5 }); // below the price range
     expect(reduce(s, { type: 'open' })).toBe(s);
     const r = opened();
     expect(reduce(r, { type: 'open' })).toBe(r);
@@ -232,14 +232,14 @@ describe('save and load', () => {
 
   it('restores the morning, with the draft plan', () => {
     const store = memoryStore();
-    const s = run(fresh(), { type: 'setPrice', price: 36 });
+    const s = run(fresh(), { type: 'setPlanPrice', price: 36 });
     save(store, key, s);
     expect(load(store, key)).toStrictEqual(s);
   });
 
   it('a reload mid-rush returns to that morning with the plan filled in and nothing paid', () => {
     const store = memoryStore();
-    const s0 = run(fresh(), { type: 'setPrice', price: 34 }, { type: 'quickFill', level: 'high' });
+    const s0 = run(fresh(), { type: 'setPlanPrice', price: 34 }, { type: 'quickFill', level: 'high' });
     const s = run(s0, { type: 'open' }, { type: 'tick', actions: [] }, { type: 'tick', actions: [] });
     save(store, key, s);
     const back = load(store, key);
@@ -332,23 +332,40 @@ describe('best score', () => {
 });
 
 describe('afterTransition', () => {
-  it('saves whenever the run changes (opening saves the morning), not on rush ticks or draft edits', () => {
+  it('saves whenever the run changes (opening saves the morning) and on draft edits, not on rush ticks', () => {
     const writes: string[] = [];
     const store: KeyValueStore = { get: () => null, set: (k, v) => { if (v !== null) writes.push(k); } };
     const p = { key: 'k' };
     const s0 = fresh();
-    const s1 = reduce(s0, { type: 'setPrice', price: 34 });
+    const s1 = reduce(s0, { type: 'setPlanPrice', price: 34 });
     afterTransition(store, p, s0, s1);
-    expect(writes).toHaveLength(0);
-    const s2 = reduce(s1, { type: 'open' });
-    afterTransition(store, p, s1, s2);
     expect(writes).toHaveLength(1);
+    const s1b = reduce(s1, { type: 'quickFill', level: 'low' });
+    afterTransition(store, p, s1, s1b);
+    expect(writes).toHaveLength(2);
+    const s2 = reduce(s1b, { type: 'open' });
+    afterTransition(store, p, s1b, s2);
+    expect(writes).toHaveLength(3);
     const s3 = reduce(s2, { type: 'tick', actions: [] });
     afterTransition(store, p, s2, s3);
-    expect(writes).toHaveLength(1);
+    expect(writes).toHaveLength(3);
     const s4 = reduce(s3, { type: 'endRush' });
     afterTransition(store, p, s3, s4);
-    expect(writes).toHaveLength(2);
+    expect(writes).toHaveLength(4);
+  });
+
+  it('a reload after editing the morning plan comes back to the edited draft', () => {
+    const store = memoryStore();
+    const p = { key: KEYS.solo };
+    const s0 = fresh();
+    const s1 = reduce(s0, { type: 'setPlanPrice', price: 37 });
+    afterTransition(store, p, s0, s1);
+    const s2 = reduce(s1, { type: 'setTopping', id: 'pudding', count: 4 });
+    afterTransition(store, p, s1, s2);
+    const back = load(store, KEYS.solo);
+    expect(back).toStrictEqual(s2);
+    expect(back?.planDraft.price).toBe(37);
+    expect(back?.planDraft.toppings.pudding).toBe(4);
   });
 
   it('records the solo best score when the run reaches its end, once', () => {
@@ -373,6 +390,37 @@ describe('afterTransition', () => {
     const s0 = fresh();
     afterTransition(store, { key: null }, s0, reduce(s0, { type: 'open' }));
     expect(store.get(KEYS.solo)).toBeNull();
+  });
+});
+
+describe('sim errors', () => {
+  it('drops (and reports) only the actions that make a tick throw; the tick still runs', () => {
+    const errors: string[] = [];
+    const s0 = opened();
+    const good = { type: 'craft', input: { k: 'size', size: 'M' } } as const;
+    const r = transition(s0, { type: 'tick', actions: [null as never, good, { type: 'craft' } as never] }, CONFIG,
+      (_e, ctx) => { errors.push(ctx); });
+    expect(r.state.rush?.tick).toBe(1);
+    expect(r.events.some(e => e.type === 'craftStep')).toBe(true);
+    expect(errors[0]).toMatch(/tick failed/);
+    expect(errors.filter(e => e.startsWith('action dropped'))).toHaveLength(2);
+  });
+
+  it('reports a throwing intent and ignores it', () => {
+    const errors: unknown[] = [];
+    const s0 = opened();
+    const broken: RunStoreState = { ...s0, rush: { ...s0.rush!, shops: [] } };
+    const r = transition(broken, { type: 'endRush' }, CONFIG, e => { errors.push(e); });
+    expect(r.state).toBe(broken);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('stays silent for intents that are merely refused', () => {
+    const errors: unknown[] = [];
+    const s = fresh();
+    transition(s, { type: 'nextDay' }, CONFIG, e => { errors.push(e); });
+    transition(s, { type: 'setPlanPrice', price: Number.NaN }, CONFIG, e => { errors.push(e); });
+    expect(errors).toHaveLength(0);
   });
 });
 

@@ -37,14 +37,16 @@ function fakeEnv() {
   return {
     env,
     frame: (now: number) => { const f = cb; cb = null; f?.(now); },
+    pending: () => cb !== null,
     setHidden: (h: boolean) => { hidden = h; vis?.(); },
   };
 }
 
-function setup() {
+function setup(onError?: (e: unknown, ctx: string) => void) {
   const clock = fakeEnv();
   const store = memoryStore();
-  const ctl = new RunController(startRun(3, 'r3'), { persist: { key: KEYS.solo, bestKey: KEYS.best }, store, env: clock.env });
+  const ctl = new RunController(startRun(3, 'r3'),
+    { persist: { key: KEYS.solo, bestKey: KEYS.best }, store, env: clock.env, onError });
   const pushes: { events: readonly SimEvent[]; tick: number }[] = [];
   const resets: RushState[] = [];
   ctl.subscribe({ push: (events, tick) => pushes.push({ events, tick }), reset: s => resets.push(s) });
@@ -153,7 +155,7 @@ describe('RunController', () => {
     ctl.dispatch({ type: 'nextDay' });
     expect(ctl.getView()).toBe(v);
     expect(n).toBe(0);
-    ctl.dispatch({ type: 'setPrice', price: 34 });
+    ctl.dispatch({ type: 'setPlanPrice', price: 34 });
     expect(n).toBe(1);
     expect(ctl.getView().state.planDraft.price).toBe(34);
   });
@@ -168,12 +170,103 @@ describe('RunController', () => {
   });
 });
 
+describe('RunController, fix round 1', () => {
+  it('saves the starting state on start, so a first-morning reload finds the same run', () => {
+    const { store } = setup();
+    expect(load(store, KEYS.solo)).toStrictEqual(startRun(3, 'r3'));
+  });
+
+  it('saves draft edits made in the morning', () => {
+    const { ctl, store } = setup();
+    ctl.dispatch({ type: 'setPlanPrice', price: 37 });
+    expect(load(store, KEYS.solo)?.planDraft.price).toBe(37);
+  });
+
+  it('runs frames only while a rush is live: none in the morning, none once the outro tick has played', () => {
+    const { clock, ctl } = setup();
+    expect(clock.pending()).toBe(false);
+    ctl.dispatch({ type: 'open' });
+    expect(clock.pending()).toBe(true);
+  });
+
+  it('natural end: the last push carries 900 and simTime runs on to 901 before the loop stops', () => {
+    const { clock, ctl, pushes } = setup();
+    ctl.dispatch({ type: 'open' });
+    let now = 0;
+    clock.frame(now);
+    while (!ctl.getView().state.rush?.done) { now += 100; clock.frame(now); }
+    expect(pushes.at(-1)?.tick).toBe(900);
+    expect(pushes.at(-1)?.events.at(-1)).toMatchObject({ type: 'rushEnd', early: false });
+    const t0 = ctl.simTime();
+    expect(t0).toBeGreaterThanOrEqual(900);
+    expect(clock.pending()).toBe(true);
+    now += 50; clock.frame(now);
+    expect(ctl.simTime()).toBeGreaterThan(t0);
+    now += 200; clock.frame(now);
+    expect(ctl.simTime()).toBe(901);
+    expect(clock.pending()).toBe(false);
+  });
+
+  it('close early: simTime goes from 900 to 901 over the outro tick, then the loop stops', () => {
+    const { clock, ctl } = setup();
+    ctl.dispatch({ type: 'open' });
+    clock.frame(0);
+    clock.frame(250);
+    expect(ctl.simTime()).toBeCloseTo(1.5);
+    ctl.dispatch({ type: 'closeEarly' });
+    expect(ctl.simTime()).toBe(900);
+    clock.frame(1000);
+    clock.frame(1040);
+    expect(ctl.simTime()).toBeCloseTo(900.4);
+    clock.frame(1200);
+    expect(ctl.simTime()).toBe(901);
+    expect(clock.pending()).toBe(false);
+  });
+
+  it('starts at 0 and never runs backwards across the first step', () => {
+    const { clock, ctl } = setup();
+    ctl.dispatch({ type: 'open' });
+    clock.frame(0);
+    clock.frame(60);
+    expect(ctl.simTime()).toBe(0);
+    clock.frame(130);
+    expect(ctl.simTime()).toBeCloseTo(0.3);
+  });
+
+  it('resets a scene that subscribes mid-rush to the rush as it stands', () => {
+    const { clock, ctl } = setup();
+    let early = 0;
+    ctl.subscribe({ push: () => {}, reset: () => { early++; } });
+    expect(early).toBe(0); // no rush yet: nothing to reset to
+    ctl.dispatch({ type: 'open' });
+    clock.frame(0);
+    clock.frame(300);
+    const got: RushState[] = [];
+    ctl.subscribe({ push: () => {}, reset: s => got.push(s) });
+    expect(got).toEqual([ctl.getView().state.rush]);
+    expect(got[0].tick).toBe(3);
+  });
+
+  it('reports a queued action that makes the step throw, and keeps the others', () => {
+    const errors: string[] = [];
+    const { clock, ctl, pushes } = setup((_e, ctx) => { errors.push(ctx); });
+    ctl.dispatch({ type: 'open' });
+    ctl.act({ type: 'craft' } as never);
+    ctl.act({ type: 'craft', input: { k: 'size', size: 'M' } });
+    clock.frame(0);
+    clock.frame(100);
+    expect(ctl.getView().state.rush?.tick).toBe(1);
+    expect(pushes.at(-1)?.events.some(e => e.type === 'craftStep')).toBe(true);
+    expect(errors.some(e => e.startsWith('action dropped'))).toBe(true);
+  });
+});
+
 describe('resumeOrStart', () => {
   it('resumes the saved run, or starts the fallback', () => {
     const store = memoryStore();
     const fallback = () => startRun(1, 'a');
     expect(resumeOrStart(store, { key: KEYS.solo }, fallback)).toStrictEqual(fallback());
-    const s = reduce(startRun(2, 'b'), { type: 'setPrice', price: 40 });
+    const s = reduce(startRun(2, 'b'), { type: 'setPlanPrice', price: 40 });
     save(store, KEYS.solo, s);
     expect(resumeOrStart(store, { key: KEYS.solo }, fallback)).toStrictEqual(s);
     expect(resumeOrStart(store, { key: null }, fallback)).toStrictEqual(fallback());

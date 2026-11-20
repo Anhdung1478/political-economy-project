@@ -5,7 +5,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { CONFIG, type SimConfig } from '../../../shared/sim/config';
 import type { Action, RushState, SimEvent } from '../../../shared/sim/types';
-import { afterTransition, load, transition, type Intent, type PersistOpts, type RunStoreState } from './runStore';
+import {
+  afterTransition, load, reportError, save, transition, type Intent, type PersistOpts, type RunStoreState,
+} from './runStore';
 import { storage, type KeyValueStore } from './storage';
 
 /** Ticks one frame may run at most; a longer gap (a stalled tab) is dropped, never fast-forwarded. */
@@ -69,6 +71,8 @@ export interface RunControllerOpts {
   tickMs?: number;
   maxCatchUp?: number;
   cfg?: SimConfig;
+  /** Where sim errors go (a step that throws, actions dropped); default `console.error`. */
+  onError?: (error: unknown, context: string) => void;
 }
 
 export class RunController {
@@ -76,8 +80,11 @@ export class RunController {
   private readonly viewListeners = new Set<() => void>();
   private readonly subscribers = new Set<RushSubscriber>();
   private queue: Action[] = [];
+  /** Real time since the last step (ms); after the rush is done, the outro time, up to one tick. */
   private acc = 0;
   private last: number | null = null;
+  /** The tick of the last push to the scene; −1 before the first step of a rush. */
+  private pushedTick = -1;
   private frameId: number | null = null;
   private offVisibility: (() => void) | null = null;
   private readonly store: KeyValueStore;
@@ -85,6 +92,7 @@ export class RunController {
   private readonly tickMs: number;
   private readonly maxCatchUp: number;
   private readonly cfg: SimConfig;
+  private readonly onError: (error: unknown, context: string) => void;
 
   constructor(initial: RunStoreState, private readonly opts: RunControllerOpts) {
     this.store = opts.store ?? storage;
@@ -92,7 +100,9 @@ export class RunController {
     this.cfg = opts.cfg ?? CONFIG;
     this.tickMs = opts.tickMs ?? this.cfg.rush.tickMs;
     this.maxCatchUp = opts.maxCatchUp ?? MAX_CATCH_UP;
+    this.onError = opts.onError ?? reportError;
     this.view = { state: initial, opening: initial.rush, hidden: false, held: false };
+    if (initial.rush !== null) this.pushedTick = initial.rush.tick - 1;
   }
 
   // --- external store (useSyncExternalStore) ---
@@ -106,9 +116,14 @@ export class RunController {
     this.viewListeners.forEach(l => l());
   }
 
-  /** The scene subscribes for each tick's events; returns the unsubscribe. */
+  /**
+   * The scene subscribes for each tick's events; returns the unsubscribe. A subscriber joining while a rush is on
+   * (a canvas mounting mid-rush) is reset to the rush as it stands.
+   */
   subscribe = (sub: RushSubscriber): (() => void) => {
     this.subscribers.add(sub);
+    const rush = this.view.state.rush;
+    if (rush !== null) sub.reset?.(rush);
     return () => { this.subscribers.delete(sub); };
   };
 
@@ -130,6 +145,7 @@ export class RunController {
       this.queue = [];
     }
     this.apply(i);
+    this.ensureLoop();
   };
 
   /** Holds or releases the rush clock. */
@@ -137,22 +153,23 @@ export class RunController {
     if (held === this.view.held) return;
     this.last = null;
     this.setView({ held });
+    this.ensureLoop();
   };
 
-  /** The sim time to draw, in ticks: the last stepped tick plus the share of the next tick elapsed. */
-  simTime = (): number => {
-    const rush = this.view.state.rush;
-    if (rush === null || rush.tick === 0) return rush?.tick ?? 0;
-    return rush.tick - 1 + (rush.done ? 0 : Math.min(1, this.acc / this.tickMs));
-  };
+  /**
+   * The sim time to draw, in ticks: the tick of the last push plus the share of the next tick elapsed. After the
+   * rush is done it runs on for one more tick, so the scene plays the last tick's events and `rushEnd`.
+   */
+  simTime = (): number => Math.max(0, this.pushedTick + Math.min(1, this.acc / this.tickMs));
 
   private apply(intent: Intent): void {
     const prev = this.view.state;
     const prevTick = prev.rush?.tick ?? 0;
-    const { state, events } = transition(prev, intent, this.cfg);
+    const { state, events } = transition(prev, intent, this.cfg, this.onError);
     if (state === prev) return;
     afterTransition(this.store, this.opts.persist, prev, state, this.cfg);
     const opened = prev.rush === null && state.rush !== null;
+    if (opened) this.pushedTick = -1;
     if (opened || state.rush === null) {
       this.queue = [];
       this.acc = 0;
@@ -166,46 +183,70 @@ export class RunController {
     // A tick is pushed even when quiet, so the scene's clock follows; other intents only when they emitted.
     if (events.length > 0 || intent.type === 'tick') {
       const tick = events.length > 0 ? events[events.length - 1].t : prevTick;
+      this.pushedTick = tick;
+      // A batch that ends the rush at once (close early, end rush mid-way) starts the outro tick from now.
+      if (intent.type !== 'tick') {
+        this.acc = 0;
+        this.last = null;
+      }
       this.subscribers.forEach(s => s.push(events, tick));
     }
   }
 
-  private running(): boolean {
+  /** The clock is needed: a rush is ticking, or its outro tick is still playing, and nothing pauses it. */
+  private live(): boolean {
     const { state, held, hidden } = this.view;
-    return state.rush !== null && !state.rush.done && !held && !hidden;
+    if (this.offVisibility === null || state.rush === null || held || hidden) return false;
+    return !state.rush.done || this.acc < this.tickMs;
+  }
+
+  /** Requests a frame when the clock is needed and none is pending; the loop stops by itself otherwise. */
+  private ensureLoop(): void {
+    if (this.frameId === null && this.live()) this.frameId = this.env.requestFrame(this.frame);
   }
 
   /** One animation frame at time `now` (ms); public for tests. */
   frame = (now: number): void => {
     this.frameId = null;
-    if (!this.running()) {
+    if (!this.live()) {
       this.last = null;
+      return;
+    }
+    const dt = this.last === null ? 0 : now - this.last;
+    this.last = now;
+    if (this.view.state.rush?.done) {
+      // The outro tick: time runs on for the scene, nothing steps.
+      this.acc = Math.min(this.tickMs, this.acc + (Number.isFinite(dt) ? Math.max(0, dt) : 0));
     } else {
-      const dt = this.last === null ? 0 : now - this.last;
-      this.last = now;
       const { ticks, acc } = accumulate(this.acc, dt, this.tickMs, this.maxCatchUp);
       this.acc = acc;
-      for (let n = 0; n < ticks && this.running(); n++) {
+      for (let n = 0; n < ticks && this.view.state.rush?.done === false; n++) {
         const actions = this.queue;
         this.queue = [];
         this.apply({ type: 'tick', actions });
       }
     }
-    if (this.offVisibility !== null) this.frameId = this.env.requestFrame(this.frame);
+    this.ensureLoop();
   };
 
   private onVisibility = (): void => {
     const hidden = this.env.hidden();
     this.last = null;
     if (hidden !== this.view.hidden) this.setView({ hidden });
+    this.ensureLoop();
   };
 
-  /** Starts the frame loop and the visibility watch; safe to call twice. */
+  /**
+   * Starts the visibility watch (and the frame loop while a rush is on); safe to call twice. Saves the starting
+   * state once, so a reload on the first morning of a random-seed run comes back to the same run.
+   */
   start(): void {
     if (this.offVisibility !== null) return;
     this.offVisibility = this.env.onVisibility(this.onVisibility);
+    const { key, sessionCode } = this.opts.persist;
+    if (key !== null) save(this.store, key, this.view.state, { sessionCode });
     this.onVisibility();
-    this.frameId = this.env.requestFrame(this.frame);
+    this.ensureLoop();
   }
 
   stop(): void {
@@ -228,6 +269,10 @@ export interface UseRunOptions extends Omit<RunControllerOpts, 'env'> {
   initial: () => RunStoreState;
 }
 
+/**
+ * The run for a screen. `held` is the UI's own switch: it survives `open` and `newRun`, so a screen that holds the
+ * clock (the day-1 trial cup) must release it with `setHold(false)`, or the rush never ticks.
+ */
 export interface RunHandle extends RunView {
   dispatch(intent: Intent): void;
   act(action: Action): void;
