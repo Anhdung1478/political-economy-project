@@ -1,6 +1,6 @@
 // The class-session connection (spec §10, §11). Only /play and /host open it, through `connect()` (or `useSession()`);
-// importing this module opens nothing, so `usePlayUrl` and `useNow` stay free to use anywhere and Solo never connects.
-import { useEffect, useState, useSyncExternalStore } from 'react';
+// importing this module opens nothing. Solo never imports it (the clock and play-URL hooks live in `ui/`).
+import { useEffect, useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
   Ack, ClientToServer, HostBoard, Progress, ServerToClient, SessionSnapshot, Vote,
@@ -49,6 +49,48 @@ const set = (patch: Partial<SessionStore>) => {
   listeners.forEach(l => l());
 };
 
+/** Events answered with an ack, their payloads and their replies, from `ClientToServer`. */
+type AckEvent = {
+  [E in keyof ClientToServer]: Parameters<ClientToServer[E]> extends [unknown, unknown] ? E : never
+}[keyof ClientToServer];
+type PayloadOf<E extends AckEvent> = Parameters<ClientToServer[E]>[0];
+type ReplyOf<E extends AckEvent> = Parameters<Parameters<ClientToServer[E]>[1]>[0];
+
+/**
+ * The typed client over a socket. An ack-ed event is never buffered while disconnected: socket.io would flush it on
+ * reconnect before `player:resume`, the server would answer `unknownPlayer`, and the report would be lost. It
+ * resolves to the local timeout at once instead, so the report queue keeps the item.
+ */
+export function createClient(socket: ClassSocket, ackTimeoutMs = ACK_TIMEOUT_MS): SessionClient {
+  function call<E extends AckEvent>(event: E, payload: PayloadOf<E>): Promise<ReplyOf<E>> {
+    const timedOut = { ok: false, error: NET_TIMEOUT } as ReplyOf<E>;
+    if (!socket.connected) return Promise.resolve(timedOut);
+    const timed = socket.timeout(ackTimeoutMs) as unknown as {
+      emit: (ev: E, p: PayloadOf<E>, cb: (err: Error | null, r: ReplyOf<E>) => void) => void;
+    };
+    return new Promise(resolve => {
+      timed.emit(event, payload, (err, r) => resolve(err ? timedOut : r));
+    });
+  }
+  return {
+    socket,
+    join: nickname => call('player:join', { nickname }),
+    resume: token => call('player:resume', { token }),
+    vote: p => call('player:vote', p),
+    day: p => call('player:day', p),
+    progress: p => { if (socket.connected) socket.emit('player:progress', p); },
+    hostAuth: key => call('host:auth', { key }),
+    open: () => { socket.emit('host:open'); },
+    awards: () => { socket.emit('host:awards'); },
+    reset: () => { socket.emit('host:reset'); },
+    onConnect(cb) {
+      if (socket.connected) cb();
+      socket.on('connect', cb);
+      return () => { socket.off('connect', cb); };
+    },
+  };
+}
+
 let client: SessionClient | null = null;
 
 /** The connection to the class server, opened on the first call; later calls return the same client. */
@@ -64,40 +106,14 @@ export function connect(): SessionClient {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !socket.connected) socket.connect();
   });
-
-  const call = <R>(event: string, payload: unknown): Promise<R> => {
-    const timed = socket.timeout(ACK_TIMEOUT_MS) as unknown as { emit: (...args: unknown[]) => void };
-    return new Promise(resolve => {
-      timed.emit(event, payload, (err: Error | null, res: R) =>
-        resolve(err ? ({ ok: false, error: NET_TIMEOUT } as R) : res));
-    });
-  };
-
-  client = {
-    socket,
-    join: nickname => call('player:join', { nickname }),
-    resume: token => call('player:resume', { token }),
-    vote: p => call('player:vote', p),
-    day: p => call('player:day', p),
-    progress: p => { socket.emit('player:progress', p); },
-    hostAuth: key => call('host:auth', { key }),
-    open: () => { socket.emit('host:open'); },
-    awards: () => { socket.emit('host:awards'); },
-    reset: () => { socket.emit('host:reset'); },
-    onConnect(cb) {
-      if (socket.connected) cb();
-      socket.on('connect', cb);
-      return () => { socket.off('connect', cb); };
-    },
-  };
+  client = createClient(socket);
   return client;
 }
 
-/** The latest `state`, board and connection status; opens the connection on first use. */
+/** The latest `state`, board and connection status; the connection opens when the first component subscribes. */
 export function useSession(): SessionStore {
-  connect();
   return useSyncExternalStore(
-    cb => { listeners.add(cb); return () => { listeners.delete(cb); }; },
+    cb => { connect(); listeners.add(cb); return () => { listeners.delete(cb); }; },
     () => current,
   );
 }
@@ -105,28 +121,4 @@ export function useSession(): SessionStore {
 /** Runs `cb` now (if connected) and after every reconnect; opens the connection on first use. */
 export function useOnConnect(cb: () => void): void {
   useEffect(() => connect().onConnect(cb), [cb]);
-}
-
-/** Re-renders every `ms` milliseconds; returns Date.now(). */
-export function useNow(ms = 250): number {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(id);
-  }, [ms]);
-  return now;
-}
-
-let publicUrl: Promise<string> | null = null;
-/** The URL phones should open: PUBLIC_URL from the server, else this page's origin. */
-export function usePlayUrl(): string {
-  const [url, setUrl] = useState(`${location.origin}/play`);
-  useEffect(() => {
-    publicUrl ??= fetch('/api/config')
-      .then(r => r.json() as Promise<{ publicUrl: string | null }>)
-      .then(c => (c.publicUrl ?? location.origin).replace(/\/+$/, ''))
-      .catch(() => location.origin);
-    void publicUrl.then(base => setUrl(`${base}/play`));
-  }, []);
-  return url;
 }

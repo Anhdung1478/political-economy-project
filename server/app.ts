@@ -123,8 +123,7 @@ export function createApp(opts: AppOptions) {
     socket.on('player:progress', p => handle(undefined, () => {
       const id = me();
       if (!id) return;
-      session.progress(id, field(p, 'day') as never, field(p, 'phase') as never);
-      changed();
+      if (session.progress(id, field(p, 'day') as never, field(p, 'phase') as never)) changed();
     }));
     socket.on('player:day', (p, ack) => handle(ack, reply => {
       const id = me();

@@ -124,15 +124,16 @@ export class Session {
     return { ok: true };
   }
 
-  /** Where the player is in their run; only once the market is open. */
-  progress(id: string, day: Day, phase: Phase): void {
+  /** Where the player is in their run; only once the market is open. True when it changed. */
+  progress(id: string, day: Day, phase: Phase): boolean {
     const p = this.players.get(id);
     const pr = parseProgress({ day, phase });
-    if (!p || !pr || this.phase === 'lobby') return;
-    if (p.progress?.day === pr.day && p.progress.phase === pr.phase) return;
+    if (!p || !pr || this.phase === 'lobby') return false;
+    if (p.progress?.day === pr.day && p.progress.phase === pr.phase) return false;
     p.progress = pr;
     p.lastActive = this.now();
     this.changed();
+    return true;
   }
 
   /**

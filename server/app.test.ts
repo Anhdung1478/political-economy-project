@@ -37,7 +37,8 @@ function client() {
   let last: SessionSnapshot | null = null;
   let board: HostBoard | null = null;
   let boards = 0;
-  s.on('state', st => (last = st));
+  let states = 0;
+  s.on('state', st => { last = st; states++; });
   s.on('host:board', b => { board = b; boards++; });
   clients.push(s);
   const until = (pred: (st: SessionSnapshot) => boolean) =>
@@ -60,7 +61,7 @@ function client() {
     });
   const emit = <T = Ack>(ev: string, payload?: unknown) =>
     new Promise<T>(res => s.emit(ev as never, payload as never, res as never));
-  return { s, until, untilBoard, emit, boards: () => boards, state: () => last };
+  return { s, until, untilBoard, emit, boards: () => boards, states: () => states, state: () => last };
 }
 
 async function host() {
@@ -176,6 +177,21 @@ describe('class session over sockets', () => {
     // An old queue flushing after the reset is refused, but answered.
     expect(await sendDay(a, code, 2, 900)).toEqual({ ok: false, error: 'wrongSession' });
     expect(await a.emit('player:vote', { code, choice: 'invisible', when: 'after' })).toEqual({ ok: false, error: 'wrongSession' });
+  });
+
+  it('broadcasts progress only when it changed', async () => {
+    await start();
+    const h = await host();
+    const a = await player('An');
+    h.s.emit('host:open');
+    await h.until(s => s.phase === 'open');
+    a.s.emit('player:progress', { day: 1, phase: 'rush' });
+    await h.until(s => s.counts.playing === 1);
+    await wait(150);
+    const n = h.states();
+    for (let i = 0; i < 3; i++) a.s.emit('player:progress', { day: 1, phase: 'rush' });
+    await wait(250);
+    expect(h.states()).toBe(n);
   });
 
   it('sends the host board only to authenticated sockets', async () => {

@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
-import { usePlayUrl } from '../net/socket';
+import { usePlayUrl } from './usePlayUrl';
 
 /** QR code pointing phones at /play, plus the short URL in words. */
 export function JoinQR({ size = 220, showUrl = true }: { size?: number; showUrl?: boolean }) {

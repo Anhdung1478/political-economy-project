@@ -120,13 +120,14 @@ describe('votes', () => {
 describe('progress', () => {
   it('is ignored in the lobby and kept once the market is open', () => {
     const { s, ids } = joined(['An']);
-    s.progress(ids[0], 1, 'morning');
+    expect(s.progress(ids[0], 1, 'morning')).toBe(false);
     expect(s.board().members[0].progress).toBeNull();
     s.open();
     s.progress(ids[0], 2, 'rush');
     expect(s.board().members[0].progress).toEqual({ day: 2, phase: 'rush' });
-    s.progress(ids[0], 9 as never, 'rush');
-    s.progress(ids[0], 3, 'nap' as never);
+    expect(s.progress(ids[0], 9 as never, 'rush')).toBe(false);
+    expect(s.progress(ids[0], 3, 'nap' as never)).toBe(false);
+    expect(s.progress('nobody', 3, 'rush')).toBe(false);
     expect(s.board().members[0].progress).toEqual({ day: 2, phase: 'rush' });
   });
   it('counts a player as playing once they have progress', () => {
@@ -376,11 +377,11 @@ describe('progress persistence', () => {
   it('does not persist when the progress is unchanged', () => {
     const { s, ids, o } = joined(['An']);
     s.open();
-    s.progress(ids[0], 1, 'rush');
+    expect(s.progress(ids[0], 1, 'rush')).toBe(true);
     const calls = o.persist.mock.calls.length;
-    s.progress(ids[0], 1, 'rush');
+    expect(s.progress(ids[0], 1, 'rush')).toBe(false);
     expect(o.persist.mock.calls.length).toBe(calls);
-    s.progress(ids[0], 1, 'cards');
+    expect(s.progress(ids[0], 1, 'cards')).toBe(true);
     expect(o.persist.mock.calls.length).toBe(calls + 1);
   });
 });

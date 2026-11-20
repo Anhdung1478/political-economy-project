@@ -1,4 +1,4 @@
-import { useNow } from '../net/socket';
+import { useNow } from './useNow';
 import { cx } from './cx';
 
 interface Props { deadline: number | null; serverOffset: number; total: number; size?: number }

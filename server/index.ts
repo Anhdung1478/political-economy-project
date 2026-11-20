@@ -34,10 +34,13 @@ http.listen(port, () => {
   console.log(`   Màn host: http://localhost:${port}/host`);
 });
 
+// Flush the pending save, then exit. A hung write cannot make the process unkillable: a second signal, or 5 s,
+// exits at once with code 1.
 let stopping = false;
 const shutdown = () => {
-  if (stopping) return;
+  if (stopping) process.exit(1);
   stopping = true;
+  setTimeout(() => process.exit(1), 5000).unref();
   void saver.flush().then(() => process.exit(0));
 };
 process.on('SIGINT', shutdown);

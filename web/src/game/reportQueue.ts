@@ -25,8 +25,11 @@ export interface ReportQueue {
 
 export const emptyQueue = (code: string | null = null): ReportQueue => ({ code, seq: 0, items: [], inFlight: null, sent: [] });
 
-/** The storage key of a session's queue. */
-export const queueKey = (code: string) => `pts.queue.${code}`;
+/** The one storage key of the queue; the session code is inside, so an old session's queue is overwritten. */
+export const QUEUE_KEY = 'pts.queue';
+
+/** Replies that mean "not handled yet": the socket is not attached to its player (before `player:resume`). */
+const RETRY_ERRORS: readonly string[] = ['unknownPlayer'];
 
 const dayKey = (p: DayPayload) => `${p.runId}:${p.summary.day}`;
 
@@ -117,10 +120,11 @@ export function restore(text: string | null, code: string): ReportQueue {
 
 export interface OutboxOptions {
   store: KeyValueStore;
-  /** Sends one item; resolves with the server's reply, or a reply `isTimeout` recognises. */
+  /** Sends one item; resolves with the server's reply, or a reply `isTimeout` recognises. A rejection counts as a
+   *  timeout. */
   send: (item: QueueItem) => Promise<Ack>;
   isTimeout: (r: Ack) => boolean;
-  /** Every real reply, e.g. the rank of a day. */
+  /** Every real reply, e.g. the rank of a day. `unknownPlayer` is not one: the item is kept and sent again. */
   onReply?: (item: QueueItem, reply: Ack) => void;
   /** Wait before resending after a timeout. */
   retryMs?: number;
@@ -144,31 +148,32 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   let isOnline = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
 
-  const save = () => { if (q.code !== null) opts.store.set(queueKey(q.code), serialize(q)); };
+  const save = () => { if (q.code !== null) opts.store.set(QUEUE_KEY, serialize(q)); };
+  const retryLater = (id: string) => {
+    q = timeout(q, id);
+    if (retry === null) retry = setTimeout(() => { retry = null; pump(); }, retryMs);
+  };
   const pump = () => {
     if (!isOnline) return;
     const n = next(q);
     if (!n) return;
     q = n.queue;
     const { item } = n;
-    void opts.send(item).then(r => {
-      if (opts.isTimeout(r)) {
-        q = timeout(q, item.id);
-        if (retry === null) retry = setTimeout(() => { retry = null; pump(); }, retryMs);
-        return;
-      }
+    const sent = (() => { try { return opts.send(item); } catch (err) { return Promise.reject(err); } })();
+    sent.then(r => {
+      if (opts.isTimeout(r) || (!r.ok && RETRY_ERRORS.includes(r.error))) { retryLater(item.id); return; }
       q = ack(q, item.id);
       save();
-      opts.onReply?.(item, r);
+      try { opts.onReply?.(item, r); } catch (err) { console.error('[reportQueue] onReply failed', err); }
       pump();
-    });
+    }, () => retryLater(item.id));
   };
 
   return {
     setCode(code) {
       if (q.code === code) return;
-      if (q.code !== null) opts.store.set(queueKey(q.code), null);
-      q = restore(opts.store.get(queueKey(code)), code);
+      q = restore(opts.store.get(QUEUE_KEY), code);
+      save();
       pump();
     },
     push(kind, payload) {

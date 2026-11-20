@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { daySummary } from '../../../shared/protocol.fixtures';
 import type { Ack } from '../../../shared/protocol';
 import {
-  ack, createOutbox, emptyQueue, enqueue, next, queueKey, restore, serialize, setCode, timeout,
+  ack, createOutbox, emptyQueue, enqueue, next, QUEUE_KEY, restore, serialize, setCode, timeout,
   type QueueItem, type ReportQueue,
 } from './reportQueue';
 import { memoryStore } from './storage';
@@ -120,21 +120,22 @@ describe('report queue', () => {
     expect(restore(null, 'ABCD')).toEqual(emptyQueue('ABCD'));
     expect(restore(JSON.stringify({ v: 1, code: 'ABCD', seq: 1, items: [{ junk: true }], sent: [] }), 'ABCD'))
       .toEqual(emptyQueue('ABCD'));
-    expect(queueKey('ABCD')).not.toBe(queueKey('WXYZ'));
   });
 });
 
 describe('outbox', () => {
-  type Sent = { item: QueueItem; reply: (r: Ack | 'timeout') => void };
-  function setup(initial: Record<string, string> = {}) {
+  type Sent = { item: QueueItem; reply: (r: Ack | 'timeout' | Error) => void };
+  function setup(initial: Record<string, string> = {}, onReply?: (item: QueueItem, r: Ack) => void) {
     const store = memoryStore(initial);
     const sent: Sent[] = [];
     const replies: [QueueItem, Ack][] = [];
     const box = createOutbox({
       store,
-      send: item => new Promise(res => sent.push({ item, reply: r => res(r === 'timeout' ? { ok: false, error: 'timeout' } : r) })),
+      send: item => new Promise((res, rej) => sent.push({
+        item, reply: r => (r instanceof Error ? rej(r) : res(r === 'timeout' ? { ok: false, error: 'timeout' } : r)),
+      })),
       isTimeout: r => !r.ok && r.error === 'timeout',
-      onReply: (item, r) => replies.push([item, r]),
+      onReply: onReply ?? ((item, r) => replies.push([item, r])),
       retryMs: 1,
     });
     const tick = () => new Promise(r => setTimeout(r, 5));
@@ -149,7 +150,7 @@ describe('outbox', () => {
     expect(sent).toHaveLength(0); // offline
     box.online(true);
     expect(sent).toHaveLength(1);
-    expect(JSON.parse(store.get(queueKey('ABCD'))!).items).toHaveLength(2);
+    expect(JSON.parse(store.get(QUEUE_KEY)!).items).toHaveLength(2);
     sent[0].reply({ ok: true, rank: 3 } as Ack);
     await tick();
     expect(replies[0][1]).toEqual({ ok: true, rank: 3 });
@@ -162,20 +163,73 @@ describe('outbox', () => {
     sent[2].reply({ ok: false, error: 'wrongSession' });
     await tick();
     expect(box.pending()).toBe(0);
-    expect(JSON.parse(store.get(queueKey('ABCD'))!).items).toHaveLength(0);
+    expect(JSON.parse(store.get(QUEUE_KEY)!).items).toHaveLength(0);
+  });
+
+  it('keeps an item answered unknownPlayer (not attached yet) and resends it', async () => {
+    const { sent, replies, box, tick } = setup();
+    box.setCode('ABCD');
+    box.push('day', day(1));
+    box.online(true);
+    sent[0].reply({ ok: false, error: 'unknownPlayer' });
+    await tick();
+    expect(box.pending()).toBe(1);
+    expect(replies).toHaveLength(0);
+    expect(sent).toHaveLength(2);
+    expect(sent[1].item.id).toBe(sent[0].item.id);
+    sent[1].reply({ ok: true, rank: 1 } as Ack);
+    await tick();
+    expect(box.pending()).toBe(0);
+  });
+
+  it('treats a failed send as a timeout', async () => {
+    const { sent, box, tick } = setup();
+    box.setCode('ABCD');
+    box.push('day', day(1));
+    box.online(true);
+    sent[0].reply(new Error('boom'));
+    await tick();
+    expect(box.pending()).toBe(1);
+    expect(sent).toHaveLength(2);
+  });
+
+  it('keeps sending when onReply throws', async () => {
+    const { sent, box, tick } = setup({}, () => { throw new Error('ui bug'); });
+    box.setCode('ABCD');
+    box.push('day', day(1));
+    box.push('day', day(2));
+    box.online(true);
+    sent[0].reply({ ok: true, rank: 1 } as Ack);
+    await tick();
+    expect(sent).toHaveLength(2);
+    expect(box.pending()).toBe(1);
+  });
+
+  it('keeps one saved queue, so a reload after a reset leaves nothing stale', () => {
+    const first = setup();
+    first.box.setCode('ABCD');
+    first.box.push('day', day(1));
+    // Page reloaded after the host pressed Reset: the first state carries the new code.
+    const { box, store } = setup({ [QUEUE_KEY]: first.store.get(QUEUE_KEY)! });
+    box.setCode('WXYZ');
+    expect(box.pending()).toBe(0);
+    const saved = store.get(QUEUE_KEY);
+    expect(saved === null || JSON.parse(saved).code === 'WXYZ').toBe(true);
+    box.push('vote', vote('before'));
+    expect(JSON.parse(store.get(QUEUE_KEY)!)).toMatchObject({ code: 'WXYZ', items: [{ kind: 'vote' }] });
   });
 
   it('restores a saved queue and clears the old code on a reset', async () => {
     const first = setup();
     first.box.setCode('ABCD');
     first.box.push('vote', vote('before'));
-    const saved = first.store.get(queueKey('ABCD'))!;
-    const { box, sent, store } = setup({ [queueKey('ABCD')]: saved });
+    const saved = first.store.get(QUEUE_KEY)!;
+    const { box, sent, store } = setup({ [QUEUE_KEY]: saved });
     box.setCode('ABCD');
     expect(box.pending()).toBe(1);
     box.setCode('WXYZ');
     expect(box.pending()).toBe(0);
-    expect(store.get(queueKey('ABCD'))).toBeNull();
+    expect(JSON.parse(store.get(QUEUE_KEY)!)).toMatchObject({ code: 'WXYZ', items: [] });
     box.online(true);
     expect(sent).toHaveLength(0);
   });
