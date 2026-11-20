@@ -12,7 +12,7 @@ import { CONFIG } from '../../../../shared/sim/config';
 import { canDeliver, checkInput, counterView, craftInput, craftTick } from '../../../../shared/sim/rush';
 import type { Action, CraftState, InputReject, RunState, RushState, SimEvent } from '../../../../shared/sim/types';
 import { fmtMoney } from '../../game/format';
-import type { RunHandle } from '../../game/useRun';
+import { useRush, type RunHandle, type RushSource } from '../../game/useRun';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Modal } from '../../ui/Modal';
@@ -26,16 +26,19 @@ import {
 import './rush.css';
 
 /**
- * Everything the rush screen gets from Game: the live rush and the run, the rush as it opened (`opening`, the street's
- * snapshot), `dispatch` (closeEarly, endRush), `act` (craft, deliver, trash, setPrice for the next tick), the clock
- * hold (`setHold`/`held`: the day-1 practice cup, the pause after a hidden tab), `hidden` (tab hidden, clock paused),
+ * Everything the rush screen gets from Game: where to read the live rush (`source`; the screen subscribes itself, so
+ * Game does not re-render on every tick) and the run, the rush as it opened (`opening`, the street's snapshot),
+ * `dispatch` (closeEarly, endRush), `act` (craft, deliver, trash, setPrice for the next tick), the clock hold
+ * (`setHold`/`held`: the day-1 practice cup, the pause after a hidden tab), `hidden` (tab hidden, clock paused),
  * `simTime` and `subscribe` (each tick's events).
  */
 export interface RushScreenProps extends Pick<RunHandle,
   'opening' | 'dispatch' | 'act' | 'setHold' | 'held' | 'hidden' | 'simTime' | 'subscribe'> {
-  rush: RushState;
+  source: RushSource;
   run: RunState;
 }
+
+type RushViewProps = Omit<RushScreenProps, 'source'> & { rush: RushState };
 
 /** The outro over the street before the afternoon. */
 const OUTRO_MS = 2600;
@@ -91,7 +94,16 @@ function refusalText(action: Action['type'], why: InputReject): string {
   return rejectText(why, null, null);
 }
 
-export function RushScreen({ rush, run, dispatch, act, setHold, hidden, simTime, subscribe }: RushScreenProps) {
+/** The live rush, re-rendered on each tick; while the screen leaves (the rush is over) it keeps the last one. */
+export function RushScreen({ source, ...rest }: RushScreenProps) {
+  const live = useRush(source);
+  const last = useRef(live);
+  if (live !== null) last.current = live;
+  const rush = last.current;
+  return rush === null ? null : <RushView rush={rush} {...rest} />;
+}
+
+function RushView({ rush, run, dispatch, act, setHold, hidden, simTime, subscribe }: RushViewProps) {
   const reduced = useReducedMotion() ?? false;
   const player = rush.shops.find(s => s.id === 'player');
   const price = player?.price ?? rush.player.morningPrice;

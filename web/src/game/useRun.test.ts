@@ -272,3 +272,29 @@ describe('resumeOrStart', () => {
     expect(resumeOrStart(store, { key: null }, fallback)).toStrictEqual(fallback());
   });
 });
+
+describe('RunController, final fix wave', () => {
+  it('keeps the shell view the same object across rush ticks, and changes it with the run or the flags', () => {
+    const { clock, ctl } = setup();
+    const morning = ctl.getShell();
+    ctl.dispatch({ type: 'setPlanPrice', price: 33 });
+    expect(ctl.getShell()).not.toBe(morning);
+    ctl.dispatch({ type: 'open' });
+    const open = ctl.getShell();
+    expect(open.rushOn).toBe(true);
+    expect(open.run.phase).toBe('rush');
+    clock.frame(0);
+    clock.frame(100);
+    clock.frame(200);
+    expect(ctl.getRush()?.tick).toBe(2);
+    expect(ctl.getShell()).toBe(open);
+    ctl.setHold(true);
+    expect(ctl.getShell()).not.toBe(open);
+    expect(ctl.getShell().held).toBe(true);
+    ctl.setHold(false);
+    ctl.dispatch({ type: 'closeEarly' });
+    ctl.dispatch({ type: 'endRush' });
+    expect(ctl.getShell().rushOn).toBe(false);
+    expect(ctl.getRush()).toBeNull();
+  });
+});

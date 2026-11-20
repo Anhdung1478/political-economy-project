@@ -1,10 +1,12 @@
 // The one real-time clock of the game (spec §6 "Kỹ thuật", §10): turns real time into 100 ms rush ticks with
 // requestAnimationFrame, stops while the tab is hidden, applies the UI's queued actions on the next tick through the
 // run store, saves at each transition, and hands each tick's events to the street scene. The rules live in
-// `runStore.ts`; `RunController` is the clock and plumbing, `useRun` its React binding.
+// `runStore.ts`; `RunController` is the clock and plumbing, `useRun` its React binding. The screen around the game
+// re-renders only when the run, the draft or the clock's flags change (`ShellView`); the rush's tick-by-tick state is
+// read by the rush screen alone (`useRush`), so ten ticks a second do not re-render the whole game.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { CONFIG, type SimConfig } from '../../../shared/sim/config';
-import type { Action, RushState, SimEvent } from '../../../shared/sim/types';
+import type { Action, MorningPlan, RunState, RushState, SimEvent } from '../../../shared/sim/types';
 import {
   afterTransition, load, reportError, save, transition, type Intent, type PersistOpts, type RunStoreState,
 } from './runStore';
@@ -44,6 +46,34 @@ export interface RunView {
   held: boolean;
 }
 
+/**
+ * The view without the rush's tick-by-tick state: a new object only when the run, the draft, the rush coming or going,
+ * `opening`, `hidden` or `held` change. Game re-renders on this; rush ticks leave it as it is.
+ */
+export interface ShellView {
+  run: RunState;
+  planDraft: MorningPlan;
+  /** A rush is on; its live state is read with `useRush`. */
+  rushOn: boolean;
+  opening: RushState | null;
+  hidden: boolean;
+  held: boolean;
+}
+
+const shellOf = (v: RunView): ShellView => ({
+  run: v.state.run, planDraft: v.state.planDraft, rushOn: v.state.rush !== null, opening: v.opening, hidden: v.hidden,
+  held: v.held,
+});
+
+const sameShell = (s: ShellView, v: RunView): boolean => s.run === v.state.run && s.planDraft === v.state.planDraft
+  && s.rushOn === (v.state.rush !== null) && s.opening === v.opening && s.hidden === v.hidden && s.held === v.held;
+
+/** Where the live rush is read from (the controller): `useRush` subscribes to it. */
+export interface RushSource {
+  subscribeView(cb: () => void): () => void;
+  getRush(): RushState | null;
+}
+
 /** What the clock needs from the browser; tests pass a fake. */
 export interface ClockEnv {
   requestFrame(cb: (now: number) => void): number;
@@ -77,6 +107,7 @@ export interface RunControllerOpts {
 
 export class RunController {
   private view: RunView;
+  private shell: ShellView;
   private readonly viewListeners = new Set<() => void>();
   private readonly subscribers = new Set<RushSubscriber>();
   private queue: Action[] = [];
@@ -102,17 +133,23 @@ export class RunController {
     this.maxCatchUp = opts.maxCatchUp ?? MAX_CATCH_UP;
     this.onError = opts.onError ?? reportError;
     this.view = { state: initial, opening: initial.rush, hidden: false, held: false };
+    this.shell = shellOf(this.view);
     if (initial.rush !== null) this.pushedTick = initial.rush.tick - 1;
   }
 
   // --- external store (useSyncExternalStore) ---
   getView = (): RunView => this.view;
+  /** The view as Game sees it: the same object across rush ticks. */
+  getShell = (): ShellView => this.shell;
+  /** The live rush (a new object every tick), or null outside the rush. */
+  getRush = (): RushState | null => this.view.state.rush;
   subscribeView = (cb: () => void): (() => void) => {
     this.viewListeners.add(cb);
     return () => { this.viewListeners.delete(cb); };
   };
   private setView(patch: Partial<RunView>): void {
     this.view = { ...this.view, ...patch };
+    if (!sameShell(this.shell, this.view)) this.shell = shellOf(this.view);
     this.viewListeners.forEach(l => l());
   }
 
@@ -273,7 +310,7 @@ export interface UseRunOptions extends Omit<RunControllerOpts, 'env'> {
  * The run for a screen. `held` is the UI's own switch: it survives `open` and `newRun`, so a screen that holds the
  * clock (the day-1 trial cup) must release it with `setHold(false)`, or the rush never ticks.
  */
-export interface RunHandle extends RunView {
+export interface RunHandle extends ShellView, RushSource {
   dispatch(intent: Intent): void;
   act(action: Action): void;
   subscribe(sub: RushSubscriber): () => void;
@@ -288,7 +325,12 @@ export function useRun(opts: UseRunOptions): RunHandle {
     ctl.start();
     return () => ctl.stop();
   }, [ctl]);
-  const view = useSyncExternalStore(ctl.subscribeView, ctl.getView);
-  return { ...view, dispatch: ctl.dispatch, act: ctl.act, subscribe: ctl.subscribe, simTime: ctl.simTime,
-    setHold: ctl.setHold };
+  const shell = useSyncExternalStore(ctl.subscribeView, ctl.getShell);
+  return { ...shell, dispatch: ctl.dispatch, act: ctl.act, subscribe: ctl.subscribe, simTime: ctl.simTime,
+    setHold: ctl.setHold, subscribeView: ctl.subscribeView, getRush: ctl.getRush };
+}
+
+/** The live rush, re-rendering on every tick (the rush screen only); null outside the rush. */
+export function useRush(source: RushSource): RushState | null {
+  return useSyncExternalStore(source.subscribeView, source.getRush);
 }

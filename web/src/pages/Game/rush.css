@@ -257,6 +257,9 @@
 .rcraft.is-selected .cstage__cup .rcup { filter: drop-shadow(0 0 10px rgba(201, 119, 42, 0.8)); }
 .cstage__cup.is-sent { pointer-events: none; }
 .rcup { display: block; width: 100%; height: 100%; overflow: visible; }
+/* The cup's canvas covers the view box from (−20, −70), 220 × 280 units, over the cup's 160 × 200 box: room for the
+   straw, the pitcher and the drop-in (Cup.tsx VX..VH). The box under it takes the presses and the drag. */
+.rcup--canvas { position: absolute; left: -12.5%; top: -35%; width: 137.5%; height: 140%; pointer-events: none; }
 .rcup__shadow { fill: rgba(42, 29, 21, 0.16); }
 .rcup__ghost { fill: none; stroke: var(--ink-faint); stroke-width: 2; stroke-dasharray: 6 6; opacity: 0.6; }
 .rcup__glass { fill: none; stroke: #6e5b4d; stroke-width: 2.6; stroke-linejoin: round; }

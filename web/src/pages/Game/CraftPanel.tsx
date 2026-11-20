@@ -260,6 +260,11 @@ function CraftPanelView(p: CraftPanelProps) {
     ghost.setAttribute('aria-hidden', 'true');
     ghost.querySelector('.cbtn__finger')?.remove();
     renameIds(ghost);
+    // a copied canvas comes out blank: the cup's last frame goes into the copy
+    const drawn = el.querySelectorAll('canvas');
+    ghost.querySelectorAll('canvas').forEach((c, i) => {
+      if (drawn[i] !== undefined && drawn[i].width > 0 && drawn[i].height > 0) c.getContext('2d')?.drawImage(drawn[i], 0, 0);
+    });
     Object.assign(ghost.style, {
       position: 'absolute', left: `${el.offsetLeft}px`, top: `${el.offsetTop}px`, width: `${el.offsetWidth}px`,
       height: `${el.offsetHeight}px`, margin: '0', transform: cur,

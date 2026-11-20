@@ -85,12 +85,15 @@ export default function Game(props: GameProps) {
     initial: props.initial ?? (() => resumeOrStart(storage, persist, () => startRun(props.seed, props.runId))),
     persist,
   });
-  const { run, planDraft } = r.state;
+  // `r` changes only when the run, the draft or the clock's flags do: rush ticks do not re-render the game (the rush
+  // screen reads the live rush itself).
+  const { run, planDraft } = r;
   const { phase, day } = run;
 
   // The street: live during the rush, otherwise the day's street at rest.
   const canvas = useRef<StreetCanvasHandle>(null);
-  const { subscribe } = r;
+  const { subscribe, subscribeView, getRush } = r;
+  const rushSource = useMemo(() => ({ subscribeView, getRush }), [subscribeView, getRush]);
   useEffect(() => subscribe({
     push: (e, t) => canvas.current?.push(e, t),
     reset: s => canvas.current?.reset(s),
@@ -192,10 +195,10 @@ export default function Game(props: GameProps) {
           focusPrice={justTitled} />
       </motion.div>
     );
-  } else if (phase === 'rush' && r.state.rush !== null) {
+  } else if (phase === 'rush' && r.rushOn) {
     screen = (
       <motion.div key={`rush-${run.runId}-${day}`} className="game__screen" {...screenMotion}>
-        <RushScreen rush={r.state.rush} run={run} opening={r.opening} dispatch={dispatch} act={r.act}
+        <RushScreen source={rushSource} run={run} opening={r.opening} dispatch={dispatch} act={r.act}
           setHold={r.setHold} held={r.held} hidden={r.hidden} simTime={r.simTime} subscribe={r.subscribe} />
       </motion.div>
     );
