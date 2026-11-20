@@ -3,7 +3,7 @@ import type {
   CardId, ChoiceLabel, Day, DaySummary, K, Phase, Stock, TeaGrade, UpgradeId,
 } from './sim/types';
 
-export const LIMITS = { nickname: 20, maxPlayers: 200 } as const;
+export const LIMITS = { nickname: 20, maxPlayers: 200, joinId: 64 } as const;
 
 export type SessionPhase = 'lobby' | 'open' | 'awards';
 export type VoteChoice = 'invisible' | 'visible';
@@ -115,7 +115,7 @@ export const isDurable = (r: Ack<object>): boolean => !(r.ok && (r as { durable?
  * `durable: false`) means resend, and a `notNext` with a lower `expected` means "send the missing days first".
  */
 export interface ClientToServer {
-  'player:join': (p: { nickname: string }, ack: (r: Ack<{ playerId: string; token: string }>) => void) => void;
+  'player:join': (p: { nickname: string; joinId?: string }, ack: (r: Ack<{ playerId: string; token: string }>) => void) => void;
   'player:resume': (p: { token: string }, ack: (r: Ack<{ playerId: string; name: string }>) => void) => void;
   /** `code`: the session the vote was queued in; a vote from before a reset is refused (`wrongSession`). */
   'player:vote': (p: Vote & { code: string }, ack: (r: ReportAck) => void) => void;
@@ -197,6 +197,11 @@ export function parseDaySummary(x: unknown): DaySummary | null {
       lost: oneOf(o.lost, [true, false] as const),
     };
   });
+}
+
+/** The optional idempotency key of a join: a short non-empty string, else null (an old client sends none). */
+export function parseJoinId(x: unknown): string | null {
+  return typeof x === 'string' && x.length > 0 && x.length <= LIMITS.joinId ? x : null;
 }
 
 export function parseVote(x: unknown): Vote | null {

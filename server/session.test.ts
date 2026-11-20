@@ -55,6 +55,21 @@ describe('join and resume', () => {
     expect(s.board().members[0]).toMatchObject({ id: 'p1', name: 'Bé Na', connected: true });
     expect(o.persist).toHaveBeenCalled();
   });
+  it('answers a known join id with the same player, and keeps it across a save', () => {
+    const o = opts();
+    const s = new Session(o);
+    const a = s.join('An', 'j1');
+    expect(s.join('Other', 'j1')).toEqual(a);
+    expect(s.join('Bo', 'j2')).not.toEqual(a);
+    expect(s.join('Cu')).not.toEqual(a); // no id: always a new player
+    expect(s.board().members).toHaveLength(3);
+    const back = Session.fromJSON(JSON.parse(JSON.stringify(s.toJSON())), opts());
+    expect(back.join('An again', 'j1')).toEqual(a);
+    expect(back.board().members).toHaveLength(3);
+    // A file written before join ids still loads.
+    const old = JSON.parse(JSON.stringify(s.toJSON())); delete old.joins;
+    expect(Session.fromJSON(old, opts()).board().members).toHaveLength(3);
+  });
   it('refuses empty and too-long names', () => {
     const s = new Session(opts());
     expect(s.join('   ').ok).toBe(false);

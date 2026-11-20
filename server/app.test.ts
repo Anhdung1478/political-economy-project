@@ -178,6 +178,22 @@ describe('class session over sockets', () => {
     expect(app.session.snapshot().counts.joined).toBe(2);
   });
 
+  it('joins once per join id across sockets: a retry after a lost ack finds its player', async () => {
+    await start();
+    const a = client();
+    const first = await a.emit<Ack<{ playerId: string; token: string }>>('player:join', { nickname: 'An', joinId: 'j-1' });
+    expect(first.ok).toBe(true);
+    const b = client(); // a new socket, as after a reconnect without the token
+    expect(await b.emit('player:join', { nickname: 'An', joinId: 'j-1' })).toEqual(first);
+    expect(app.session.snapshot().counts.joined).toBe(1);
+    // The new socket is attached to that player.
+    expect((await b.emit('player:vote', { code: app.session.snapshot().code, choice: 'visible', when: 'before' })).ok).toBe(true);
+    // A bad id is ignored (an old client sends none), and another id is another player.
+    expect((await client().emit('player:join', { nickname: 'Bình', joinId: 42 })).ok).toBe(true);
+    expect((await client().emit('player:join', { nickname: 'Chi', joinId: 'j-2' })).ok).toBe(true);
+    expect(app.session.snapshot().counts.joined).toBe(3);
+  });
+
   it('checks the host key as a string and cuts a socket off after 5 wrong tries', async () => {
     await start();
     const c = client();

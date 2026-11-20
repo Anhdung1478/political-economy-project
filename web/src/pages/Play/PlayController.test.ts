@@ -9,7 +9,7 @@ import type { RunState } from '../../../../shared/sim/types';
 import { emptyQueue, QUEUE_KEY, serialize } from '../../game/reportQueue';
 import { KEYS, save } from '../../game/runStore';
 import { type KeyValueStore, memoryStore, webStore } from '../../game/storage';
-import { type ClassSocket, createClient, type SessionClient } from '../../net/socket';
+import { type ClassSocket, createClient, NET_TIMEOUT, type SessionClient } from '../../net/socket';
 import { PlayController } from './PlayController';
 import { PLAY_KEYS } from './playLogic';
 
@@ -105,6 +105,27 @@ describe('PlayController', () => {
     await until(() => p.view().resume === 'anon', 'token refused');
     expect(p.store.get(PLAY_KEYS.token)).toBeNull();
     expect((await p.ctl.join('   ')).ok).toBe(false);
+  });
+
+  it('a join whose ack is lost, retried on a new socket, makes one player', async () => {
+    const url = await server();
+    const store = memoryStore();
+    // The server handles the join, but the phone never hears: the ack is lost with the connection.
+    const lost = await phone(url, store, c => ({
+      ...c, join: async (n: string, j?: string) => { await c.join(n, j); return { ok: false as const, error: NET_TIMEOUT }; },
+    }));
+    const first = await lost.ctl.join('An');
+    expect(first.ok).toBe(false);
+    expect(app.session.snapshot().counts.joined).toBe(1);
+    expect(store.get(PLAY_KEYS.joinId)).not.toBeNull(); // kept: the attempt is not over
+    lost.socket.close();
+    // The page reloads (or the socket reconnects) with no token; the retry carries the same key.
+    const again = await phone(url, store);
+    const r = await again.ctl.join('An');
+    expect(r.ok).toBe(true);
+    await until(() => again.view().resume === 'in', 'resume');
+    expect(app.session.snapshot().counts.joined).toBe(1);
+    expect(store.get(PLAY_KEYS.joinId)).toBeNull(); // done: the next attempt gets a new key
   });
 
   it('refuses a join after the awards and does not attach', async () => {

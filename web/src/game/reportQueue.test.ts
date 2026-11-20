@@ -192,6 +192,7 @@ describe('outbox', () => {
     expect(sent).toHaveLength(2);
     sent[1].reply('timeout');
     await tick();
+    await vi.waitFor(() => expect(sent).toHaveLength(3));
     expect(sent).toHaveLength(3); // retried
     expect(sent[2].item.id).toBe(sent[1].item.id);
     box.online(false);
@@ -208,6 +209,7 @@ describe('outbox', () => {
     box.online(true);
     sent[0].reply({ ok: false, error: 'unknownPlayer' });
     await tick();
+    await vi.waitFor(() => expect(sent).toHaveLength(2)); // the retry timer, not the tick, decides when
     expect(box.pending()).toBe(1);
     expect(replies).toHaveLength(0);
     expect(sent).toHaveLength(2);
@@ -224,6 +226,7 @@ describe('outbox', () => {
     box.online(true);
     sent[0].reply(new Error('boom'));
     await tick();
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
     expect(box.pending()).toBe(1);
     expect(sent).toHaveLength(2);
   });
@@ -276,6 +279,7 @@ describe('outbox', () => {
     box.online(true);
     sent[0].reply({ ok: true, rank: 1, durable: false } as Ack);
     await tick();
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
     expect(box.pending()).toBe(1);
     expect(replies).toHaveLength(0);
     expect(sent[1].item.id).toBe(sent[0].item.id);

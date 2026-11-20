@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { daySummary as summary } from './protocol.fixtures';
-import { isDurable, LIMITS, notNextExpected, parseDaySummary, parseProgress, parseVote } from './protocol';
+import { isDurable, LIMITS, notNextExpected, parseDaySummary, parseJoinId, parseProgress, parseVote } from './protocol';
 
 describe('LIMITS', () => {
   it('keeps the old name and player limits', () => {
-    expect(LIMITS).toEqual({ nickname: 20, maxPlayers: 200 });
+    expect(LIMITS).toMatchObject({ nickname: 20, maxPlayers: 200 });
   });
 });
 
@@ -70,6 +70,14 @@ describe('parseDaySummary', () => {
     const hostile = { get day() { throw new Error('boom'); } };
     expect(() => parseDaySummary(hostile)).not.toThrow();
     expect(parseDaySummary(hostile)).toBeNull();
+  });
+});
+
+describe('parseJoinId', () => {
+  it('takes a short non-empty string and nothing else', () => {
+    expect(parseJoinId('j-abc')).toBe('j-abc');
+    expect(parseJoinId('x'.repeat(LIMITS.joinId))).not.toBeNull();
+    for (const x of ['', 'x'.repeat(LIMITS.joinId + 1), undefined, null, 5, {}, ['a']]) expect(parseJoinId(x)).toBeNull();
   });
 });
 

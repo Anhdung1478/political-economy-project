@@ -25,7 +25,7 @@ export interface SessionStore {
 
 export interface SessionClient {
   socket: ClassSocket;
-  join(nickname: string): Promise<Ack<{ playerId: string; token: string }>>;
+  join(nickname: string, joinId?: string): Promise<Ack<{ playerId: string; token: string }>>;
   resume(token: string): Promise<Ack<{ playerId: string; name: string }>>;
   /** Send through the report queue (`createOutbox`), which tags each item with its session code. */
   vote(p: Vote & { code: string }): Promise<ReportAck>;
@@ -83,7 +83,7 @@ export function createClient(socket: ClassSocket, ackTimeoutMs = ACK_TIMEOUT_MS)
   return {
     socket,
     lastState: () => last,
-    join: nickname => call('player:join', { nickname }),
+    join: (nickname, joinId) => call('player:join', joinId === undefined ? { nickname } : { nickname, joinId }),
     resume: token => call('player:resume', { token }),
     vote: p => call('player:vote', p),
     day: p => call('player:day', p),

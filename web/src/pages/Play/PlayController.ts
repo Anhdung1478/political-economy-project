@@ -53,6 +53,7 @@ export interface PlayOptions {
   retryMs?: number;
 }
 
+const newJoinId = () => `j-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 const newRunId = () => `play-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 /** What was last pushed as the "after" vote, and for which run: the same again is not pushed. */
@@ -63,6 +64,8 @@ export class PlayController {
   private listeners = new Set<() => void>();
   private outbox: Outbox;
   private token: string | null;
+  /** The key of the join attempt in progress (memory first, storage as a copy); null when none. */
+  private joinId: string | null;
   private runRef: RunState | null = null;
   private rankNote: RankNote | null = null;
   private lastProgress: Progress | null = null;
@@ -75,6 +78,7 @@ export class PlayController {
 
   constructor(private client: SessionClient, private store: KeyValueStore, private opts: PlayOptions = {}) {
     this.token = store.get(PLAY_KEYS.token);
+    this.joinId = store.get(PLAY_KEYS.joinId);
     const local = parseLocalSession(store.get(PLAY_KEYS.session));
     const saved = local ? this.savedRun(local.code) : null;
     this.runRef = saved;
@@ -197,7 +201,15 @@ export class PlayController {
 
   /** The join form: on success the token is kept (in memory first) and the phone resumes as that player. */
   async join(name: string) {
-    const r = await this.client.join(name);
+    // One key per attempt: a lost ack (a timeout) keeps it, so the retry, even on a new socket, gets the same player.
+    const joinId = this.joinId ?? newJoinId();
+    this.joinId = joinId;
+    this.store.set(PLAY_KEYS.joinId, joinId);
+    const r = await this.client.join(name, joinId);
+    if (r.ok || !isNetTimeout(r)) {
+      this.joinId = null;
+      this.store.set(PLAY_KEYS.joinId, null);
+    }
     if (r.ok) {
       this.token = r.token;
       this.store.set(PLAY_KEYS.token, r.token);

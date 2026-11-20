@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AWARDS, type Ack, type AwardsResult, type BoardMember, CHOICE_LABELS, type HostBoard, LIMITS, type Progress,
   type DayAck, type SessionCounts, type SessionPhase, type SessionSnapshot, type Vote, type VoteChoice,
-  parseDaySummary, parseProgress, parseVote,
+  parseDaySummary, parseJoinId, parseProgress, parseVote,
 } from '../shared/protocol';
 import type { ChoiceLabel, Day, DaySummary, Phase } from '../shared/sim/types';
 import { computeAwards, totals } from './awards';
@@ -32,6 +32,8 @@ interface Player {
 export interface SessionData {
   v: 1; code: string; seed: number; phase: SessionPhase; seq: number;
   awards: AwardsResult | null;
+  /** `joinId → playerId` pairs; absent in a file written before join ids. */
+  joins?: [string, string][];
   players: Omit<Player, 'connected'>[];
 }
 
@@ -48,6 +50,8 @@ export class Session {
   private frozen: AwardsResult | null = null;
   private players = new Map<string, Player>();
   private byToken = new Map<string, string>();
+  /** Join ids already answered, so a join retried on a new socket (its ack lost) finds its player. */
+  private byJoinId = new Map<string, string>();
   private readonly now: () => number;
   private readonly random: () => number;
   private readonly uuid: () => string;
@@ -74,7 +78,15 @@ export class Session {
 
   private changed(): void { this.persist(this); }
 
-  join(raw: string): Ack<{ playerId: string; token: string }> {
+  /** The player a join id was answered with, if that player still exists. */
+  joinedAs(joinId: string): { playerId: string; token: string } | null {
+    const id = this.byJoinId.get(joinId);
+    return id === undefined ? null : this.credentials(id);
+  }
+
+  join(raw: string, joinId?: string | null): Ack<{ playerId: string; token: string }> {
+    const known = joinId ? this.joinedAs(joinId) : null;
+    if (known) return { ok: true, ...known };
     if (this.phase === 'awards') return { ok: false, error: 'Buổi đã kết thúc' };
     if (typeof raw !== 'string') return { ok: false, error: `Tên phải từ 1 đến ${LIMITS.nickname} ký tự` };
     const name = raw.trim().replace(/\s+/g, ' ');
@@ -87,6 +99,7 @@ export class Session {
       votes: { before: null, after: null }, progress: null, lastActive: this.now(),
     });
     this.byToken.set(token, id);
+    if (joinId) this.byJoinId.set(joinId, id);
     this.changed();
     return { ok: true, playerId: id, token };
   }
@@ -221,6 +234,7 @@ export class Session {
     this.phase = 'lobby';
     this.frozen = null;
     this.newIdentity();
+    for (const [jid, pid] of [...this.byJoinId]) if (!this.players.get(pid)?.connected) this.byJoinId.delete(jid);
     for (const p of [...this.players.values()]) {
       if (!p.connected) { this.players.delete(p.id); this.byToken.delete(p.token); continue; }
       p.runId = null;
@@ -297,6 +311,7 @@ export class Session {
   toJSON(): SessionData {
     return {
       v: 1, code: this.code, seed: this.seed, phase: this.phase, seq: this.seq, awards: this.frozen,
+      joins: [...this.byJoinId],
       players: [...this.players.values()].map(({ connected: _c, ...p }) => structuredClone(p)),
     };
   }
@@ -360,6 +375,14 @@ export class Session {
         lastActive: finite(p.lastActive) ? p.lastActive : 0,
       });
       s.byToken.set(p.token, p.id);
+    }
+    if (v.joins !== undefined) {
+      if (!Array.isArray(v.joins) || v.joins.length > LIMITS.maxPlayers) fail('joins');
+      for (const j of v.joins as unknown[]) {
+        if (!Array.isArray(j) || j.length !== 2 || parseJoinId(j[0]) === null || typeof j[1] !== 'string') fail('joins');
+        const [jid, pid] = j as [string, string];
+        if (s.players.has(pid)) s.byJoinId.set(jid, pid);
+      }
     }
     return s;
   }

@@ -11,6 +11,8 @@ import type { DayPayload } from '../../game/reportQueue';
 export const PLAY_KEYS = {
   token: 'pts.token',
   name: 'pts.name',
+  /** The idempotency key of a join in progress: kept until the join gets an answer, so a retry finds its player. */
+  joinId: 'pts.joinId',
   /** `{ code, seed }` of the session this phone last saw (so a reload offline can go on with the saved run). */
   session: 'pts.session',
   /** `{ code, choice }`: the "before" vote of the session `code`. */

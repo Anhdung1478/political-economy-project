@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { Server } from 'socket.io';
-import type { Ack, ClientToServer, ReportAck, ServerToClient } from '../shared/protocol';
+import { type Ack, type ClientToServer, parseJoinId, type ReportAck, type ServerToClient } from '../shared/protocol';
 import { Session } from './session';
 
 interface SocketData {
@@ -141,7 +141,8 @@ export function createApp(opts: AppOptions) {
       const mine = me();
       const known = mine === null ? null : session.credentials(mine);
       if (known) { replyWhenSaved(reply, { ok: true, ...known }); return; }
-      const r = session.join(field(p, 'nickname') as string);
+      // A join id seen before (the ack was lost with the old socket) answers with the player it made, not a second one.
+      const r = session.join(field(p, 'nickname') as string, parseJoinId(field(p, 'joinId')));
       if (!r.ok) { reply(r); return; }
       attach(r.playerId);
       replyWhenSaved(reply, r);
