@@ -315,6 +315,25 @@ describe('outbox', () => {
     expect(sent).toHaveLength(7);
   });
 
+  it('a new session code clears the wait before a day asked for again', async () => {
+    const reports = [1, 2, 3].map(d => daySummary({ day: d as Day }));
+    const { sent, box, tick } = setup({}, undefined, (_r, from) => reports.filter(r => r.day >= from), 400);
+    box.setCode('ABCD');
+    box.online(true);
+    box.push('day', day(3));
+    sent[0].reply({ ok: false, error: 'notNext', expected: 2 } as Ack); // asked for day 2 (first time: at once)
+    await tick();
+    sent[1].reply({ ok: true, rank: 1 } as Ack); // day 2
+    await tick();
+    sent[2].reply({ ok: false, error: 'notNext', expected: 2 } as Ack); // asked again: held for retryMs
+    await tick();
+    expect(sent).toHaveLength(3);
+    box.setCode('WXYZ'); // the host reset: the old hold must not delay the new session
+    box.push('day', day(1, 'r9'));
+    await tick();
+    expect(sent).toHaveLength(4);
+  });
+
   it('drops a day the server already has (notNext with a higher expected day) or cannot resync', async () => {
     const { sent, replies, box, tick } = setup({}, undefined, () => []);
     box.setCode('ABCD');

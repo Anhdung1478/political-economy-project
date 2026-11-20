@@ -265,6 +265,8 @@ export function createOutbox(opts: OutboxOptions): Outbox {
   return {
     setCode(code) {
       if (q.code === code) return;
+      // The wait belonged to the old session's queue.
+      if (hold !== null) { clearTimeout(hold); hold = null; }
       q = restore(opts.store.get(QUEUE_KEY), code);
       save();
       pump();
