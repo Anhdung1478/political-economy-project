@@ -3,7 +3,7 @@
 // measured frame rate (`window.__sceneFps`), then shuts everything down.
 //
 //   npm run shoot -- --route "/dev/scene?day=3&seed=7" [--size 390x844] [--dpr 2] [--wait 2000]
-//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR] [--full] [--press KEY]
+//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR] [--full] [--press KEY] [--click SELECTOR]
 //
 // The route may leave out its leading slash ("dev/scene?day=3"), which Git Bash would otherwise rewrite into a path.
 // Captures start once `--ready` matches (default on /dev/scene: the street's first frame,
@@ -26,7 +26,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, '.shots');
 const CHROME = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const USAGE = 'usage: npm run shoot -- --route PATH [--size WxH] [--dpr N] [--wait MS] [--frames N] [--every MS] '
-  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR] [--full] [--press KEY]';
+  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR] [--full] [--press KEY] [--click SELECTOR]';
 /** What a scene route is ready on: the street's first frame (not the Suspense loader before it). */
 const SCENE_READY = 'canvas[data-scene][data-ready="1"]';
 /** The character sheet's first frame. */
@@ -39,13 +39,15 @@ interface Args {
   full: boolean;
   /** A key to press after the wait, before capturing. */
   press: string;
+  /** A selector to click after the wait (and after --press), before capturing. */
+  click: string;
   /** A selector to wait for before capturing; '' for none; null until defaulted from the route. */
   ready: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const a: Args = { route: '', width: 390, height: 844, dpr: 2, wait: 2000, frames: 1, every: 1000,
-    out: path.join(SHOTS, 'shot'), cpu: 1, full: false, press: '', ready: null };
+    out: path.join(SHOTS, 'shot'), cpu: 1, full: false, press: '', click: '', ready: null };
   const num = (flag: string, v: string | undefined, min: number) => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n) || n < min) throw new Error(`${flag} needs a number >= ${min}`);
@@ -77,6 +79,9 @@ function parseArgs(argv: string[]): Args {
     else if (f === '--press') {
       if (v === undefined || v === '') throw new Error('--press needs a key name, e.g. h');
       a.press = v;
+    } else if (f === '--click') {
+      if (v === undefined || v === '') throw new Error('--click needs a CSS selector');
+      a.click = v;
     } else if (f === '--cpu') a.cpu = num(f, v, 1);
     else if (f === '--ready') {
       if (v === undefined) throw new Error('--ready needs a CSS selector (or "" for none)');
@@ -148,6 +153,10 @@ async function main(): Promise<number> {
     await sleep(args.wait);
     if (args.press !== '') {
       await page.keyboard.press(args.press as Parameters<typeof page.keyboard.press>[0]);
+      await sleep(700);
+    }
+    if (args.click !== '') {
+      await page.click(args.click);
       await sleep(700);
     }
     await mkdir(path.dirname(args.out), { recursive: true });

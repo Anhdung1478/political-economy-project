@@ -66,6 +66,15 @@
 .modal h2 { font-size: 26px; margin-bottom: 8px; }
 .modal p { color: var(--ink-soft); }
 .modal__actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+/* Never taller than the screen: the body scrolls, the buttons stay in view. */
+.modal { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+.modal__actions { position: sticky; bottom: -28px; margin-bottom: -28px; padding: 12px 0 28px; background: var(--paper); }
+@media (max-height: 520px) {
+  .modal-backdrop { padding: 8px; }
+  .modal { padding: 14px 18px; max-width: 560px; }
+  .modal h2 { font-size: 21px; margin-bottom: 4px; }
+  .modal__actions { margin-top: 10px; bottom: -14px; margin-bottom: -14px; padding: 8px 0 14px; }
+}
 
 /* ---------- Connection badge ---------- */
 .conn {
