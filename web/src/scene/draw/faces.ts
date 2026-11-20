@@ -30,11 +30,88 @@ export interface FaceInput {
   nod: number;
 }
 
-/** Where the eyes sit in a head of radius r (glasses go over them): near x, far x, y. */
-export function eyeSpots(r: number, side: boolean, nod: number): { near: number; far: number; y: number } {
+export interface EyeSpots { near: number; far: number; y: number }
+
+const SPOTS: EyeSpots = { near: 0, far: 0, y: 0 };
+
+/**
+ * Where the eyes sit in a head of radius r (glasses go over them): near x, far x, y. Returns one shared object,
+ * valid until the next call.
+ */
+export function eyeSpots(r: number, side: boolean, nod: number): EyeSpots {
   const cx = side ? r * 0.36 : 0;
   const span = side ? r * 0.3 : r * 0.36;
-  return { near: cx + span, far: cx - span * (side ? 1.05 : 1), y: r * (0.1 + nod * 0.3) };
+  SPOTS.near = cx + span;
+  SPOTS.far = cx - span * (side ? 1.05 : 1);
+  SPOTS.y = r * (0.1 + nod * 0.3);
+  return SPOTS;
+}
+
+/** Moods whose brows say something (drawn above sunglasses too). */
+export const BROW_MOODS: ReadonlySet<Mood> = new Set<Mood>(['angry', 'annoyed', 'scared', 'puzzled']);
+
+type C2 = CanvasRenderingContext2D;
+
+function happyEye(ctx: C2, x: number, k: number, ey: number, er: number): void {
+  ctx.moveTo(x - er * 1.1 * k, ey + er * 0.4);
+  ctx.quadraticCurveTo(x, ey - er * 1.3 * k, x + er * 1.1 * k, ey + er * 0.4);
+}
+
+function dash(ctx: C2, x: number, half: number, y: number): void {
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x + half, y);
+}
+
+function wideEye(ctx: C2, x: number, k: number, ey: number, er: number, px: number, py: number, r: number): void {
+  ctx.fillStyle = WHITE;
+  ctx.beginPath();
+  ctx.arc(x, ey, er * 1.45 * k, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = r * 0.06;
+  ctx.stroke();
+  ctx.fillStyle = INK;
+  ctx.beginPath();
+  ctx.arc(x + px, ey + py, er * 0.62 * k, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** The brows of an expressive face (angry, annoyed, scared, puzzled), raised by `lift` head radii. */
+export function drawBrows(ctx: C2, f: FaceInput, lift = 0): void {
+  const { r, mood } = f;
+  if (!BROW_MOODS.has(mood)) return;
+  const cx = f.side ? r * 0.36 : 0;
+  const span = f.side ? r * 0.3 : r * 0.36;
+  const lx = f.lookX * r * 0.07;
+  const er = r * 0.135;
+  const nearX = cx + span + lx;
+  const farX = cx - span * (f.side ? 1.05 : 1) + lx;
+  const farK = f.side ? 0.85 : 1;
+  const by = r * (0.1 + f.nod * 0.3) - r * 0.3 - lift * r;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = r * (mood === 'angry' ? 0.13 : 0.1);
+  ctx.beginPath();
+  if (mood === 'angry') {
+    ctx.moveTo(nearX + er * 1.6, by - r * 0.1);
+    ctx.lineTo(nearX - er * 0.9, by + r * 0.08);
+    ctx.moveTo(farX - er * 1.4 * farK, by - r * 0.1);
+    ctx.lineTo(farX + er * 0.9, by + r * 0.08);
+  } else if (mood === 'annoyed') {
+    ctx.moveTo(nearX + er * 1.5, by - r * 0.02);
+    ctx.lineTo(nearX - er * 1.1, by + r * 0.05);
+    ctx.moveTo(farX - er * 1.3 * farK, by - r * 0.02);
+    ctx.lineTo(farX + er * 1.1, by + r * 0.05);
+  } else if (mood === 'scared') {
+    ctx.moveTo(nearX + er * 1.5, by + r * 0.02);
+    ctx.lineTo(nearX - er * 0.8, by - r * 0.12);
+    ctx.moveTo(farX - er * 1.3 * farK, by + r * 0.02);
+    ctx.lineTo(farX + er * 0.8, by - r * 0.12);
+  } else {
+    ctx.moveTo(nearX - er * 1.2, by - r * 0.06);
+    ctx.quadraticCurveTo(nearX, by - r * 0.26, nearX + er * 1.4, by - r * 0.1);
+    ctx.moveTo(farX - er * 1.2 * farK, by + r * 0.06);
+    ctx.lineTo(farX + er * 1.1, by + r * 0.06);
+  }
+  ctx.stroke();
 }
 
 /** A face, in the head's frame. */
@@ -85,32 +162,18 @@ export function drawFace(ctx: CanvasRenderingContext2D, f: FaceInput): void {
   if (mood === 'happy') {
     // Smiling eyes: upturned arcs.
     ctx.beginPath();
-    for (const [x, k] of [[nearX, 1], [farX, farK]] as const) {
-      ctx.moveTo(x - er * 1.1 * k, ey + er * 0.4);
-      ctx.quadraticCurveTo(x, ey - er * 1.3 * k, x + er * 1.1 * k, ey + er * 0.4);
-    }
+    happyEye(ctx, nearX, 1, ey, er);
+    happyEye(ctx, farX, farK, ey, er);
     ctx.stroke();
   } else if (shut) {
     ctx.beginPath();
-    for (const [x, k] of [[nearX, 1], [farX, farK]] as const) {
-      ctx.moveTo(x - er * k, ey + ly);
-      ctx.lineTo(x + er * k, ey + ly);
-    }
+    dash(ctx, nearX, er, ey + ly);
+    dash(ctx, farX, er * farK, ey + ly);
     ctx.stroke();
   } else if (mood === 'scared') {
     // Wide eyes: whites with small pupils.
-    for (const [x, k] of [[nearX, 1], [farX, farK]] as const) {
-      ctx.fillStyle = WHITE;
-      ctx.beginPath();
-      ctx.arc(x, ey, er * 1.45 * k, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = r * 0.06;
-      ctx.stroke();
-      ctx.fillStyle = INK;
-      ctx.beginPath();
-      ctx.arc(x + lx * 0.8, ey + ly, er * 0.62 * k, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    wideEye(ctx, nearX, 1, ey, er, lx * 0.8, ly, r);
+    wideEye(ctx, farX, farK, ey, er, lx * 0.8, ly, r);
     ctx.lineWidth = r * 0.11;
   } else {
     const big = mood === 'puzzled' ? 1.25 : mood === 'curious' ? 1.1 : 1;
@@ -131,47 +194,14 @@ export function drawFace(ctx: CanvasRenderingContext2D, f: FaceInput): void {
       // Heavy lids: the top half of each eye is cut off by a flat lid.
       ctx.lineWidth = r * 0.1;
       ctx.beginPath();
-      for (const [x, k] of [[nearX, 1], [farX, farK]] as const) {
-        ctx.moveTo(x - er * 1.5 * k, ey + ly - er * 0.25);
-        ctx.lineTo(x + er * 1.5 * k, ey + ly - er * 0.25);
-      }
+      dash(ctx, nearX, er * 1.5, ey + ly - er * 0.25);
+      dash(ctx, farX, er * 1.5 * farK, ey + ly - er * 0.25);
       ctx.stroke();
     }
   }
 
   // Brows.
-  const by = ey - r * 0.34;
-  ctx.lineWidth = r * 0.1;
-  if (mood === 'angry') {
-    ctx.lineWidth = r * 0.13;
-    ctx.beginPath();
-    ctx.moveTo(nearX + er * 1.6, by - r * 0.1);
-    ctx.lineTo(nearX - er * 0.9, by + r * 0.08);
-    ctx.moveTo(farX - er * 1.4 * farK, by - r * 0.1);
-    ctx.lineTo(farX + er * 0.9, by + r * 0.08);
-    ctx.stroke();
-  } else if (mood === 'annoyed') {
-    ctx.beginPath();
-    ctx.moveTo(nearX + er * 1.5, by - r * 0.02);
-    ctx.lineTo(nearX - er * 1.1, by + r * 0.05);
-    ctx.moveTo(farX - er * 1.3 * farK, by - r * 0.02);
-    ctx.lineTo(farX + er * 1.1, by + r * 0.05);
-    ctx.stroke();
-  } else if (mood === 'scared') {
-    ctx.beginPath();
-    ctx.moveTo(nearX + er * 1.5, by + r * 0.02);
-    ctx.lineTo(nearX - er * 0.8, by - r * 0.12);
-    ctx.moveTo(farX - er * 1.3 * farK, by + r * 0.02);
-    ctx.lineTo(farX + er * 0.8, by - r * 0.12);
-    ctx.stroke();
-  } else if (mood === 'puzzled') {
-    ctx.beginPath();
-    ctx.moveTo(nearX - er * 1.2, by - r * 0.06);
-    ctx.quadraticCurveTo(nearX, by - r * 0.26, nearX + er * 1.4, by - r * 0.1);
-    ctx.moveTo(farX - er * 1.2 * farK, by + r * 0.06);
-    ctx.lineTo(farX + er * 1.1, by + r * 0.06);
-    ctx.stroke();
-  }
+  drawBrows(ctx, f);
 
   // Mouth.
   ctx.lineWidth = r * 0.1;
@@ -233,8 +263,8 @@ const MARK = '#94531a';
 const ANGER = '#de4f5a';
 const SWEAT = '#8cc4e0';
 const SWEAT_EDGE = '#4f8fb3';
-const STEAM = 'rgba(255, 252, 247, 0.9)';
-const STEAM_EDGE = 'rgba(110, 91, 77, 0.45)';
+const STEAM = 'rgba(255, 252, 247, 0.95)';
+const STEAM_EDGE = 'rgba(94, 72, 58, 0.85)';
 
 /** A heart of size s centred at (x, y). */
 export function heart(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, alpha = 1): void {
@@ -326,7 +356,7 @@ export function puff(ctx: CanvasRenderingContext2D, x: number, y: number, s: num
   ctx.arc(x + s * 0.05, y - s * 0.4, s * 0.32, 0, Math.PI * 2);
   ctx.fillStyle = STEAM;
   ctx.fill();
-  ctx.lineWidth = s * 0.1;
+  ctx.lineWidth = s * 0.13;
   ctx.strokeStyle = STEAM_EDGE;
   ctx.stroke();
   ctx.globalAlpha = 1;
@@ -338,11 +368,15 @@ export function dots(ctx: CanvasRenderingContext2D, x: number, y: number, s: num
   ctx.strokeStyle = 'rgba(42, 29, 21, 0.35)';
   ctx.lineWidth = s * 0.08;
   ctx.beginPath();
-  ctx.ellipse(x, y, s * 0.9, s * 0.55, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y, s * 0.95, s * 0.6, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = INK;
   ctx.beginPath();
-  for (let i = 0; i < n; i++) ctx.arc(x + (i - (n - 1) / 2) * s * 0.42, y, s * 0.11, 0, Math.PI * 2);
+  for (let i = 0; i < n; i++) {
+    const dx = x + (i - (n - 1) / 2) * s * 0.44;
+    ctx.moveTo(dx + s * 0.15, y);
+    ctx.arc(dx, y, s * 0.15, 0, Math.PI * 2);
+  }
   ctx.fill();
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  blendPose, CLIPS, clipPose, copyPose, DEFAULT_DIMS, mixPose, newSkeleton, pose, POSE_KEYS, POSES, solve, WALKING,
+  armInFront, blendPose, CLIPS, clipPose, copyPose, DEFAULT_DIMS, mixPose, newSkeleton, pose, POSE_KEYS, POSES, solve, WALKING,
   type ClipInput, type Pose, type View,
 } from './rig';
 
@@ -87,6 +87,13 @@ describe('clips', () => {
     expect(calm.a0).toBeCloseTo(mid.a0, 9);   // the cup still goes up
   });
 
+  it('reduced motion: the stomp holds one knee up and does not pump', () => {
+    const a = clipPose(pose(), 'stomp', input({ t: 0.1, calm: true }));
+    const b = clipPose(pose(), 'stomp', input({ t: 0.33, calm: true }));
+    for (const k of ['l0', 'k0', 'l1', 'k1', 'squash'] as const) expect(a[k]).toBeCloseTo(b[k], 12);
+    expect(a.k0).toBeGreaterThan(0.5);
+  });
+
   it('reduced motion: no foot tap, no breathing, no bob', () => {
     for (const clip of ['tap', 'crossed', 'idle', 'walk'] as const) {
       const a = clipPose(pose(), clip, input({ loop: 0.1, phase: 1, calm: true }));
@@ -149,5 +156,31 @@ describe('skeleton', () => {
     const sk = solve(POSES.crossed, DEFAULT_DIMS, 'front', newSkeleton());
     expect(sk.hand0.x).toBeLessThan(0.03);
     expect(sk.hand1.x).toBeGreaterThan(-0.03);
+  });
+});
+
+describe('from behind: which arms are folded in front of the body (drawn behind the back)', () => {
+  const inner = 0.08;
+  const front = (p: Pose, arm: 0 | 1) => armInFront(p, solve(p, DEFAULT_DIMS, 'back', newSkeleton()), arm, inner);
+
+  it('a phone held at the chest, arms crossed, a hand at the chin, a sip: in front', () => {
+    expect(front(POSES.phone, 0)).toBe(true);
+    expect(front(POSES.phone, 1)).toBe(true);
+    expect(front(POSES.crossed, 0)).toBe(true);
+    expect(front(POSES.crossed, 1)).toBe(true);
+    expect(front(POSES.lookUp, 1)).toBe(true);
+    expect(front(POSES.sip, 0)).toBe(true);
+  });
+
+  it('arms hanging, swinging in a walk, held up for a selfie or on the hips: beside the body, still seen', () => {
+    expect(front(POSES.stand, 0)).toBe(false);
+    expect(front(POSES.lookUp, 0)).toBe(false);
+    expect(front(POSES.selfie, 0)).toBe(false);
+    expect(front(POSES.hips, 0)).toBe(false);
+    for (let k = 0; k < 8; k++) {
+      const p = clipPose(pose(), 'walk', input({ phase: (k / 8) * Math.PI * 2, side: false }));
+      expect(front(p, 0), `walk phase ${k}`).toBe(false);
+      expect(front(p, 1), `walk phase ${k}`).toBe(false);
+    }
   });
 });

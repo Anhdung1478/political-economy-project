@@ -1,10 +1,10 @@
 // Placeholder art for the street (Task 14): flat rounded shapes in the project's colours, enough to read the
-// mechanics — shops with their sign, price board and state, people walking, reading boards, queueing, leaving with a
-// cup, stomping off, "+n" for a folded queue, a dot of speech where a bubble will go. Tasks 15 (customers), 16 (shops,
-// street, props) and 17 (bubbles) replace these through `registerRenderers`.
+// mechanics — shops with their sign, price board and state, "+n" for a folded queue, a dot of speech where a bubble
+// will go. The customers are draw/characters.ts (Task 15); Tasks 16 (shops, street, props) and 17 (bubbles) replace
+// the rest through `registerRenderers`.
 import { CONFIG } from '../../../../shared/sim/config';
 import type { ShopId } from '../../../../shared/sim/types';
-import type { Actor, BubbleTopic, ShopView } from '../director';
+import type { BubbleTopic, ShopView } from '../director';
 import type { Band, ShopSlot } from '../layout';
 import type { Palette, Prop, RenderContext, Renderers } from '../Scene';
 import { clamp, easeOutBack, progress } from '../tween';
@@ -239,98 +239,9 @@ function drawShop(rc: RenderContext, shop: ShopView, slot: ShopSlot): void {
   }
 }
 
-// ── Customers ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ── Shop vendors' skin (the customers are draw/characters.ts) ─────────────────────────────────────────────────────
 
 const SKIN = ['#f3cfae', '#e0ad84', '#b9835a'];
-const HAIR = ['#2a1d15', '#4a3326', '#6e5b4d', '#1b1410'];
-
-function shirtOf(p: Palette, look: number): string {
-  const shirts = [p.matcha, p.caramel, p.strawberry, p.tea, p.inkSoft, p.matchaDeep, '#8e6fae', p.caramelDeep];
-  return shirts[(look >>> 5) % shirts.length];
-}
-
-function drawCustomer(rc: RenderContext, a: Actor): void {
-  const { ctx, layout: L, palette: p, now } = rc;
-  const H = L.actorH;
-  const moving = a.speed > 0;
-  const phase = (a.x + a.y) / (H * 0.32);
-  const swing = moving ? Math.sin(phase) * H * 0.09 : 0;
-  const bob = moving ? Math.abs(Math.cos(phase)) * H * 0.03 : 0;
-  const shake = a.activity === 'abandon' && a.cause === 'patience' && !rc.reducedMotion
-    ? Math.sin(now * 9) * H * 0.04 : 0;
-  const hop = a.activity === 'served' && !rc.reducedMotion ? Math.abs(Math.sin((now - a.since) * 0.6)) * H * 0.08 : 0;
-  const x = a.x + shake;
-  const y = a.y - bob - hop;
-
-  // Shadow.
-  ctx.fillStyle = 'rgba(42, 29, 21, 0.13)';
-  ctx.beginPath();
-  ctx.ellipse(a.x, a.y, H * 0.2, H * 0.06, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Legs.
-  const hip = y - H * 0.28;
-  ctx.strokeStyle = p.boba;
-  ctx.lineWidth = H * 0.08;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x - H * 0.06, hip);
-  ctx.lineTo(x - H * 0.06 + swing, a.y - H * 0.02);
-  ctx.moveTo(x + H * 0.06, hip);
-  ctx.lineTo(x + H * 0.06 - swing, a.y - H * 0.02);
-  ctx.stroke();
-
-  // Body.
-  const bw = H * 0.4;
-  const bh = H * 0.42;
-  rr(ctx, x - bw / 2, hip - bh, bw, bh, H * 0.12);
-  ctx.fillStyle = shirtOf(p, a.look);
-  ctx.fill();
-
-  // Head, hair, eyes toward where they face (up at a board while reading it).
-  const hr = H * 0.17;
-  const hy = hip - bh - hr * 0.85;
-  ctx.fillStyle = SKIN[a.look % SKIN.length];
-  ctx.beginPath();
-  ctx.arc(x, hy, hr, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = HAIR[(a.look >>> 9) % HAIR.length];
-  ctx.beginPath();
-  ctx.arc(x, hy - hr * 0.15, hr * 1.02, Math.PI * 1.05, Math.PI * 1.95);
-  ctx.fill();
-  // Eyes by heading: none from behind (up), centred facing us (down), to the side when side-on.
-  if (a.heading !== 'up') {
-    const side = a.heading === 'down' ? 0 : a.facing * hr * 0.35;
-    const look = a.activity === 'lookBoard' ? -hr * 0.3 : 0;
-    ctx.fillStyle = p.ink;
-    for (const e of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(x + side + e * hr * 0.28, hy + hr * 0.1 + look, hr * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // A cup in hand.
-  if (a.carrying) {
-    const cx = x + a.facing * bw * 0.62;
-    const cy = hip - bh * 0.45;
-    rr(ctx, cx - H * 0.07, cy - H * 0.11, H * 0.14, H * 0.2, H * 0.03);
-    ctx.fillStyle = p.tea;
-    ctx.fill();
-    ctx.fillStyle = p.boba;
-    ctx.fillRect(cx - H * 0.07, cy - H * 0.13, H * 0.14, H * 0.03);
-  }
-
-  // What they are going through.
-  const mark = a.activity === 'abandon' ? '!' : a.activity === 'wrongCup' ? '?' : a.activity === 'served' ? '♥' : '';
-  if (mark !== '') {
-    ctx.font = `800 ${H * 0.36}px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = a.activity === 'served' ? p.strawberry : a.activity === 'abandon' ? p.strawberryDeep : p.caramelDeep;
-    ctx.fillText(mark, x + hr * 1.4, hy - hr * 1.2);
-  }
-}
 
 // ── Props ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -394,6 +305,7 @@ function drawBubbles(rc: RenderContext): void {
   }
 }
 
-export const placeholderRenderers: Renderers = {
-  drawStreet, drawShop, drawCustomer, props, drawProp, overlays: { bubbles: drawBubbles },
+/** Everything but the customers (Task 15 draws those). */
+export const placeholderRenderers: Omit<Renderers, 'drawCustomer'> = {
+  drawStreet, drawShop, props, drawProp, overlays: { bubbles: drawBubbles },
 };

@@ -10,12 +10,18 @@
 import { CONFIG } from '../../../../shared/sim/config';
 import type { Actor, Heading } from '../director';
 import {
-  clipPose, copyPose, DEFAULT_DIMS, mixPose, newSkeleton, pose, solve, WALKING, type Clip, type ClipInput, type Dims, type P,
-  type Pose, type Skeleton, type View,
+  armInFront, clipPose, copyPose, DEFAULT_DIMS, mixPose, newSkeleton, pose, solve, WALKING, type Clip, type ClipInput,
+  type Dims, type P, type Pose, type Skeleton, type View,
 } from '../rig';
 import type { RenderContext } from '../Scene';
 import { clamp, smoothstep } from '../tween';
-import { angerMark, dots, drawFace, eyeSpots, heart, mark, puff, sweat, type FaceInput, type Mood } from './faces';
+import {
+  canRecord, penEnd, penForget, penStart, Recorder, RecordingCache, replay, setFill, setStroke, type Recording,
+} from './recorder';
+import {
+  angerMark, BROW_MOODS, dots, drawFace, eyeSpots, heart, mark, puff, sweat, type FaceInput,
+  type Mood,
+} from './faces';
 
 // ── Traits ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -226,7 +232,8 @@ export function buildTraits(look: number): Traits {
       hair = pick(r(), mascHair);
       bottom = pick(r(), [C.charcoal, C.black, C.denim]);
       bag = r() < 0.6 ? 'box' : 'none';
-      bagColor = r() < 0.5 ? top : pick(r(), [C.mustard, C.strawberry, C.sky]);
+      // Never jacket, helmet and box all in one colour (that reads as a delivery brand): the box is always another.
+      bagColor = pick(r(), [C.mustard, C.strawberry, C.sky, C.white, C.charcoal].filter(c => c !== top));
       width += 0.06;
       phone = 0.55 + r() * 0.4;
       break;
@@ -334,44 +341,75 @@ export function impatience(a: Pick<Actor, 'joinedAt'>, now: number,
   return a.joinedAt === null ? 0 : Math.max(0, (now - a.joinedAt) / patienceTicks);
 }
 
+/** One shared answer per clip and face: selection runs for every actor every frame and allocates nothing. */
+const SEL = {
+  happy: { clip: 'happy', mood: 'happy' },
+  puzzled: { clip: 'puzzled', mood: 'puzzled' },
+  stomp: { clip: 'stomp', mood: 'angry' },
+  shrug: { clip: 'shrug', mood: 'annoyed' },
+  whisper: { clip: 'whisper', mood: 'scared' },
+  lookBoard: { clip: 'lookBoard', mood: 'curious' },
+  idle: { clip: 'idle', mood: 'neutral' },
+  idleScared: { clip: 'idle', mood: 'scared' },
+  walkDrink: { clip: 'walkDrink', mood: 'happy' },
+  walkDrinkWrong: { clip: 'walkDrink', mood: 'annoyed' },
+  walkAngry: { clip: 'walkAngry', mood: 'angry' },
+  walkAnnoyed: { clip: 'walk', mood: 'annoyed' },
+  walkCaneAnnoyed: { clip: 'walkCane', mood: 'annoyed' },
+  walkScared: { clip: 'walkScared', mood: 'scared' },
+  walkScaredIn: { clip: 'walk', mood: 'scared' },
+  shuffle: { clip: 'shuffle', mood: 'neutral' },
+  shuffleAnnoyed: { clip: 'shuffle', mood: 'annoyed' },
+  walkCane: { clip: 'walkCane', mood: 'neutral' },
+  walkPhone: { clip: 'walkPhone', mood: 'focus' },
+  walk: { clip: 'walk', mood: 'neutral' },
+  crossed: { clip: 'crossed', mood: 'annoyed' },
+  crossedAngry: { clip: 'crossed', mood: 'angry' },
+  tap: { clip: 'tap', mood: 'annoyed' },
+  selfie: { clip: 'selfie', mood: 'happy' },
+  phone: { clip: 'phone', mood: 'focus' },
+} as const satisfies Record<string, AnimSel>;
+
 /**
  * The clip and the face for an actor now. `prev` is the clip shown last frame (a walk straight out of a queue clip,
- * still queued, is a shuffle forward).
+ * still queued, is a shuffle forward). The answer is shared: read it, do not change it.
  */
 export function selectAnim(a: Readonly<Actor>, now: number, tr: Pick<Traits, 'look' | 'phone' | 'archetype' | 'cane'>,
-  prev: Clip | null, patienceTicks: number = CONFIG.rush.patienceTicks): AnimSel {
+  prev: Clip | null, patienceTicks: number = CONFIG.rush.patienceTicks): Readonly<AnimSel> {
   const angry = a.cause !== null && ANGRY_CAUSES.has(a.cause);
   switch (a.activity) {
-    case 'served': return { clip: 'happy', mood: 'happy' };
-    case 'wrongCup': return { clip: 'puzzled', mood: 'puzzled' };
-    case 'abandon': return angry ? { clip: 'stomp', mood: 'angry' } : { clip: 'shrug', mood: 'annoyed' };
-    case 'lookBoard': return a.scared ? { clip: 'whisper', mood: 'scared' } : { clip: 'lookBoard', mood: 'curious' };
+    case 'served': return SEL.happy;
+    case 'wrongCup': return SEL.puzzled;
+    case 'abandon': return angry ? SEL.stomp : SEL.shrug;
+    case 'lookBoard': return a.scared ? SEL.whisper : SEL.lookBoard;
     case 'queue': return queueAnim(a, now, tr, patienceTicks);
-    case 'idle': return a.scared ? { clip: 'idle', mood: 'scared' } : { clip: 'idle', mood: 'neutral' };
+    case 'idle': return a.scared ? SEL.idleScared : SEL.idle;
     case 'walk':
-      if (a.speed <= 0) return a.shop !== null ? queueAnim(a, now, tr, patienceTicks) : { clip: 'idle', mood: 'neutral' };
-      if (a.carrying) return { clip: 'walkDrink', mood: a.cupWrong ? 'annoyed' : 'happy' };
-      if (angry) return { clip: 'walkAngry', mood: 'angry' };
-      if (a.cause !== null) return { clip: tr.cane ? 'walkCane' : 'walk', mood: 'annoyed' };
-      if (a.scared) return a.leaving ? { clip: 'walkScared', mood: 'scared' } : { clip: 'walk', mood: 'scared' };
-      if (a.shop !== null && prev !== null && QUEUE_CLIPS.has(prev)) {
-        const p = impatience(a, now, patienceTicks);
-        return { clip: 'shuffle', mood: p >= TAP_AT ? 'annoyed' : 'neutral' };
+      if (a.speed <= 0) {
+        if (a.shop !== null) return queueAnim(a, now, tr, patienceTicks);
+        return a.scared ? SEL.idleScared : SEL.idle;
       }
-      if (tr.cane) return { clip: 'walkCane', mood: 'neutral' };
-      if (a.shop === null && !a.leaving && tr.phone >= 0.6 && onPhone(tr, now)) return { clip: 'walkPhone', mood: 'focus' };
-      return { clip: 'walk', mood: 'neutral' };
+      if (a.carrying) return a.cupWrong ? SEL.walkDrinkWrong : SEL.walkDrink;
+      if (angry) return SEL.walkAngry;
+      if (a.cause !== null) return tr.cane ? SEL.walkCaneAnnoyed : SEL.walkAnnoyed;
+      if (a.scared) return a.leaving ? SEL.walkScared : SEL.walkScaredIn;
+      if (a.shop !== null && prev !== null && QUEUE_CLIPS.has(prev)) {
+        return impatience(a, now, patienceTicks) >= TAP_AT ? SEL.shuffleAnnoyed : SEL.shuffle;
+      }
+      if (tr.cane) return SEL.walkCane;
+      if (a.shop === null && !a.leaving && tr.phone >= 0.6 && onPhone(tr, now)) return SEL.walkPhone;
+      return SEL.walk;
   }
 }
 
 function queueAnim(a: Readonly<Actor>, now: number, tr: Pick<Traits, 'look' | 'phone' | 'archetype'>,
-  patienceTicks: number): AnimSel {
+  patienceTicks: number): Readonly<AnimSel> {
   const p = impatience(a, now, patienceTicks);
-  if (p >= CROSS_AT) return { clip: 'crossed', mood: p >= FUME_AT ? 'angry' : 'annoyed' };
-  if (p >= TAP_AT) return { clip: 'tap', mood: 'annoyed' };
-  if (tr.archetype === 'kol') return { clip: 'selfie', mood: 'happy' };
-  if (onPhone(tr, now)) return { clip: 'phone', mood: 'focus' };
-  return { clip: 'idle', mood: 'neutral' };
+  if (p >= CROSS_AT) return p >= FUME_AT ? SEL.crossedAngry : SEL.crossed;
+  if (p >= TAP_AT) return SEL.tap;
+  if (tr.archetype === 'kol') return SEL.selfie;
+  if (onPhone(tr, now)) return SEL.phone;
+  return SEL.idle;
 }
 
 /** The view of the walk cycle for a heading. */
@@ -405,11 +443,9 @@ function path3(ctx: Ctx, a: P, b: P, c: P): void {
 /** A limb as a thick round stroke with an outline. */
 function limb(ctx: Ctx, a: P, b: P, c: P, w: number, fill: string, edge: string): void {
   path3(ctx, a, b, c);
-  ctx.strokeStyle = edge;
-  ctx.lineWidth = w + OL * 2;
+  setStroke(ctx, edge, w + OL * 2);
   ctx.stroke();
-  ctx.strokeStyle = fill;
-  ctx.lineWidth = w;
+  setStroke(ctx, fill, w);
   ctx.stroke();
 }
 
@@ -417,31 +453,28 @@ function seg(ctx: Ctx, a: P, b: P, t: number, w: number, fill: string, edge: str
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-  ctx.strokeStyle = edge;
-  ctx.lineWidth = w + OL * 2;
+  setStroke(ctx, edge, w + OL * 2);
   ctx.stroke();
-  ctx.strokeStyle = fill;
-  ctx.lineWidth = w;
+  setStroke(ctx, fill, w);
   ctx.stroke();
 }
 
 function disc(ctx: Ctx, x: number, y: number, r: number, fill: string, edge: string | null): void {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = fill;
+  setFill(ctx, fill);
   ctx.fill();
   if (edge !== null) {
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = OL;
+    setStroke(ctx, edge, OL);
     ctx.stroke();
   }
 }
 
+/** Fill the current path, then outline it (styles through the pen: nothing set twice). */
 function fillEdge(ctx: Ctx, fill: string, edge: string): void {
-  ctx.fillStyle = fill;
+  setFill(ctx, fill);
   ctx.fill();
-  ctx.strokeStyle = edge;
-  ctx.lineWidth = OL;
+  setStroke(ctx, edge, OL);
   ctx.stroke();
 }
 
@@ -492,31 +525,31 @@ function armPath(ctx: Ctx, a: P, b: P, c: P, t: number): void {
   }
 }
 
+/** Both arms' paths (or their first `t` of the upper arm), one path, then outline and fill. */
+function bothArms(ctx: Ctx, sk: Skeleton, lw: number, fill: string, edge: string, t: number): void {
+  ctx.beginPath();
+  armPath(ctx, sk.shoulder1, sk.elbow1, sk.hand1, t);
+  armPath(ctx, sk.shoulder0, sk.elbow0, sk.hand0, t);
+  setStroke(ctx, edge, lw + OL * 2);
+  ctx.stroke();
+  setStroke(ctx, fill, lw);
+  ctx.stroke();
+}
+
 /** Both arms at once, facing us (same colours: one path per layer, half the strokes). */
 function arms(ctx: Ctx, tr: Traits, sk: Skeleton): void {
   const w = ARM_W * (0.92 + tr.width * 0.08);
-  const both = (lw: number, fill: string, edge: string, t: number) => {
-    ctx.beginPath();
-    armPath(ctx, sk.shoulder1, sk.elbow1, sk.hand1, t);
-    armPath(ctx, sk.shoulder0, sk.elbow0, sk.hand0, t);
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = lw + OL * 2;
-    ctx.stroke();
-    ctx.strokeStyle = fill;
-    ctx.lineWidth = lw;
-    ctx.stroke();
-  };
   if (tr.longSleeves) {
-    both(w, tr.top, tr.topEdge, 1);
+    bothArms(ctx, sk, w, tr.top, tr.topEdge, 1);
     ctx.beginPath();
     ctx.arc(sk.hand1.x, sk.hand1.y, HAND_R, 0, Math.PI * 2);
     ctx.moveTo(sk.hand0.x + HAND_R, sk.hand0.y);
     ctx.arc(sk.hand0.x, sk.hand0.y, HAND_R, 0, Math.PI * 2);
-    ctx.fillStyle = tr.skin;
+    setFill(ctx, tr.skin);
     ctx.fill();
   } else {
-    both(w * 0.9, tr.skin, tr.skinEdge, 1);
-    both(w * 1.12, tr.top, tr.topEdge, 0.55);
+    bothArms(ctx, sk, w * 0.9, tr.skin, tr.skinEdge, 1);
+    bothArms(ctx, sk, w * 1.12, tr.top, tr.topEdge, 0.55);
   }
 }
 
@@ -530,25 +563,24 @@ function legPath(ctx: Ctx, h: P, k: P, f: P, t: number): void {
   }
 }
 
+function bothLegs(ctx: Ctx, sk: Skeleton, lw: number, fill: string, edge: string, t: number): void {
+  ctx.beginPath();
+  legPath(ctx, sk.hip1, sk.knee1, sk.foot1, t);
+  legPath(ctx, sk.hip0, sk.knee0, sk.foot0, t);
+  setStroke(ctx, edge, lw + OL * 2);
+  ctx.stroke();
+  setStroke(ctx, fill, lw);
+  ctx.stroke();
+}
+
 /** Both legs at once (same colours, so one path per layer: half the strokes), then the shoes. */
 function legs(ctx: Ctx, tr: Traits, sk: Skeleton, side: boolean): void {
   const w = LEG_W * (0.9 + tr.width * 0.1);
-  const both = (lw: number, fill: string, edge: string, t = 1) => {
-    ctx.beginPath();
-    legPath(ctx, sk.hip1, sk.knee1, sk.foot1, t);
-    legPath(ctx, sk.hip0, sk.knee0, sk.foot0, t);
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = lw + OL * 2;
-    ctx.stroke();
-    ctx.strokeStyle = fill;
-    ctx.lineWidth = lw;
-    ctx.stroke();
-  };
   if (tr.bottomStyle === 'pants') {
-    both(w, tr.bottom, tr.bottomEdge);
+    bothLegs(ctx, sk, w, tr.bottom, tr.bottomEdge, 1);
   } else {
-    both(w * 0.82, tr.legColor, shade(tr.legColor, 0.74));
-    if (tr.bottomStyle === 'shorts') both(w * 1.1, tr.bottom, tr.bottomEdge, 0.8);
+    bothLegs(ctx, sk, w * 0.82, tr.legColor, shade(tr.legColor, 0.74), 1);
+    if (tr.bottomStyle === 'shorts') bothLegs(ctx, sk, w * 1.1, tr.bottom, tr.bottomEdge, 0.8);
   }
   if (side) {
     shoesSide(ctx, tr, sk);
@@ -586,13 +618,12 @@ function torsoPath(ctx: Ctx, wTop: number, wBottom: number, len: number, below: 
   ctx.closePath();
 }
 
-function torso(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
+/** The top (and a skirt under it, the print, the neckwear) in the torso's frame, `len` long. */
+function torsoShape(ctx: Ctx, tr: Traits, view: View, len: number): void {
   const side = view === 'side';
-  const len = sk.torsoLen + 0.01;
   const wTop = (side ? 0.15 : 0.215) * tr.width;
   const wBottom = (side ? 0.16 : 0.2) * tr.width * (tr.tunic ? 1.12 : 1);
   const below = tr.tunic ? 0.085 : 0.035;
-  enter(ctx, sk.hip, sk.torsoAngle);
   // Skirt first: under the top, flaring to the knees.
   if (tr.bottomStyle === 'skirt') {
     const sw = side ? 0.17 : 0.21;
@@ -608,7 +639,7 @@ function torso(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
   fillEdge(ctx, view === 'back' ? shade(tr.top, 0.94) : tr.top, tr.topEdge);
   // The print, kept inside the top (no clipping: it is costly).
   if (tr.pattern === 'dots') {
-    ctx.fillStyle = tr.patternColor;
+    setFill(ctx, tr.patternColor);
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const x = ((i * 0.37) % 1 - 0.5) * wTop * 0.7;
@@ -618,9 +649,7 @@ function torso(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
     }
     ctx.fill();
   } else if (tr.pattern === 'stripes') {
-    ctx.strokeStyle = tr.patternColor;
-    ctx.lineWidth = 0.022;
-    ctx.lineCap = 'butt';
+    setStroke(ctx, tr.patternColor, 0.022, 'butt');
     ctx.beginPath();
     const half = Math.min(wTop, wBottom) / 2 - 0.012;
     for (let y = -len + 0.06; y < below - 0.02; y += 0.06) {
@@ -628,10 +657,8 @@ function torso(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
       ctx.lineTo(half, y);
     }
     ctx.stroke();
-    ctx.lineCap = 'round';
   }
   if (view !== 'back') neckwear(ctx, tr, len, wTop, side);
-  leave(ctx, sk.hip, sk.torsoAngle);
 }
 
 function neckwear(ctx: Ctx, tr: Traits, len: number, wTop: number, side: boolean): void {
@@ -680,12 +707,11 @@ function neckwear(ctx: Ctx, tr: Traits, len: number, wTop: number, side: boolean
         ctx.moveTo(fx - 0.05, top + 0.01);
         ctx.lineTo(fx, top + len * 0.5);
         ctx.lineTo(fx + 0.05, top + 0.01);
-        ctx.strokeStyle = tr.neckColor;
-        ctx.lineWidth = 0.014;
+        setStroke(ctx, tr.neckColor, 0.014);
         ctx.stroke();
         rrect(ctx, fx - 0.03, top + len * 0.48, 0.06, 0.07, 0.012);
         fillEdge(ctx, '#ffffff', shade(tr.neckColor, 0.7));
-        ctx.fillStyle = tr.neckColor;
+        setFill(ctx, tr.neckColor);
         ctx.fillRect(fx - 0.03, top + len * 0.48, 0.06, 0.018);
       }
       return;
@@ -695,13 +721,12 @@ function neckwear(ctx: Ctx, tr: Traits, len: number, wTop: number, side: boolean
       ctx.beginPath();
       ctx.moveTo(fx, top + 0.01);
       ctx.lineTo(fx, top + len + 0.02);
-      ctx.strokeStyle = tr.neckColor;
-      ctx.lineWidth = 0.014;
+      setStroke(ctx, tr.neckColor, 0.014);
       ctx.stroke();
       rrect(ctx, fx - 0.06, top - 0.012, 0.12, 0.035, 0.015);
       fillEdge(ctx, shade(tr.top, 0.9), tr.topEdge);
       // A reflective band across the chest.
-      ctx.fillStyle = 'rgba(255, 252, 247, 0.55)';
+      setFill(ctx, 'rgba(255, 252, 247, 0.55)');
       ctx.fillRect(-wTop / 2, top + len * 0.42, wTop, 0.022);
       return;
     }
@@ -763,8 +788,10 @@ function hairOn(ctx: Ctx, tr: Traits, r: number, view: View): void {
   ctx.beginPath();
   if (view === 'back') {
     if (s === 'bald') {
-      ctx.arc(0, 0, R, 0.15, Math.PI - 0.15);
-      ctx.quadraticCurveTo(0, r * 0.15, R * Math.cos(0.15), R * Math.sin(0.15));
+      // A narrow band of white round the back of the head at ear height, the crown bare above it.
+      ctx.arc(0, 0, R, 0.05, Math.PI - 0.05);
+      ctx.arc(0, -r * 0.2, R * 0.93, Math.PI - 0.2, 0.2, true);
+      ctx.closePath();
     } else if (s === 'bob') {
       ctx.arc(0, 0, R, Math.PI * 0.85, Math.PI * 0.15);
       ctx.lineTo(R * 0.98, r * 0.62);
@@ -773,8 +800,26 @@ function hairOn(ctx: Ctx, tr: Traits, r: number, view: View): void {
     } else {
       ctx.arc(0, 0, R, 0, Math.PI * 2);
     }
-    fillEdge(ctx, tr.hairColor, tr.hairEdge);
+    // A shade darker from behind (out of the light), so grey and white hair never pass for a pale face.
+    fillEdge(ctx, s === 'bald' ? tr.hairColor : shade(tr.hairColor, 0.84), tr.hairEdge);
     if (s === 'curly') curls(ctx, tr, r, 9, Math.PI, Math.PI * 2);
+    if (s !== 'bald' && s !== 'curly') {
+      // Strands from the crown and the nape of the neck below: it reads as the back of a head, never a face.
+      ctx.beginPath();
+      ctx.moveTo(0, -R * 0.75);
+      ctx.quadraticCurveTo(-r * 0.15, 0, -r * 0.05, R * 0.8);
+      ctx.moveTo(-r * 0.3, -R * 0.65);
+      ctx.quadraticCurveTo(-r * 0.55, 0, -r * 0.45, R * 0.72);
+      ctx.moveTo(r * 0.3, -R * 0.65);
+      ctx.quadraticCurveTo(r * 0.5, 0, r * 0.4, R * 0.74);
+      setStroke(ctx, tr.hairEdge, r * 0.07);
+      ctx.stroke();
+      if (s !== 'long' && s !== 'bob') {
+        ctx.beginPath();
+        ctx.ellipse(0, R * 0.98, r * 0.34, r * 0.17, 0, 0, Math.PI);
+        fillEdge(ctx, tr.skin, tr.skinEdge);
+      }
+    }
     return;
   }
   if (view === 'side') {
@@ -890,6 +935,9 @@ function curls(ctx: Ctx, tr: Traits, r: number, n: number, from: number, to: num
   fillEdge(ctx, tr.hairColor, tr.hairEdge);
 }
 
+/** Where the nón lá's ribs run, as shares of the way down from its tip. */
+const CONE_RIBS = [0.4, 0.68] as const;
+
 function hatOn(ctx: Ctx, tr: Traits, r: number, view: View): void {
   const side = view === 'side';
   switch (tr.hat) {
@@ -939,7 +987,8 @@ function hatOn(ctx: Ctx, tr: Traits, r: number, view: View): void {
       ctx.closePath();
       fillEdge(ctx, tr.hatColor, tr.hatEdge);
       ctx.beginPath();
-      for (const k of [0.4, 0.68]) {
+      for (let i = 0; i < CONE_RIBS.length; i++) {
+        const k = CONE_RIBS[i];
         ctx.moveTo(-r * 2.0 * k, -r * (2.0 - 1.62 * k));
         ctx.quadraticCurveTo(0, -r * (2.0 - 1.62 * k) + r * 0.14 * k, r * 2.0 * k, -r * (2.0 - 1.62 * k));
       }
@@ -1051,27 +1100,135 @@ function headOver(ctx: Ctx, tr: Traits, r: number, view: View): void {
   hatOn(ctx, tr, r, view);
 }
 
+// ── Recorded parts ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A part drawn once per look (and view, and one number) into a recording: (ctx, traits, view, n). */
+type PartFn = (ctx: Ctx, tr: Traits, view: View, n: number) => void;
+
+/** Parts per look; faces per head size and expression (shared by everyone). */
+const parts = new RecordingCache(6000);
+const faces = new RecordingCache(4000);
+
+const VIEW_INDEX: Record<View, number> = { side: 0, front: 1, back: 2 };
+const enum Part { HeadUnder = 1, HeadOver, Torso, PackBehind, PackOver, Sling, Glasses, Cup, Basket, Tote }
+
+function recordPart(fn: PartFn, tr: Traits, view: View, n: number): Recording {
+  const r = new Recorder();
+  fn(r as unknown as Ctx, tr, view, n);
+  return r.ops;
+}
+
+/** Draws a part from its recording (made the first time); live where there is no Path2D. */
+function part(ctx: Ctx, id: Part, fn: PartFn, tr: Traits, view: View, n: number, extra = 0): void {
+  const key = id * 1000 + VIEW_INDEX[view] * 100 + extra;
+  let ops = parts.get(tr.look, key);
+  if (ops === undefined) {
+    if (!canRecord()) {
+      fn(ctx, tr, view, n);
+      penForget();
+      return;
+    }
+    ops = parts.put(tr.look, key, recordPart(fn, tr, view, n));
+  }
+  replay(ctx, ops);
+}
+
+const ORIGIN: P = { x: 0, y: 0 };
+const underPart: PartFn = (c, tr, view) => headUnder(c, tr, tr.dims.headR, view);
+const overPart: PartFn = (c, tr, view) => headOver(c, tr, tr.dims.headR, view);
+const glassesPart: PartFn = (c, tr, view, nod) => glassesOn(c, tr, tr.dims.headR, view === 'side', nod);
+const cupPart: PartFn = (c, tr) => cup(c, 0, 0, tr.tea);
+const basketPart: PartFn = (c, tr) => basket(c, tr, ORIGIN);
+const totePart: PartFn = (c, tr) => tote(c, tr, ORIGIN);
+
+/**
+ * A torso-frame part (the top, a pack, a sling), recorded at the torso's rest length and stretched to the breathing
+ * length of the moment (a couple of percent: invisible in the outline width).
+ */
+function torsoPart(ctx: Ctx, id: Part, fn: PartFn, tr: Traits, sk: Skeleton, view: View): void {
+  const rest = tr.dims.torso;
+  const k = sk.torsoLen / rest;
+  enter(ctx, sk.hip, sk.torsoAngle);
+  ctx.scale(1, k);
+  part(ctx, id, fn, tr, view, id === Part.Torso ? rest + 0.01 : rest);
+  ctx.scale(1, 1 / k);
+  leave(ctx, sk.hip, sk.torsoAngle);
+}
+
+const torsoFn: PartFn = (c, tr, view, len) => torsoShape(c, tr, view, len);
+
+function torso(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
+  torsoPart(ctx, Part.Torso, torsoFn, tr, sk, view);
+}
+
+function pack(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, layer: 'behind' | 'over'): void {
+  const over = layer === 'over';
+  if (!packShows(tr, view, over)) return;
+  torsoPart(ctx, over ? Part.PackOver : Part.PackBehind, over ? packOverShape : packBehindShape, tr, sk, view);
+}
+
+function sling(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
+  if (tr.bag !== 'sling' || view === 'back') return;
+  torsoPart(ctx, Part.Sling, slingShape, tr, sk, view);
+}
+
 /** Reused for every face drawn (no allocation per frame). */
 const FACE: FaceInput = { mood: 'neutral', r: 1, side: false, lookX: 0, lookY: 0, blink: 0, nod: 0 };
 
+const MOOD_INDEX: Record<Mood, number> = {
+  neutral: 0, happy: 1, annoyed: 2, angry: 3, puzzled: 4, scared: 5, focus: 6, curious: 7,
+};
+/** Faces are kept at eighths of gaze and twentieths of nod: finer than a pixel on the street. */
+const q = (v: number, steps: number) => Math.round(clamp(v, -1.5, 1.5) * steps) + 2 * steps;
+
+/** The face, from the shared recordings. */
+function face(ctx: Ctx, f: FaceInput): void {
+  const lx = q(f.lookX, 8);
+  const ly = q(f.lookY, 8);
+  const nod = q(f.nod, 20);
+  f.lookX = (lx - 16) / 8;
+  f.lookY = (ly - 16) / 8;
+  f.nod = (nod - 40) / 20;
+  f.blink = f.blink > 0.5 ? 1 : 0;
+  const k1 = Math.round(f.r * 1000);
+  const k2 = ((((MOOD_INDEX[f.mood] * 2 + (f.side ? 1 : 0)) * 2 + f.blink) * 64 + lx) * 64 + ly) * 128 + nod;
+  let ops = faces.get(k1, k2);
+  if (ops === undefined) {
+    if (!canRecord()) {
+      drawFace(ctx, f);
+      penForget();
+      return;
+    }
+    const r = new Recorder();
+    drawFace(r as unknown as Ctx, f);
+    ops = faces.put(k1, k2, r.ops);
+  }
+  replay(ctx, ops);
+}
+
 function head(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, pose: Readonly<Pose>, fx: FigureFx): void {
-  const r = tr.dims.headR;
-  const side = view === 'side';
   enter(ctx, sk.head, sk.headAngle);
-  headUnder(ctx, tr, r, view);
+  part(ctx, Part.HeadUnder, underPart, tr, view, 0);
+  const f = FACE;
   if (view !== 'back') {
-    const f = FACE;
     f.mood = fx.mood;
-    f.r = r;
-    f.side = side;
+    f.r = tr.dims.headR;
+    f.side = view === 'side';
     f.lookX = pose.lookX;
     f.lookY = pose.lookY;
     f.blink = fx.blink;
     f.nod = pose.nod;
-    drawFace(ctx, f);
+    face(ctx, f);
   }
-  headOver(ctx, tr, r, view);
-  if (view !== 'back') glassesOn(ctx, tr, r, side, pose.nod);
+  part(ctx, Part.HeadOver, overPart, tr, view, 0);
+  if (view !== 'back' && tr.glasses !== 'none') {
+    const nod = q(pose.nod, 20);
+    // Sunglasses would hide what someone feels: upset, they push them up onto the head and the eyes show.
+    const up = tr.glasses === 'sun' && BROW_MOODS.has(fx.mood) ? -tr.dims.headR * 0.62 : 0;
+    if (up !== 0) ctx.translate(0, up);
+    part(ctx, Part.Glasses, glassesPart, tr, view, (nod - 40) / 20, nod);
+    if (up !== 0) ctx.translate(0, -up);
+  }
   leave(ctx, sk.head, sk.headAngle);
 }
 
@@ -1090,7 +1247,7 @@ export function cup(ctx: Ctx, x: number, y: number, tea: string, s = 1): void {
   ctx.closePath();
   fillEdge(ctx, tea, shade(tea, 0.6));
   // Pearls at the bottom, the lid, the straw.
-  ctx.fillStyle = '#3a271c';
+  setFill(ctx, '#3a271c');
   ctx.beginPath();
   for (let i = 0; i < 3; i++) {
     const bx = x + (i - 1) * w * 0.24;
@@ -1105,8 +1262,7 @@ export function cup(ctx: Ctx, x: number, y: number, tea: string, s = 1): void {
   ctx.beginPath();
   ctx.moveTo(x + w * 0.1, top - w * 0.15);
   ctx.lineTo(x + w * 0.32, top - h * 0.62);
-  ctx.strokeStyle = '#de4f5a';
-  ctx.lineWidth = 0.018 * s;
+  setStroke(ctx, '#de4f5a', 0.018 * s);
   ctx.stroke();
 }
 
@@ -1114,7 +1270,7 @@ function phoneAt(ctx: Ctx, x: number, y: number, screen: boolean): void {
   rrect(ctx, x - 0.026, y - 0.075, 0.052, 0.085, 0.012);
   fillEdge(ctx, screen ? '#cfe9f5' : '#3a3338', '#1f1a1c');
   if (!screen) {
-    ctx.fillStyle = '#6e6670';
+    setFill(ctx, '#6e6670');
     ctx.beginPath();
     ctx.arc(x - 0.01, y - 0.06, 0.006, 0, Math.PI * 2);
     ctx.fill();
@@ -1167,87 +1323,97 @@ function cane(ctx: Ctx, h: P): void {
   ctx.moveTo(h.x - 0.035, h.y - 0.01);
   ctx.quadraticCurveTo(h.x - 0.01, h.y - 0.05, h.x + 0.01, h.y - 0.01);
   ctx.lineTo(h.x + 0.035, 0);
-  ctx.strokeStyle = '#5a3a22';
-  ctx.lineWidth = 0.026;
+  setStroke(ctx, '#5a3a22', 0.026);
   ctx.stroke();
-  ctx.strokeStyle = '#94612f';
-  ctx.lineWidth = 0.014;
+  setStroke(ctx, '#94612f', 0.014);
   ctx.stroke();
 }
 
-/** A pack on the back: side-on it shows behind the back; from behind, over the torso; facing, just the straps. */
-function pack(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, layer: 'behind' | 'over'): void {
-  if (tr.bag !== 'backpack' && tr.bag !== 'box') return;
+/** Whether a pack shows in this view and layer (side-on behind the back and its strap over the shoulder; from behind
+ *  over the torso; facing, the straps, and a delivery box peeking over the shoulders). */
+function packShows(tr: Traits, view: View, over: boolean): boolean {
+  if (tr.bag !== 'backpack' && tr.bag !== 'box') return false;
+  if (view === 'back') return over;
+  if (view === 'front' && !over) return tr.bag === 'box';
+  return true;
+}
+
+/** The pack's part behind the body, in the torso's frame (`len` the torso's length). */
+function packBehindShape(ctx: Ctx, tr: Traits, view: View, len: number): void {
   const box = tr.bag === 'box';
-  if (view === 'back' && layer === 'behind') return;
-  if (view === 'front' && layer === 'behind' && !box) return;
-  enter(ctx, sk.hip, sk.torsoAngle);
-  const len = sk.torsoLen;
-  if (view === 'side' && layer === 'behind') {
+  if (view === 'side') {
     const w = box ? 0.17 : 0.1;
     const top = box ? -len - 0.07 : -len + 0.02;
     const h = box ? 0.25 : 0.19;
     rrect(ctx, -0.075 * tr.width - w + 0.03, top, w, h, box ? 0.02 : 0.04);
     fillEdge(ctx, tr.bagColor, tr.bagEdge);
     if (box) {
-      ctx.fillStyle = 'rgba(255, 252, 247, 0.5)';
+      setFill(ctx, 'rgba(255, 252, 247, 0.5)');
       ctx.fillRect(-0.075 * tr.width - w + 0.03, top + h * 0.35, w, 0.02);
     }
-  } else if (view === 'side' && layer === 'over') {
+  } else if (view === 'front' && box) {
+    rrect(ctx, -0.16, -len - 0.08, 0.32, 0.2, 0.025);
+    fillEdge(ctx, tr.bagColor, tr.bagEdge);
+  }
+}
+
+/** The pack's part over the body, in the torso's frame. */
+function packOverShape(ctx: Ctx, tr: Traits, view: View, len: number): void {
+  const box = tr.bag === 'box';
+  if (view === 'side') {
     ctx.beginPath();
     ctx.moveTo(-0.02, -len + 0.005);
     ctx.quadraticCurveTo(0.06 * tr.width, -len + 0.06, 0.02, -len + 0.15);
-    ctx.strokeStyle = tr.bagEdge;
-    ctx.lineWidth = 0.022;
+    setStroke(ctx, tr.bagEdge, 0.022);
     ctx.stroke();
-  } else if (view === 'back' && layer === 'over') {
+  } else if (view === 'back') {
     const w = box ? 0.3 : 0.2;
     const top = box ? -len - 0.08 : -len + 0.02;
     const h = box ? 0.27 : 0.2;
     rrect(ctx, -w / 2, top, w, h, box ? 0.025 : 0.05);
     fillEdge(ctx, tr.bagColor, tr.bagEdge);
     if (box) {
-      ctx.fillStyle = 'rgba(255, 252, 247, 0.5)';
+      setFill(ctx, 'rgba(255, 252, 247, 0.5)');
       ctx.fillRect(-w / 2, top + h * 0.35, w, 0.022);
     } else {
       rrect(ctx, -w * 0.32, top + h * 0.5, w * 0.64, h * 0.36, 0.03);
       fillEdge(ctx, shade(tr.bagColor, 0.88), tr.bagEdge);
     }
-  } else if (view === 'front' && layer === 'behind' && box) {
-    rrect(ctx, -0.16, -len - 0.08, 0.32, 0.2, 0.025);
-    fillEdge(ctx, tr.bagColor, tr.bagEdge);
-  } else if (view === 'front' && layer === 'over') {
+  } else {
+    const x = 0.075 * tr.width;
     ctx.beginPath();
-    for (const s of [-1, 1]) {
-      ctx.moveTo(s * 0.075 * tr.width, -len + 0.005);
-      ctx.lineTo(s * 0.07 * tr.width, -len + 0.16);
-    }
-    ctx.strokeStyle = tr.bagEdge;
-    ctx.lineWidth = 0.02;
+    ctx.moveTo(-x, -len + 0.005);
+    ctx.lineTo(-x * 0.93, -len + 0.16);
+    ctx.moveTo(x, -len + 0.005);
+    ctx.lineTo(x * 0.93, -len + 0.16);
+    setStroke(ctx, tr.bagEdge, 0.02);
     ctx.stroke();
   }
-  leave(ctx, sk.hip, sk.torsoAngle);
 }
 
-function sling(ctx: Ctx, tr: Traits, sk: Skeleton, view: View): void {
-  if (tr.bag !== 'sling' || view === 'back') return;
-  enter(ctx, sk.hip, sk.torsoAngle);
-  const len = sk.torsoLen;
+/** A sling bag's strap across the chest and its pouch at the hip, in the torso's frame. */
+function slingShape(ctx: Ctx, tr: Traits, view: View, len: number): void {
   const w = view === 'side' ? 0.15 : 0.21;
   ctx.beginPath();
   ctx.moveTo(-w * 0.4, -len + 0.01);
   ctx.lineTo(w * 0.42, -0.03);
-  ctx.strokeStyle = shade(tr.bagColor, tr.bagColor === C.black ? 1.4 : 0.7);
-  ctx.lineWidth = 0.014;
+  setStroke(ctx, shade(tr.bagColor, tr.bagColor === C.black ? 1.4 : 0.7), 0.014);
   ctx.stroke();
   rrect(ctx, w * 0.3, -0.06, 0.07, 0.055, 0.015);
   fillEdge(ctx, tr.bagColor, tr.bagEdge);
-  leave(ctx, sk.hip, sk.torsoAngle);
 }
 
+/** A recorded part drawn with its origin at (x, y). */
+function partAt(ctx: Ctx, id: Part, fn: PartFn, tr: Traits, x: number, y: number): void {
+  ctx.translate(x, y);
+  part(ctx, id, fn, tr, 'side', 0);
+  ctx.translate(-x, -y);
+}
+
+/** The cup or phone in hand 0. From behind the phone's screen shows (unless the arm hides it, see drawFigure). */
 function held(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, fx: FigureFx): void {
   if (fx.phone) phoneAt(ctx, sk.hand0.x, sk.hand0.y + 0.01, view === 'back');
-  else if (fx.cup) cup(ctx, sk.hand0.x, sk.hand0.y, tr.tea);
+  else if (fx.cup) partAt(ctx, Part.Cup, cupPart, tr, sk.hand0.x, sk.hand0.y);
 }
 
 /**
@@ -1260,8 +1426,8 @@ function heldOther(ctx: Ctx, tr: Traits, sk: Skeleton): void {
     return;
   }
   const at = sk.hand1.y < sk.hip.y - 0.04 ? sk.elbow1 : sk.hand1;
-  if (tr.bag === 'basket') basket(ctx, tr, at);
-  else if (tr.bag === 'tote') tote(ctx, tr, at);
+  if (tr.bag === 'basket') partAt(ctx, Part.Basket, basketPart, tr, at.x, at.y);
+  else if (tr.bag === 'tote') partAt(ctx, Part.Tote, totePart, tr, at.x, at.y);
 }
 
 /**
@@ -1283,39 +1449,52 @@ export function characterPose(out: Pose, clip: Clip, input: ClipInput, tr: Trait
  * scales and mirrors.
  */
 export function drawFigure(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, p: Readonly<Pose>, fx: FigureFx): void {
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  if (view === 'side') {
-    pack(ctx, tr, sk, view, 'behind');
-    heldOther(ctx, tr, sk);
-    arm(ctx, tr, sk.shoulder1, sk.elbow1, sk.hand1, true);
-    legs(ctx, tr, sk, true);
-    torso(ctx, tr, sk, view);
-    pack(ctx, tr, sk, view, 'over');
-    sling(ctx, tr, sk, view);
-    head(ctx, tr, sk, view, p, fx);
-    if (fx.cup && !fx.phone) held(ctx, tr, sk, view, fx);
-    arm(ctx, tr, sk.shoulder0, sk.elbow0, sk.hand0, false);
-    if (fx.phone) held(ctx, tr, sk, view, fx);
-    return;
-  }
-  if (view === 'front') {
-    pack(ctx, tr, sk, view, 'behind');
-    legs(ctx, tr, sk, false);
-    torso(ctx, tr, sk, view);
-    pack(ctx, tr, sk, view, 'over');
-    sling(ctx, tr, sk, view);
-    head(ctx, tr, sk, view, p, fx);
-    heldOther(ctx, tr, sk);
-    arms(ctx, tr, sk);
-    held(ctx, tr, sk, view, fx);
-    return;
-  }
-  // From behind: arms swung forward go behind the body; the pack and the head cover the rest.
-  const front0 = p.a0 > 0.6;
-  const front1 = p.a1 > 0.6;
+  penStart(ctx);
+  if (view === 'side') figureSide(ctx, tr, sk, p, fx);
+  else if (view === 'front') figureFront(ctx, tr, sk, p, fx);
+  else figureBack(ctx, tr, sk, p, fx);
+  penEnd();
+}
+
+function figureSide(ctx: Ctx, tr: Traits, sk: Skeleton, p: Readonly<Pose>, fx: FigureFx): void {
+  pack(ctx, tr, sk, 'side', 'behind');
+  heldOther(ctx, tr, sk);
+  arm(ctx, tr, sk.shoulder1, sk.elbow1, sk.hand1, true);
+  legs(ctx, tr, sk, true);
+  torso(ctx, tr, sk, 'side');
+  pack(ctx, tr, sk, 'side', 'over');
+  sling(ctx, tr, sk, 'side');
+  head(ctx, tr, sk, 'side', p, fx);
+  if (fx.cup && !fx.phone) held(ctx, tr, sk, 'side', fx);
+  arm(ctx, tr, sk.shoulder0, sk.elbow0, sk.hand0, false);
+  if (fx.phone) held(ctx, tr, sk, 'side', fx);
+}
+
+function figureFront(ctx: Ctx, tr: Traits, sk: Skeleton, p: Readonly<Pose>, fx: FigureFx): void {
+  pack(ctx, tr, sk, 'front', 'behind');
+  legs(ctx, tr, sk, false);
+  torso(ctx, tr, sk, 'front');
+  pack(ctx, tr, sk, 'front', 'over');
+  sling(ctx, tr, sk, 'front');
+  head(ctx, tr, sk, 'front', p, fx);
+  heldOther(ctx, tr, sk);
+  arms(ctx, tr, sk);
+  held(ctx, tr, sk, 'front', fx);
+}
+
+/** From behind, a hand within this share of the torso's half-width of the spine is in front of the body. */
+const INNER = 0.08;
+
+/**
+ * From behind: an arm folded in front of the body (a phone, crossed arms, a hand at the chin, a sip) goes behind the
+ * back, with what it holds; arms at the sides or swinging show beside the body; the pack and the head cover the rest.
+ */
+function figureBack(ctx: Ctx, tr: Traits, sk: Skeleton, p: Readonly<Pose>, fx: FigureFx): void {
+  const inner = INNER * tr.width;
+  const front0 = armInFront(p, sk, 0, inner);
+  const front1 = armInFront(p, sk, 1, inner);
   if (front0) {
-    held(ctx, tr, sk, view, fx);
+    held(ctx, tr, sk, 'back', fx);
     arm(ctx, tr, sk.shoulder0, sk.elbow0, sk.hand0, false);
   }
   if (front1) {
@@ -1323,17 +1502,17 @@ export function drawFigure(ctx: Ctx, tr: Traits, sk: Skeleton, view: View, p: Re
     arm(ctx, tr, sk.shoulder1, sk.elbow1, sk.hand1, false);
   }
   legs(ctx, tr, sk, false);
-  torso(ctx, tr, sk, view);
+  torso(ctx, tr, sk, 'back');
   if (!front0) {
     arm(ctx, tr, sk.shoulder0, sk.elbow0, sk.hand0, false);
-    held(ctx, tr, sk, view, fx);
+    held(ctx, tr, sk, 'back', fx);
   }
   if (!front1) {
     arm(ctx, tr, sk.shoulder1, sk.elbow1, sk.hand1, false);
     heldOther(ctx, tr, sk);
   }
-  pack(ctx, tr, sk, view, 'over');
-  head(ctx, tr, sk, view, p, fx);
+  pack(ctx, tr, sk, 'back', 'over');
+  head(ctx, tr, sk, 'back', p, fx);
 }
 
 // ── Emotes over the head ────────────────────────────────────────────────────────────────────────────────────────────
@@ -1353,11 +1532,16 @@ export interface EmoteState {
 /** The marks over a head at (x, top), in street units; s is the person's height. */
 export function drawEmotes(ctx: Ctx, x: number, top: number, s: number, e: EmoteState): void {
   const u = s * 0.3;
-  if (e.sinceHappy < 1.6 && !e.calm) {
-    const k = e.sinceHappy / 1.6;
-    const rise = smoothstep(k) * s * 0.45;
-    heart(ctx, x + Math.sin(e.sinceHappy * 6) * s * 0.05, top - u * 0.5 - rise, u * (0.75 + 0.25 * Math.min(1, k * 4)),
-      k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3);
+  if (e.sinceHappy < 1.6) {
+    if (e.calm) {
+      // Reduced motion: the heart stays put over the head, then goes.
+      heart(ctx, x, top - u * 0.6, u * 0.9, 1);
+    } else {
+      const k = e.sinceHappy / 1.6;
+      const rise = smoothstep(k) * s * 0.45;
+      heart(ctx, x + Math.sin(e.sinceHappy * 6) * s * 0.05, top - u * 0.5 - rise,
+        u * (0.75 + 0.25 * Math.min(1, k * 4)), k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3);
+    }
   }
   switch (e.clip) {
     case 'puzzled': {
@@ -1370,32 +1554,74 @@ export function drawEmotes(ctx: Ctx, x: number, top: number, s: number, e: Emote
       if (!e.calm) {
         for (let i = 0; i < 2; i++) {
           const k = (e.loop * 1.4 + i * 0.5) % 1;
-          puff(ctx, x + (i === 0 ? -1 : 1) * s * (0.14 + k * 0.08), top + s * 0.08 - k * s * 0.35, u * (0.4 + k * 0.3),
-            1 - k);
+          puff(ctx, x + (i === 0 ? -1 : 1) * s * (0.15 + k * 0.08), top + s * 0.06 - k * s * 0.35,
+            u * (0.45 + k * 0.3), 1 - k);
         }
       }
       const beat = e.calm ? 1 : 0.9 + Math.abs(Math.sin(e.loop * 5)) * 0.2;
-      angerMark(ctx, x + s * 0.15, top - u * 0.05, u * 0.62 * beat);
+      angerMark(ctx, x + s * 0.16, top - u * 0.1, u * 0.87 * beat);
       return;
     }
     case 'crossed':
       if (e.mood === 'angry') {
         const beat = e.calm ? 1 : 0.9 + Math.abs(Math.sin(e.loop * 4)) * 0.2;
-        angerMark(ctx, x + s * 0.15, top - u * 0.05, u * 0.55 * beat);
+        angerMark(ctx, x + s * 0.16, top - u * 0.1, u * 0.8 * beat);
       } else {
-        sweat(ctx, x - s * 0.16, top + s * 0.12 + (e.calm ? 0 : ((e.loop * 0.6) % 1) * s * 0.06), u * 0.45);
+        sweat(ctx, x - s * 0.16, top + s * 0.12 + (e.calm ? 0 : ((e.loop * 0.6) % 1) * s * 0.06), u * 0.5);
       }
       return;
     case 'walkScared':
     case 'whisper':
-      sweat(ctx, x + s * 0.17, top + s * 0.1 + (e.calm ? 0 : ((e.loop * 0.9) % 1) * s * 0.07), u * 0.5);
-      if (e.clip === 'whisper') dots(ctx, x - s * 0.2, top - u * 0.35, u * 0.5);
+      sweat(ctx, x + s * 0.17, top + s * 0.1 + (e.calm ? 0 : ((e.loop * 0.9) % 1) * s * 0.07), u * 0.55);
+      if (e.clip === 'whisper') dots(ctx, x - s * 0.22, top - u * 0.45, u * 0.7);
       return;
     case 'shrug':
-      if (e.t < 1.4) dots(ctx, x + s * 0.12, top - u * 0.4, u * 0.5, 3);
+      if (e.t < 1.4) dots(ctx, x + s * 0.12, top - u * 0.5, u * 0.7, 3);
       return;
     default:
       return;
+  }
+}
+
+const TICK = 'rgba(42, 29, 21, 0.7)';
+
+/**
+ * Marks at the feet (street units): little tick lines at the toe each time an impatient foot taps down, and a dust puff
+ * under each stomp. `toeX` is the tapping toe; `foot0X`/`foot1X` the two feet. None with reduced motion (the posture
+ * stays).
+ */
+export function drawFootMarks(ctx: Ctx, toeX: number, foot0X: number, foot1X: number, y: number, s: number,
+  e: EmoteState): void {
+  if (e.calm) return;
+  if (e.clip === 'tap' || e.clip === 'crossed') {
+    // The foot is down for the second half of each tap cycle; the ticks flash as it lands.
+    const k = (e.loop * (e.clip === 'tap' ? 2.2 : 3)) % 1;
+    if (k < 0.5 || k > 0.75) return;
+    const a = 1 - (k - 0.5) / 0.25;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = TICK;
+    ctx.lineWidth = s * 0.034;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = -1; i <= 1; i++) {
+      const ang = -Math.PI / 2 + i * 0.75;
+      const r0 = s * 0.07;
+      const r1 = s * (0.16 + (1 - a) * 0.03);
+      ctx.moveTo(toeX + Math.cos(ang) * r0, y - s * 0.02 + Math.sin(ang) * r0);
+      ctx.lineTo(toeX + Math.cos(ang) * r1, y - s * 0.02 + Math.sin(ang) * r1);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  } else if (e.clip === 'stomp') {
+    // A slam every half cycle (2.4 a second), alternating feet; the puff spreads and fades.
+    const n = e.t * 4.8;
+    const k = n % 1;
+    if (k > 0.45) return;
+    const fx = Math.floor(n) % 2 === 1 ? foot0X : foot1X;
+    const a = 1 - k / 0.45;
+    const spread = s * (0.07 + k * 0.12);
+    puff(ctx, fx - spread, y - s * 0.01, s * (0.09 + k * 0.04), a);
+    puff(ctx, fx + spread, y - s * 0.01, s * (0.09 + k * 0.04), a);
   }
 }
 
@@ -1437,6 +1663,11 @@ interface Cast { memos: Map<number, Memo>; frame: number; sk: Skeleton; input: C
 
 const STORE_KEY = 'characters.cast';
 
+/** `forEach` callback (this: the wall clock): drops a memo not seen for 3 s. */
+function sweepMemo(this: number, m: Memo, id: number, map: Map<number, Memo>): void {
+  if (this - m.seen > 3000) map.delete(id);
+}
+
 function castOf(rc: RenderContext): Cast {
   let c = rc.store.get(STORE_KEY) as Cast | undefined;
   if (c === undefined) {
@@ -1469,10 +1700,10 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   const cast = castOf(rc);
   const { ctx } = rc;
   const H = rc.layout.actorH;
-  // Once per frame (the first customer drawn): forget actors not seen for a while.
-  if (cast.frame !== Math.floor(rc.wall)) {
-    cast.frame = Math.floor(rc.wall);
-    if (cast.memos.size > 60) for (const [id, m] of cast.memos) if (rc.wall - m.seen > 3000) cast.memos.delete(id);
+  // About once a second: forget actors not seen for a while.
+  if (rc.wall - cast.frame > 1000) {
+    cast.frame = rc.wall;
+    if (cast.memos.size > 60) cast.memos.forEach(sweepMemo, rc.wall);
   }
   let m = cast.memos.get(a.id);
   if (m === undefined) {
@@ -1556,4 +1787,6 @@ export function drawCharacterAt(ctx: Ctx, tr: Traits, x: number, y: number, s: n
   const hx = x + facing * sk.head.x * s;
   const top = y + (sk.head.y - tr.dims.headR * (tr.hat === 'conical' ? 1.9 : 1.15)) * s;
   drawEmotes(ctx, hx, top, s, e);
+  const toe = view === 'side' ? sk.foot0.x + 0.05 : sk.foot0.x;
+  drawFootMarks(ctx, x + facing * toe * s, x + facing * sk.foot0.x * s, x + facing * sk.foot1.x * s, y, s, e);
 }

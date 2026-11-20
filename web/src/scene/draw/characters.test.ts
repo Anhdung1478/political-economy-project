@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../../../../shared/sim/config';
 import type { Actor } from '../director';
-import type { Clip } from '../rig';
+import { CLIPS, newSkeleton, pose, solve, type Clip } from '../rig';
 import {
-  ARCHETYPES, blinkAt, buildTraits, CROSS_AT, FUME_AT, impatience, onPhone, selectAnim, shade, SKINS, TAP_AT, traitsOf, viewOf,
+  ARCHETYPES, blinkAt, buildTraits, characterPose, drawCharacterAt, drawFigure, type EmoteState, type FigureFx, CROSS_AT, FUME_AT, impatience, onPhone, selectAnim, shade, SKINS, TAP_AT, traitsOf, viewOf,
   type Traits,
 } from './characters';
+import { MOODS } from './faces';
 
 /** Looks spread like the sim's: 32-bit unsigned. */
 const looks = (n: number) => Array.from({ length: n }, (_, i) => (Math.imul(i + 1, 2654435761) >>> 0));
@@ -67,6 +68,8 @@ describe('traitsOf: who a look is', () => {
         case 'shipper':
           expect(t.hat).toBe('helmet');
           expect(t.longSleeves).toBe(true);
+          // Jacket, helmet and box never all one colour (no delivery brand by colour).
+          if (t.bag === 'box') expect(t.bagColor).not.toBe(t.top);
           break;
         case 'elder':
           expect(t.stoop).toBeGreaterThan(0.5);
@@ -208,5 +211,107 @@ describe('selectAnim: the director\'s state to a clip and a face', () => {
     for (let t = 0; t < 60; t += 0.01) shut += blinkAt(t, 1.3);
     expect(shut / 6000).toBeGreaterThan(0.01);
     expect(shut / 6000).toBeLessThan(0.08);
+  });
+});
+
+// ── Smoke: every look, clip, view and face draws without throwing (a renderer that throws stops the scene) ────────
+
+const CANVAS_METHODS = new Set([
+  'beginPath', 'moveTo', 'lineTo', 'arc', 'arcTo', 'ellipse', 'quadraticCurveTo', 'bezierCurveTo', 'closePath', 'rect',
+  'fill', 'stroke', 'fillRect', 'save', 'restore', 'translate', 'rotate', 'scale', 'setTransform',
+]);
+
+/** A context that accepts the canvas calls the characters use and throws on anything else. */
+function stubContext(): { ctx: CanvasRenderingContext2D; calls: () => number } {
+  let n = 0;
+  const fns = new Map<string, () => void>();
+  const ctx = new Proxy({}, {
+    get: (_t, k) => {
+      if (typeof k !== 'string' || !CANVAS_METHODS.has(k)) throw new Error(`unexpected canvas call ${String(k)}`);
+      let f = fns.get(k);
+      if (f === undefined) {
+        f = () => { n++; };
+        fns.set(k, f);
+      }
+      return f;
+    },
+    set: () => true,
+  }) as unknown as CanvasRenderingContext2D;
+  return { ctx, calls: () => n };
+}
+
+/** A stand-in Path2D (node has none) with the calls a Recorder makes; anything else is missing and throws. */
+class FakePath2D {
+  constructor(_from?: FakePath2D) {}
+  moveTo(): void {}
+  lineTo(): void {}
+  closePath(): void {}
+  rect(): void {}
+  arc(): void {}
+  arcTo(): void {}
+  ellipse(): void {}
+  quadraticCurveTo(): void {}
+  bezierCurveTo(): void {}
+}
+
+function drawEverything(ctx: CanvasRenderingContext2D): void {
+  const sk = newSkeleton();
+  const p = pose();
+  const fx: FigureFx = { mood: 'neutral', blink: 0, cup: false, phone: false };
+  const em: EmoteState = { clip: 'idle', mood: 'neutral', t: 0, loop: 0, sinceHappy: Infinity, calm: false };
+  const ls = looks(60);
+  ls.forEach((look, li) => {
+    const tr = traitsOf(look);
+    CLIPS.forEach((clip, ci) => {
+      for (const view of ['side', 'front', 'back'] as const) {
+        const calm = (li + ci) % 3 === 0;
+        for (const t of [0.05, 0.4, 1.3]) {
+          characterPose(p, clip, { t, loop: t * 2.7 + li, phase: t * 9, pace: 1.5, side: view === 'side',
+            stoop: tr.stoop, calm }, tr);
+          solve(p, tr.dims, view, sk);
+          fx.mood = MOODS[(li + ci + Math.round(t * 10)) % MOODS.length];
+          fx.blink = t > 1 ? 1 : 0;
+          fx.cup = (ci + li) % 2 === 0;
+          fx.phone = clip === 'phone' || clip === 'selfie' || clip === 'walkPhone';
+          Object.assign(em, { clip, mood: fx.mood, t, loop: t * 2.7, sinceHappy: t, calm });
+          drawCharacterAt(ctx, tr, 100, 100, 38 * tr.height, li % 2 ? 1 : -1, view, p, sk, fx, em);
+        }
+      }
+    });
+    // Every face on this look, facing and side-on.
+    for (const mood of MOODS) {
+      fx.mood = mood;
+      for (const view of ['side', 'front'] as const) {
+        characterPose(p, 'idle', { t: 0, loop: 1, phase: 0, pace: 0, side: view === 'side', stoop: tr.stoop, calm: false }, tr);
+        solve(p, tr.dims, view, sk);
+        drawFigure(ctx, tr, sk, view, p, fx);
+      }
+    }
+  });
+}
+
+describe('drawing every look, clip, view and face', () => {
+  it('draws live where there is no Path2D, never calling outside the supported canvas calls', () => {
+    expect(typeof (globalThis as { Path2D?: unknown }).Path2D).toBe('undefined');
+    const { ctx, calls } = stubContext();
+    expect(() => drawEverything(ctx)).not.toThrow();
+    expect(calls()).toBeGreaterThan(100000);
+  });
+
+  it('records the static parts once and replays them (with a stand-in Path2D)', () => {
+    const live = stubContext();
+    drawEverything(live.ctx);
+    const g = globalThis as { Path2D?: unknown };
+    g.Path2D = FakePath2D;
+    try {
+      const first = stubContext();
+      expect(() => drawEverything(first.ctx)).not.toThrow();
+      // Once recorded, the parts replay: far fewer canvas calls than building every path live.
+      const again = stubContext();
+      drawEverything(again.ctx);
+      expect(again.calls()).toBeLessThan(live.calls() * 0.6);
+    } finally {
+      delete g.Path2D;
+    }
   });
 });

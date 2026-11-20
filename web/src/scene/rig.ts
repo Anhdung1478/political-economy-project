@@ -105,6 +105,15 @@ export const POSES = {
   point: pose({ a0: 2.35, e0: 0.12, x0: 0.25 }),
 } satisfies Record<string, Pose>;
 
+/** Holding a cup between sips. */
+const CUP_HOLD = pose({ a0: 0.45, e0: 1.25, x0: 0.06 });
+
+/** Hop k of the happy clip at time t: 0 on the ground, up to 1 at the top. */
+function hopAt(t: number, k: number): number {
+  const u = (t - k * 0.42) / 0.36;
+  return u > 0 && u < 1 ? S(u * Math.PI) : 0;
+}
+
 // ── Clips ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type Clip =
@@ -210,10 +219,9 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
       // A sip every few seconds: the cup comes up to the lips, stays, goes down.
       const c = i.loop % 3.2;
       const up = c < 0.35 ? smoothstep(c / 0.35) : c < 1.15 ? 1 : c < 1.5 ? 1 - smoothstep((c - 1.15) / 0.35) : 0;
-      const hold = pose({ a0: 0.45, e0: 1.25, x0: 0.06 });
-      out.a0 = hold.a0 + (POSES.sip.a0 - hold.a0) * up;
-      out.e0 = hold.e0 + (POSES.sip.e0 - hold.e0) * up;
-      out.x0 = hold.x0;
+      out.a0 = CUP_HOLD.a0 + (POSES.sip.a0 - CUP_HOLD.a0) * up;
+      out.e0 = CUP_HOLD.e0 + (POSES.sip.e0 - CUP_HOLD.e0) * up;
+      out.x0 = CUP_HOLD.x0;
       out.nod = -0.1 * up;
       return out;
     }
@@ -286,6 +294,9 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
       const tap = i.calm ? 0.5 : Math.max(0, S(i.loop * TAU * 2.2));
       out.l0 = 0.12 + tap * 0.3;
       out.k0 = tap * 0.7;
+      // The shoulders bounce and the body rocks with each tap (seen from every side).
+      out.shrug += tap * 0.012;
+      out.sway += (tap - 0.3) * 0.05;
       out.lookX = i.calm ? -0.5 : S(i.loop * 0.7) > 0 ? -0.7 : 0.2;
       out.lean -= 0.03;
       return out;
@@ -296,6 +307,8 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
       const tap = i.calm ? 0.5 : Math.max(0, S(i.loop * TAU * 3));
       out.l0 = 0.1 + tap * 0.3;
       out.k0 = tap * 0.7;
+      out.shrug += tap * 0.01;
+      out.sway += (tap - 0.3) * 0.04;
       out.tilt = i.calm ? -0.06 : S(i.loop * 0.8) * 0.08;
       out.lookX = -0.6;
       return out;
@@ -303,11 +316,7 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
     case 'happy': {
       // Two little hops with a squash on each landing, the free arm up, the cup held high; then a bounce in place.
       const t = i.t;
-      const hop = (k: number) => {
-        const u = (t - k * 0.42) / 0.36;
-        return u > 0 && u < 1 ? S(u * Math.PI) : 0;
-      };
-      const h = t < 0.84 ? Math.max(hop(0), hop(1)) : 0;
+      const h = t < 0.84 ? Math.max(hopAt(t, 0), hopAt(t, 1)) : 0;
       const landing = t < 0.95 ? Math.max(0, 1 - Math.abs(((t % 0.42) - 0.38) / 0.06)) : 0;
       layer(out, POSES.cheer, 0.55);
       out.a0 = 1.9;
@@ -338,7 +347,8 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
     case 'stomp': {
       // Stomping in place: knees come up in turn and slam down, fists stiff, the body jolts.
       layer(out, POSES.fists, 1);
-      const p = i.t * TAU * 2.4;
+      // Reduced motion: one knee held up, still (the posture says it; nothing pumps).
+      const p = i.calm ? Math.PI / 2 : i.t * TAU * 2.4;
       const s = S(p);
       out.l0 = Math.max(0, s) * 0.95;
       out.k0 = Math.max(0, s) * 1.15;
@@ -346,6 +356,9 @@ export function clipPose(out: Pose, clip: Clip, i: ClipInput): Pose {
       out.k1 = Math.max(0, -s) * 1.15;
       const slam = Math.abs(Math.cos(p));
       out.squash = i.calm ? 1 : 1 - Math.pow(slam, 6) * 0.07;
+      // The body rocks toward the lifted leg and jolts down on each slam (what shows facing us).
+      out.sway = i.calm ? 0 : -s * 0.09;
+      out.tilt = i.calm ? 0 : s * 0.06;
       out.a0 += s * 0.15;
       out.a1 -= s * 0.15;
       out.shrug = 0.015;
@@ -507,7 +520,23 @@ function frontArm(s: P, side: 1 | -1, a: number, e: number, x: number, d: Dims, 
   set(hand, elbow.x + fx * d.armLower, elbow.y + Math.cos(a + e) * Math.cos(x * 0.5) * d.armLower);
 }
 
+/** Facing us: a forward swing foreshortens the thigh, and a raised knee turns a little outward. */
 function frontLeg(h: P, l: number, k: number, d: Dims, knee: P, foot: P): void {
-  set(knee, h.x, h.y + Math.cos(l) * d.legUpper);
-  set(foot, knee.x, knee.y + Math.cos(l - k) * d.legLower);
+  const out = Math.sign(h.x) * Math.max(0, S(l)) * 0.04;
+  set(knee, h.x + out, h.y + Math.cos(l) * d.legUpper);
+  set(foot, knee.x - out * 0.4, knee.y + Math.cos(l - k) * d.legLower);
+}
+
+/**
+ * Seen from behind, whether arm 0 or 1 is folded in front of the body (so it, and what it holds, is hidden behind the
+ * back): its hand reaches forward (sin a + sin(a + e), the elbow's and the hand's forward reach in segment lengths,
+ * over 0.5) and ends within the middle of the torso (`inner` from the spine). The reach alone would also hide a walking
+ * arm swung forward, which from behind still shows beside the body; the position alone would hide a hand hanging
+ * straight down against the hip.
+ */
+export function armInFront(p: Readonly<Pose>, sk: Readonly<Skeleton>, arm: 0 | 1, inner: number): boolean {
+  const a = arm === 0 ? p.a0 : p.a1;
+  const e = arm === 0 ? p.e0 : p.e1;
+  const hand = arm === 0 ? sk.hand0 : sk.hand1;
+  return S(a) + S(a + e) > 0.5 && Math.abs(hand.x - sk.neck.x) < inner;
 }
