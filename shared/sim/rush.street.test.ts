@@ -117,7 +117,8 @@ describe('createRush', () => {
       ['player', 5, 'open', 31], ['tapdoan', 6, 'open', 27],
     ]);
     const batu = state.shops[0];
-    expect(batu.ai).toEqual({ cost: 13, capacity: 12, cupsLeft: 12, ticksPerCup: 70, busy: 0, frozen: false });
+    expect(batu.ai).toEqual({ cost: CONFIG.aiShops.batu.cost, capacity: 12, cupsLeft: 12, ticksPerCup: 70, busy: 0,
+      frozen: false });
     expect(batu.trail).toEqual([[0, 28]]);
     expect(batu.rep).toBe(50);
     expect(state.shops[2].ai?.capacity).toBe(0);

@@ -90,9 +90,11 @@ Với 130 khách, túi tiền trải đều 15–60k. Cột cuối là số đo 
 
 | Tình huống | Tổng sức pha (chưa nâng cấp) | Giá đóng cửa trung bình của phố |
 |---|---|---|
-| Ngày 1: bạn + 5 quán AI | 78 ly | khoảng 33k |
-| Ngày 2: thêm Chuỗi Tập Đoàn | 96 ly | khoảng 29k |
-| Ngày 3: giá trần 20k, 2 quán nghỉ bán | 72 ly cho khoảng 115 người muốn mua | 20k, khoảng 31% người đủ tiền về tay không |
+| Ngày 1: bạn + 5 quán AI | 78 ly | khoảng 30,5k |
+| Ngày 2: thêm Chuỗi Tập Đoàn | 96 ly | khoảng 26,5k |
+| Ngày 3: giá trần 20k, 3 quán nghỉ bán | 60 ly cho khoảng 115 người muốn mua | 20k, khoảng 40% người đủ tiền về tay không |
+
+Ngày thường cũng có người về tay không, vì hàng khan hơn khách: khoảng 22% ở ngày 1 và 13% ở ngày 2. Ngày giá trần cao hơn 2 lần mức đó. Nếu Chuỗi Tập Đoàn không mở thì giá ngày 2 vẫn ở khoảng 29,5k, nên phần lớn mức giảm của ngày 2 (khoảng 2,9k trong 3,7k) là do quán mới.
 
 ### Giá và chi phí của người chơi
 
@@ -103,9 +105,9 @@ Với 130 khách, túi tiền trải đều 15–60k. Cột cuối là số đo 
 
 | Loại trà | Giá mỗi 100 ml | Uy tín (tính vào buổi tối) |
 |---|---|---|
-| 🥄 Ăn bớt | 2k | −10 |
+| 🥄 Ăn bớt | 2k | −12 |
 | Chuẩn | 3k | 0 |
-| 💎 Cao cấp | 4k | +6 |
+| 💎 Cao cấp | 4k | +8 |
 
 - Topping: trân châu, thạch, pudding. Mỗi phần giá vốn 2k. Đá miễn phí.
 - Cuối ngày trà và topping thừa đều bỏ.
@@ -119,9 +121,11 @@ Mỗi sáng mua tối đa 1 món. Mỗi món chỉ mua được một lần, dù
 |---|---|---|
 | Nhân viên | 150k | Một người phụ pha song song: cứ 9 giây tự phục vụ đúng món cho khách đầu hàng, dùng nguyên liệu của quán |
 | Máy pha | 80k | Thời gian rót trà giảm một nửa |
-| Băng rôn | 100k | +10 uy tín ngay khi mua |
+| Băng rôn | 150k | +10 uy tín ngay khi mua |
 
 Sức pha mỗi trưa: khoảng 18 ly khi không nâng cấp, khoảng 21 ly với máy pha, thêm khoảng 10 ly với nhân viên.
+
+Băng rôn đắt hơn giá trị thương hiệu của 10 điểm uy tín (120k), nên mua vào ngày cuối không có lời. Mua sớm thì uy tín kéo thêm khách trong những ngày còn lại.
 
 ### Uy tín
 
@@ -137,7 +141,7 @@ Uy tín thay đổi ở hai thời điểm, luôn kẹp trong 0–100:
 | Thời điểm | Các khoản |
 |---|---|
 | **Sáng** (trước khi nhập hàng) | Hậu quả trễ của thẻ; băng rôn (ngay lúc mua) |
-| **Tối** (sau giờ bán) | Loại trà; giao sai −2 mỗi ly; khách chờ quá lâu bỏ về −1 mỗi khách; tăng giá giữa trưa quá 20% −3; **phục vụ sạch +3** (cả ngày không giao sai và không ai bỏ về vì chờ); hậu quả ngay của thẻ chọn chiều hôm đó |
+| **Tối** (sau giờ bán) | Loại trà; giao sai −2 mỗi ly; khách chờ quá lâu bỏ về −1 mỗi khách; tăng giá giữa trưa quá 20% −5; **phục vụ sạch +3** (cả ngày không giao sai và không ai bỏ về vì chờ); hậu quả ngay của thẻ chọn chiều hôm đó |
 
 Báo cáo tối liệt kê từng khoản.
 
@@ -168,18 +172,18 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 
 - Nhập hàng theo ly nguyên, luôn nhập đủ sức pha. Phục vụ được mọi đơn cho tới khi hết ly.
 - Pha tự động theo nhịp cố định, không giao sai.
-- Sổ sách chỉ tính theo giá ly M: lãi ngày = (giá − giá vốn − thuế) × số ly bán − giá vốn × số ly thừa − 80k tiền mặt bằng.
+- Sổ sách chỉ tính theo giá ly M: lãi ngày = (giá − giá vốn − thuế) × số ly bán − giá vốn × số ly thừa − 60k tiền mặt bằng.
 - Uy tín cố định cả ván, trừ khoản trừ tạm của ngày tin đồn.
 - Hàng khách, kiên nhẫn 25 giây và cách khách chấm điểm thì giống hệt quán người chơi.
 
 | Quán | Có mặt | Giá ngày đầu | Giá vốn | Uy tín | Sức pha | Luật giá mỗi sáng |
 |---|---|---|---|---|---|---|
-| 🧋 Quán Bà Tư | ngày 1 | 36k | 13k | 50 | 12 ly, 7s/ly | Giá đóng cửa hôm qua của mình, nhích 1k về phía trung bình các quán khác |
-| 💸 Chuỗi GiáRẻ | ngày 1 | 30k | 10k | 35 | 12 ly, 7s/ly | Giá đóng cửa thấp nhất của các quán khác − 3k |
-| 🐢 Quán Ông Cố Chấp | ngày 1 | 25k | 14k | 55 | 12 ly, 7s/ly | Luôn 25k |
-| 📈 Anh Lướt Sóng | ngày 1 | 40k | 13k | 50 | 12 ly, 7s/ly | Chép giá đóng cửa của quán kiếm nhiều nhất hôm qua |
-| 🎲 Quán Sinh Viên Khởi Nghiệp | ngày 1 | 40k | 15k | 45 | 12 ly, 7s/ly | Mỗi sáng đổi 3k theo hướng đang thử (ban đầu là giảm); đảo hướng nếu hôm qua kiếm ít hơn hôm kia |
-| 🏢 Chuỗi Tập Đoàn | ngày 2 | trung bình phố − 4k | 11k | 60 | 18 ly, 5s/ly | Trung bình giá đóng cửa của các quán khác − 4k |
+| 🧋 Quán Bà Tư | ngày 1 | 30k | 12k | 50 | 12 ly, 7s/ly | Giá đóng cửa hôm qua của mình, nhích 1k về phía trung bình các quán khác |
+| 💸 Chuỗi GiáRẻ | ngày 1 | 28k | 10k | 35 | 12 ly, 7s/ly | Giá đóng cửa thấp nhất của các quán khác − 1k |
+| 🐢 Quán Ông Cố Chấp | ngày 1 | 28k | 14k | 55 | 12 ly, 7s/ly | Luôn 28k |
+| 📈 Anh Lướt Sóng | ngày 1 | 32k | 13k | 50 | 12 ly, 7s/ly | Chép giá đóng cửa của quán kiếm nhiều nhất hôm qua |
+| 🎲 Quán Sinh Viên Khởi Nghiệp | ngày 1 | 34k | 15k | 45 | 12 ly, 7s/ly | Mỗi sáng đổi 3k theo hướng đang thử (ban đầu là giảm); đảo hướng nếu hôm qua kiếm ít hơn hôm kia |
+| 🏢 Chuỗi Tập Đoàn | ngày 2 | trung bình phố − 6k | 11k | 60 | 18 ly, 5s/ly | Trung bình giá đóng cửa của các quán khác − 6k |
 
 Định nghĩa dùng chung:
 
@@ -189,7 +193,7 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 - **Thuế:** ngày 4 mọi quán AI cộng thêm 3k vào giá sau khi áp luật, tức chuyển một phần thuế sang khách.
 - **Kẹp giá:** mọi giá của quán AI nằm trong khoảng từ giá vốn + thuế + 1k đến mức thấp hơn giữa 50k và giá trần.
 
-**Phản ứng khi có quán mới.** Sáng ngày một quán AI khai trương, mọi quán AI đang mở trừ Ông Cố Chấp đặt giá không cao hơn giá khai trương của quán mới cộng 2k, sau khi áp luật riêng của mình. Khách bị chia: quán nào giữ giá cao sẽ mất khách sang quán mới.
+**Phản ứng khi có quán mới.** Sáng ngày một quán AI khai trương, mọi quán AI đang mở trừ Ông Cố Chấp đặt giá không cao hơn giá khai trương của quán mới, sau khi áp luật riêng của mình. Khách bị chia: quán nào giữ giá cao sẽ mất khách sang quán mới. Trong trưa, quán nào bán chạy lại nhích giá lên theo luật chỉnh giá giữa trưa, nên giá đóng cửa ngày 2 cao hơn giá mở cửa khoảng 2–3k nhưng vẫn thấp hơn ngày 1.
 
 **Chỉnh giá giữa trưa.** Ở giây 30 và giây 60, mỗi quán AI trừ Ông Cố Chấp và Chuỗi GiáRẻ xét lại giá:
 
@@ -198,7 +202,7 @@ Quán AI là **mô hình giản lược**, khác quán người chơi ở các �
 
 Bảng giá trên phố đổi ngay, nên người chơi thấy giá hội tụ trong lúc bán. Khách đang xếp hàng ở quán đổi giá chấm lại điểm theo luật ở mục 6.
 
-**Nghỉ bán.** Quán AI nghỉ cả ngày nếu giá cao nhất được phép thấp hơn giá vốn của nó + 7k. Với giá trần 20k, Ông Cố Chấp và Sinh Viên Khởi Nghiệp nghỉ bán. Ngày nghỉ vẫn mất tiền mặt bằng.
+**Nghỉ bán.** Quán AI nghỉ cả ngày nếu giá cao nhất được phép thấp hơn giá vốn của nó + 8k. Với giá trần 20k, Ông Cố Chấp, Anh Lướt Sóng và Sinh Viên Khởi Nghiệp nghỉ bán; ba quán còn lại có giá vốn thấp hơn nên vẫn bán. Ngày nghỉ vẫn mất tiền mặt bằng.
 
 **Rút lui.** Quán AI lỗ 2 ngày liền thì đóng cửa hẳn từ sáng hôm sau. Luật này cũng chạy sau ngày 5 để màn kết kể quán nào không trụ được.
 
@@ -274,7 +278,7 @@ Các nút sáng lên theo đúng thứ tự:
 Người chơi được đổi giá 1 lần mỗi trưa. Đồng hồ vẫn chạy trong lúc chọn. Mức thay đổi tính so với giá buổi sáng, bằng số nguyên: 25k lên 30k là đúng 20%, chưa vượt.
 
 - Sau khi đổi, mỗi khách trong hàng chấm lại điểm với giá mới. Ai có điểm từ 0 trở xuống thì rời hàng và chọn lại quán, không trừ uy tín.
-- **Tăng quá 20%:** bị ghi "chặt chém", −3 uy tín vào buổi tối.
+- **Tăng quá 20%:** bị ghi "chặt chém", −5 uy tín vào buổi tối.
 - **Giảm quá 20%:** khách bỏ đi nếu độ đa nghi > 1 − (mức giảm − 20%) × 2,5. Giảm 60% thì cả hàng bỏ đi. Khách mới đến sau đó cũng áp phép thử này trước khi xét quán.
 
 Quán AI đổi giá giữa trưa cũng theo luật chấm lại điểm. Chúng chỉ đổi 2k mỗi lần nên không bao giờ chạm ngưỡng 20%.
@@ -295,7 +299,7 @@ Mỗi thẻ có nhân vật, 1–2 câu thoại và 2 lựa chọn, chọn bằn
 |---|---|---|---|
 | 1 | **Cartel.** Đại diện Chuỗi Tập Đoàn: "Mai cả phố cùng bán 36k nhé?" | **Đồng ý:** xem bảng dưới. | **Từ chối:** cartel không thành, ngày 2 các quán AI đặt giá như thường. +3 uy tín. |
 | 2 | **Topping giá sốc.** Nhà cung cấp lạ mặt mời hàng không rõ nguồn gốc. | **Mua:** ngày 3–4 mọi topping có giá vốn 0,5k mỗi phần. Hai ngày đó tính là ngày ăn bớt, −3 uy tín mỗi tối. | **Không mua:** không đổi gì. |
-| 3 | **Chợ đen.** Khách đứng cuối hàng dúi tiền: "Bán cho em 40k cũng được." | **Nhận:** +50k ngay. Sáng ngày 4 bị bóc phốt, −8 uy tín. | **Từ chối:** +2 uy tín. |
+| 3 | **Chợ đen.** Khách đứng cuối hàng dúi tiền: "Bán cho em 40k cũng được." | **Nhận:** +50k ngay. Sáng ngày 4 bị bóc phốt, −4 uy tín. | **Từ chối:** +2 uy tín. |
 | 4 | **Thuế.** Cán bộ phường đưa tờ khai. | **Khai đủ:** không đổi gì. | **Khai gian:** được hoàn lại toàn bộ thuế ngày 4, không bị phạt tiền, nhưng −10 uy tín ngay tối đó. Trạm xe buýt vẫn được xây. Màn kết và bảng host gắn nhãn "ăn theo". |
 | 4 | **Kiểm định.** Tin đồn nước rửa chén bắt đầu lan trên mạng. | **Tự trả 40k kiểm định:** có dưới 2 ngày ăn bớt thì đạt, quán được miễn khoản trừ tin đồn ngay từ đầu ngày 5. Có từ 2 ngày trở lên thì trượt: mất 40k và −15 uy tín ngay tối đó. | **Chờ nhà nước:** miễn phí, kết quả có ở giây 45 của trưa ngày 5. |
 | 5 | **Phóng viên.** "Theo bạn, bàn tay nào cứu phố này?" | Vô hình | Hữu hình |
@@ -330,7 +334,7 @@ Ngày 1–3 mỗi ngày rút 1 thẻ từ bộ 6 thẻ theo seed, không lặp.
 - Khách: đã phục vụ, giao sai, bỏ về vì chờ lâu, không ghé vì hết món.
 - Uy tín: từng khoản thay đổi và lý do.
 - Phố hôm nay: đường đi của giá từng quán từ mở cửa tới đóng cửa, số ly bán, quán nào bán hết, nghỉ bán hay đóng cửa hẳn, số khách về tay không.
-- Thẻ bài học của ngày, dùng số liệu vừa xảy ra. Ví dụ ngày 1: "Sáng nay giá trên phố từ 25k đến 40k. Đến cuối trưa còn 25–38k."
+- Thẻ bài học của ngày, dùng số liệu vừa xảy ra. Ví dụ ngày 1: "Sáng nay giá trên phố từ 28k đến 34k. Đến cuối trưa còn 28–32k."
 - Chế độ lớp học: hạng của bạn trong số người đã xong ngày này.
 
 **Màn kết:**
@@ -652,4 +656,5 @@ Các điểm sau chốt những chỗ các mục trên để ngỏ; chúng có h
 | 14 | 7, thẻ | Tiền của thẻ luôn được trừ, kể cả khi tiền đã dưới −150k. Thẻ phụ trước, thẻ cốt truyện sau |
 | 15 | 11, giao thức | Bình chọn gửi bằng `player:vote { when: 'before' \| 'after' }`, gửi qua hàng đợi kết quả. Snapshot lúc trao giải có hạng của mọi người |
 | 16 | 14, cân bằng | Ngưỡng tính trên trung bình các seed; riêng "thua vì uy tín" là bất kỳ seed nào. "Giá trung bình phố" gồm cả người chơi |
-| 17 | 4 và 14, quán mới | Người dùng chốt ngày 2026-11-20: đổi luật thay vì nới điều kiện giá ngày 2. Để giá ngày 2 giảm ít nhất 3k mà chỉ nhờ quán mới thì giá ngày đầu phải đặt rất cao, làm ngày thường có tỉ lệ khách về tay không ngang ngày giá trần. Nay sáng ngày quán AI khai trương, các quán cũ (trừ Ông Cố Chấp) hạ giá về không quá giá khai trương + 2k; luật này áp sau thuế, trước kẹp giá, không áp ngày cartel, không ép người chơi. Khoảng 2k và danh sách quán không phản ứng nằm trong config. Thêm hai điều kiện cân bằng ở mục 14 (tỉ lệ về tay không ngày giá trần; giá ngày 2 so với chạy đối chứng) |
+| 17 | 4 và 14, quán mới | Người dùng chốt ngày 2026-11-20: đổi luật thay vì nới điều kiện giá ngày 2. Để giá ngày 2 giảm ít nhất 3k mà chỉ nhờ quán mới thì giá ngày đầu phải đặt rất cao, làm ngày thường có tỉ lệ khách về tay không ngang ngày giá trần. Nay sáng ngày quán AI khai trương, các quán cũ (trừ Ông Cố Chấp) hạ giá về không quá giá khai trương của quán mới; luật này áp sau thuế, trước kẹp giá, không áp ngày cartel, không ép người chơi. Khoảng cách so với giá khai trương (hiện là 0k) và danh sách quán không phản ứng nằm trong config. Thêm hai điều kiện cân bằng ở mục 14 (tỉ lệ về tay không ngày giá trần; giá ngày 2 so với chạy đối chứng) |
+| 18 | 4 và 14, chỉnh số lại | Sau khi đổi luật ở dòng 17, các số được chỉnh lại (2026-11-20). Giá ngày đầu của quán AI về 28–34k. Ngày giá trần có 3 quán nghỉ (ngưỡng nghỉ là giá vốn + 8k) để tỉ lệ về tay không gấp hơn 2 lần ngày thường. Lối chơi hợp lý của bộ giả lập đặt giá thấp hơn giá trung bình hôm qua 3k vào sáng có quán AI mới khai trương (bản tin sáng có báo), trừ ngày cartel; nếu không, nó giữ giá cũ trong khi cả phố hạ giá và nhánh giữ lời cartel thắng nhánh từ chối. Băng rôn phải đắt hơn giá trị thương hiệu của số uy tín nó cộng |

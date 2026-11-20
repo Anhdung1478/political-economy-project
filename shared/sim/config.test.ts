@@ -63,10 +63,10 @@ describe('CONFIG street capacity (spec section 4)', () => {
     expect(streetCapacity(2, CONFIG)).toBe(96);
   });
 
-  it('is 72 cups on day 3: 20k ceiling, Ông Cố Chấp and Sinh Viên rest', () => {
+  it('is 60 cups on day 3: 20k ceiling, Ông Cố Chấp, Lướt Sóng and Sinh Viên rest', () => {
     expect(CONFIG.days[3].ceiling).toBe(20);
-    expect(AI_IDS.filter(id => rests(id, 3, CONFIG))).toEqual(['cochap', 'sinhvien']);
-    expect(streetCapacity(3, CONFIG)).toBe(72);
+    expect(AI_IDS.filter(id => rests(id, 3, CONFIG))).toEqual(['cochap', 'luotsong', 'sinhvien']);
+    expect(streetCapacity(3, CONFIG)).toBe(60);
   });
 
   it('AI service fits inside the rush', () => {

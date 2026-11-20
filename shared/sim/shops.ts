@@ -22,7 +22,7 @@ export function clampAiPrice(id: AiShopId, price: K, rules: DayRules, cfg: SimCo
   return Math.min(highestAllowed(rules, cfg), Math.max(lowest, price));
 }
 
-/** A shop sits the whole day out when the highest allowed price is below its cost + 7k. */
+/** A shop sits the whole day out when the highest allowed price is below its cost + `aiPricing.restMargin`. */
 export function restsToday(id: AiShopId, rules: DayRules, cfg: SimConfig = CONFIG): boolean {
   return highestAllowed(rules, cfg) < cfg.aiShops[id].cost + cfg.aiPricing.restMargin;
 }

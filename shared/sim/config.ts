@@ -51,15 +51,15 @@ const days: Record<Day, DaySchedule> = {
 };
 
 const aiShops: Record<AiShopId, AiShopSpec> = {
-  batu: { firstDay: 1, openPrice: 36, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
+  batu: { firstDay: 1, openPrice: 30, cost: 12, rep: 50, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
-  giare: { firstDay: 1, openPrice: 30, cost: 10, rep: 35, capacity: 12, ticksPerCup: 70,
+  giare: { firstDay: 1, openPrice: 28, cost: 10, rep: 35, capacity: 12, ticksPerCup: 70,
     midRush: false, selfCertified: false, rumorSkimpDays: 4 },
-  cochap: { firstDay: 1, openPrice: 25, cost: 14, rep: 55, capacity: 12, ticksPerCup: 70,
+  cochap: { firstDay: 1, openPrice: 28, cost: 14, rep: 55, capacity: 12, ticksPerCup: 70,
     midRush: false, selfCertified: true, rumorSkimpDays: 0 },
-  luotsong: { firstDay: 1, openPrice: 40, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
+  luotsong: { firstDay: 1, openPrice: 32, cost: 13, rep: 50, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
-  sinhvien: { firstDay: 1, openPrice: 40, cost: 15, rep: 45, capacity: 12, ticksPerCup: 70,
+  sinhvien: { firstDay: 1, openPrice: 34, cost: 15, rep: 45, capacity: 12, ticksPerCup: 70,
     midRush: true, selfCertified: false, rumorSkimpDays: 0 },
   tapdoan: { firstDay: 2, openPrice: null, cost: 11, rep: 60, capacity: 18, ticksPerCup: 50,
     midRush: true, selfCertified: true, rumorSkimpDays: 0 },
@@ -155,9 +155,9 @@ export const CONFIG = {
     sizeMl: sizeTable(250, 350, 500),
     teaStepMl: 250,
     teaGrades: {
-      skimp: { costPer100Ml: 2, rep: -10 },
+      skimp: { costPer100Ml: 2, rep: -12 },
       standard: { costPer100Ml: 3, rep: 0 },
-      premium: { costPer100Ml: 4, rep: 6 },
+      premium: { costPer100Ml: 4, rep: 8 },
     } as Record<TeaGrade, { costPer100Ml: K; rep: number }>,
     toppingCost: 2,
     /** Sold-out sign below this much tea (§6). */
@@ -168,7 +168,7 @@ export const CONFIG = {
   upgrades: {
     staff: { cost: 150 },
     machine: { cost: 80 },
-    banner: { cost: 100, rep: 10 },
+    banner: { cost: 150, rep: 10 },
   },
 
   /** §6 Pha một ly, §16.4, plan. */
@@ -203,7 +203,7 @@ export const CONFIG = {
   rep: {
     wrongCup: -2,
     walkout: -1,
-    gouge: -3,
+    gouge: -5,
     clean: 3,
     /** Clean service needs at least this many cups sold (§16.11). */
     cleanMinCups: 1,
@@ -217,9 +217,9 @@ export const CONFIG = {
     /** Lowest price = cost + tax + clampMargin. */
     clampMargin: 1,
     /** Rests when the highest allowed price < cost + restMargin. */
-    restMargin: 7,
+    restMargin: 8,
     /** Paid every day, resting or not. */
-    rent: 80,
+    rent: 60,
     /** Closes for good after this many losing days in a row. */
     exitLossDays: 2,
     /** Added to every AI price on tax days, after the rule. */
@@ -227,15 +227,15 @@ export const CONFIG = {
     /** "Earned most" = (closePrice − earnedCost) × sold, for every shop. */
     earnedCost: 13,
     batuNudge: 1,
-    giareUndercut: 3,
-    cochapPrice: 25,
+    giareUndercut: 1,
+    cochapPrice: 28,
     sinhvienStep: 3,
     sinhvienFirstDir: -1 as -1 | 1,
-    tapdoanUndercut: 4,
+    tapdoanUndercut: 6,
     /** §4 "Phản ứng khi có quán mới": the morning an AI shop opens, every other AI shop already open and not listed in
      *  `exempt` asks at most the entrant's opening price + `gap`, after its own rule and the tax pass-through, before
      *  the clamp. Not on a cartel day; the player is never forced. */
-    entryReaction: { gap: 2, exempt: ['cochap'] as AiShopId[] },
+    entryReaction: { gap: 0, exempt: ['cochap'] as AiShopId[] },
   },
 
   /** §4 Chỉnh giá giữa trưa, §16.1. Sold thresholds are percent of capacity. */
@@ -265,7 +265,7 @@ export const CONFIG = {
   cards: {
     cartel: { price: 36, refuseRep: 3, fine: 150, fineRep: -2, breakRep: -8, breakDelayDays: 1 },
     shockTopping: { toppingCost: 0.5, days: [3, 4] as Day[], repPerDay: -3 },
-    blackMarket: { cash: 50, exposeRep: -8, exposeDelayDays: 1, refuseRep: 2 },
+    blackMarket: { cash: 50, exposeRep: -4, exposeDelayDays: 1, refuseRep: 2 },
     tax: { evadeRep: -10 },
     inspection: { cost: 40, failRep: -15 },
     kol: { acceptCash: -30, acceptRep: 8, acceptDelayDays: 1, declineRep: -2 },

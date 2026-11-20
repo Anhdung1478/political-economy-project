@@ -162,7 +162,7 @@ const cases: Case[] = [
   { card: 'shockTopping', choice: 'A', day: 2, flags: { shockTopping: true } },
   { card: 'shockTopping', choice: 'B', day: 2 },
   { card: 'blackMarket', choice: 'A', day: 3, cash: 50, flags: { blackMarket: true },
-    pending: [{ day: 4, source: 'blackMarket', rep: -8 }] },
+    pending: [{ day: 4, source: 'blackMarket', rep: CONFIG.cards.blackMarket.exposeRep }] },
   { card: 'blackMarket', choice: 'B', day: 3, rep: [ev('blackMarket', 2)] },
   { card: 'tax', choice: 'A', day: 4 },
   { card: 'tax', choice: 'B', day: 4, cash: 65, flags: { taxEvaded: true }, rep: [ev('tax', -10)] },

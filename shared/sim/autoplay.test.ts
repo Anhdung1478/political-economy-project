@@ -2,7 +2,7 @@
 // for every play style of spec §14, and the 48 story-card combinations.
 import { describe, expect, it } from 'vitest';
 import {
-  STRATEGIES, botStep, playRun, playRush, storyCombos, type BotState, type RushPolicy, type Strategy,
+  ENTRY_UNDERCUT, STRATEGIES, botStep, playRun, playRush, storyCombos, type BotState, type RushPolicy, type Strategy,
 } from './autoplay';
 import { CONFIG } from './config';
 import { customerCount } from './customers';
@@ -12,7 +12,7 @@ import { advance, canServe, cloneRush, step } from './rush';
 import { cust, deepFreeze, order, playerShop, runTo, stock, street } from './rush.fixtures';
 import { chooseCard, endRush, newRun, nextDay } from './run';
 import type {
-  Action, CardId, Customer, DayReport, MorningPlan, RunState, RushState, ShopDayResult, SimEvent,
+  Action, BriefShopRow, CardId, Customer, DayReport, MorningPlan, RunState, RushState, ShopDayResult, SimEvent,
 } from './types';
 
 const POLICY: RushPolicy = {
@@ -436,6 +436,47 @@ describe('the morning plans', () => {
     expect(price(after(4, { 1: d1, 2: d2, 3: d3 }, 'agreed'))).toBe(25);
     // Day 4 closes: AI 36 → 33 once the 3k pass-through is taken back; the player's 31 as is.
     expect(price(after(5, { 1: d1, 2: d2, 3: d3, 4: [['batu', 36], ['tapdoan', 35], ['player', 31]] }))).toBe(32);
+  });
+
+  it('reasonable (R48): 3k under the street price on the morning a new AI shop opens, but not on a cartel day', () => {
+    expect(ENTRY_UNDERCUT).toBe(3);
+    const closes: [ShopDayResult['id'], number | null][] = [['batu', 28], ['giare', 31], ['cochap', null], ['player', 33]];
+    const opening = [{ id: 'batu', status: 'open' }, { id: 'tapdoan', status: 'new' }] as BriefShopRow[];
+    const priceOf = (name: string, r: RunState, street: BriefShopRow[]) =>
+      STRATEGIES[name].plan(r, { ...brief, rules: dayRules(r), street }, CONFIG).price;
+    const refused = after(2, { 1: closes });   // the street's price is 31
+    expect(priceOf('reasonable', refused, opening)).toBe(31 - ENTRY_UNDERCUT);
+    expect(priceOf('reasonable', refused, [{ id: 'batu', status: 'open' }, { id: 'tapdoan', status: 'notYet' }] as BriefShopRow[]))
+      .toBe(31);
+    // Every style that prices as `reasonable` does follows; a fixed price does not move.
+    expect(priceOf('day5cheat', refused, opening)).toBe(31 - ENTRY_UNDERCUT);
+    expect(priceOf('premium', refused, opening)).toBe(31 - ENTRY_UNDERCUT);
+    expect(priceOf('flat45', refused, opening)).toBe(45);
+    // The cartel day: the street holds the cartel price, so the bot does not react to the opening.
+    const agreed = after(2, { 1: closes }, 'agreed');
+    expect(dayRules(agreed).cartel).toBe(true);
+    expect(priceOf('reasonable', agreed, opening)).toBe(31);
+  });
+
+  it('reasonable (R48): in a real run, day 2 opens 3k under the average close of day 1; without the entrant, at it', () => {
+    const noEntrant = { ...CONFIG, aiShops: { ...CONFIG.aiShops, tapdoan: { ...CONFIG.aiShops.tapdoan, firstDay: 6 as never } } };
+    /** The run on the morning of day 2, day 1 played by `reasonable`. */
+    const morningOfDay2 = (seed: number): RunState => {
+      const st = STRATEGIES.reasonable;
+      const start = newRun(seed, `bot-${seed}`);
+      const opened = openDay(start, st.plan(start, morningBrief(start), CONFIG));
+      let r = endRush(opened.run, playRush(opened.rush, st.rush, hashSeed(seed, 'bot/1')).rush);
+      while (r.phase === 'cards') r = chooseCard(r, st.card(r.cards[r.cardIndex], r));
+      return nextDay(r);
+    };
+    for (const seed of [11, 12]) {
+      const { reports } = playRun(seed, STRATEGIES.reasonable);
+      const closes = reports[0].street.flatMap(x => (x.closePrice === null ? [] : [x.closePrice]));
+      const street = Math.round(closes.reduce((a, b) => a + b, 0) / closes.length);
+      expect(morningBrief(morningOfDay2(seed)).street.find(x => x.id === 'tapdoan')!.status).toBe('new');
+      expect(reports[1].summary.openPrice).toBe(street - ENTRY_UNDERCUT);
+      expect(playRun(seed, STRATEGIES.reasonable, noEntrant).reports[1].summary.openPrice).toBe(street);
+    }
   });
 
   it('reasonable: staff when it can pay from day 3, nothing on day 2', () => {

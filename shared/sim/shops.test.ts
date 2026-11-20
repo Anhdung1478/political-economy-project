@@ -44,6 +44,10 @@ const day1Player = [p(1, 31, 15)];
 /** The day-1 street without the entrant, to test each shop's own rule on day 2 apart from the entry reaction. */
 const incumbents = (): AiShopState[] => day1Shops().filter(s => s.id !== 'tapdoan');
 
+const AP = CONFIG.aiPricing;
+const costOf = (id: AiShopId) => CONFIG.aiShops[id].cost;
+const TAX = CONFIG.days[4].taxPerCup;
+
 /** CONFIG with some `aiPricing` fields replaced. */
 const withPricing = (over: Partial<typeof CONFIG.aiPricing>) => ({ ...CONFIG, aiPricing: { ...CONFIG.aiPricing, ...over } });
 
@@ -63,7 +67,7 @@ describe('earned', () => {
 
 describe('clampAiPrice', () => {
   it('keeps prices between cost + 1k and 50k on a free day', () => {
-    expect(clampAiPrice('batu', 5, rules(1))).toBe(14);
+    expect(clampAiPrice('batu', 5, rules(1))).toBe(costOf('batu') + AP.clampMargin);
     expect(clampAiPrice('batu', 60, rules(1))).toBe(50);
     expect(clampAiPrice('batu', 27, rules(1))).toBe(27);
   });
@@ -73,8 +77,8 @@ describe('clampAiPrice', () => {
   });
 
   it('raises the floor by the tax on a tax day: cost + 5k + 1k', () => {
-    expect(clampAiPrice('batu', 15, rules(4))).toBe(19);
-    expect(clampAiPrice('tapdoan', 10, rules(4))).toBe(17);
+    expect(clampAiPrice('batu', 15, rules(4))).toBe(costOf('batu') + TAX + AP.clampMargin);
+    expect(clampAiPrice('tapdoan', 10, rules(4))).toBe(costOf('tapdoan') + TAX + AP.clampMargin);
   });
 });
 
@@ -84,11 +88,12 @@ describe('restsToday', () => {
     expect(ids.filter(id => restsToday(id, rules(1)))).toEqual([]);
   });
 
-  it('under the 20k ceiling exactly Ông Cố Chấp and Sinh Viên rest (20 < cost + 7)', () => {
+  it('under the 20k ceiling exactly Ông Cố Chấp, Lướt Sóng and Sinh Viên rest (20 < cost + `restMargin`)', () => {
     const ids = Object.keys(CONFIG.aiShops) as AiShopId[];
-    expect(ids.filter(id => restsToday(id, rules(3)))).toEqual(['cochap', 'sinhvien']);
-    // Lướt Sóng sits on the edge: 20 is not below 13 + 7.
-    expect(restsToday('luotsong', rules(3))).toBe(false);
+    expect(ids.filter(id => restsToday(id, rules(3)))).toEqual(['cochap', 'luotsong', 'sinhvien']);
+    // Bà Tư sits on the edge: 20 is not below her cost + the margin.
+    expect(costOf('batu') + AP.restMargin).toBe(20);
+    expect(restsToday('batu', rules(3))).toBe(false);
   });
 });
 
@@ -96,7 +101,8 @@ describe('morningPrices', () => {
   it('opens day 1 at the configured prices; Tập Đoàn is not there yet', () => {
     const shops = day1Shops().map(s => ({ ...s, history: [] }));
     const out = morningPrices(shops, [], rules(1), flags());
-    expect(out.map(s => s.todayPrice)).toEqual([36, 30, 25, 40, 40, null]);
+    expect(out.map(s => s.todayPrice)).toEqual(out.map(s => CONFIG.aiShops[s.id].openPrice));
+    expect(out.map(s => s.todayPrice)).toEqual([30, 28, 28, 32, 34, null]);   // spec §4, the table of AI shops
     expect(out.find(s => s.id === 'tapdoan')!.status).toBe('notYet');
     expect(out.every(s => !s.resting)).toBe(true);
   });
@@ -110,13 +116,14 @@ describe('morningPrices', () => {
     expect(priceOf(out, 'batu')).toBe(26);
   });
 
-  it('Chuỗi GiáRẻ undercuts the lowest other close by 3k', () => {
-    // others: 27, 30, 29, 34, 31 → 27 − 3
-    expect(priceOf(morningPrices(incumbents(), day1Player, rules(2), flags()), 'giare')).toBe(24);
+  it('Chuỗi GiáRẻ undercuts the lowest other close by `giareUndercut`', () => {
+    // others: 27, 30, 29, 34, 31 → 27 − the undercut
+    expect(priceOf(morningPrices(incumbents(), day1Player, rules(2), flags()), 'giare')).toBe(27 - AP.giareUndercut);
   });
 
-  it('Ông Cố Chấp always asks 25k', () => {
-    expect(priceOf(morningPrices(incumbents(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(25);
+  it('Ông Cố Chấp always asks his one price', () => {
+    expect(priceOf(morningPrices(incumbents(), [p(1, 15, 18)], rules(2), flags()), 'cochap')).toBe(AP.cochapPrice);
+    expect(CONFIG.aiShops.cochap.openPrice).toBe(AP.cochapPrice);
   });
 
   it('Lướt Sóng copies whoever earned most yesterday, the player included', () => {
@@ -155,12 +162,12 @@ describe('morningPrices', () => {
     expect(out[0].todayPrice).toBe(31);
   });
 
-  it('Chuỗi Tập Đoàn opens on day 2 at the average of the street, rounded to 0.5k, − 4k', () => {
-    // all six closes: 27 + 22 + 30 + 29 + 34 + 31 = 173 → 28.83 → 29, − 4 = 25
+  it('Chuỗi Tập Đoàn opens on day 2 at the average of the street, rounded to 0.5k, − `tapdoanUndercut`', () => {
+    // all six closes: 27 + 22 + 30 + 29 + 34 + 31 = 173 → 28.83 → 29, − the undercut
     const out = morningPrices(day1Shops(), day1Player, rules(2), flags());
     const td = out.find(s => s.id === 'tapdoan')!;
     expect(td.status).toBe('active');
-    expect(td.todayPrice).toBe(25);
+    expect(td.todayPrice).toBe(29 - AP.tapdoanUndercut);
   });
 
   it('Chuỗi Tập Đoàn rounds to the nearest 0.5k, halves up', () => {
@@ -169,10 +176,11 @@ describe('morningPrices', () => {
         ai((['batu', 'giare', 'cochap'] as AiShopId[])[i], [h(1, c, 10)]))];
       return priceOf(morningPrices(shops, [p(1, others[0], 10)], rules(2), flags()), 'tapdoan');
     };
-    expect(td([28, 29])).toBe(24.5); // 28.5 − 4
-    expect(td([28, 29, 29])).toBe(24.5); // 28.67 → 28.5, − 4
-    expect(td([28, 28, 28, 29])).toBe(24.5); // 28.25 → 28.5 (half up), − 4
-    expect(td([28, 28, 28, 28])).toBe(24);
+    const u = AP.tapdoanUndercut;
+    expect(td([28, 29])).toBe(28.5 - u);
+    expect(td([28, 29, 29])).toBe(28.5 - u); // 28.67 → 28.5
+    expect(td([28, 28, 28, 29])).toBe(28.5 - u); // 28.25 → 28.5 (half up)
+    expect(td([28, 28, 28, 28])).toBe(28 - u);
   });
 
   it('agreed cartel: on day 2 all six shops ask exactly 36k, Tập Đoàn opens at 36k', () => {
@@ -183,18 +191,19 @@ describe('morningPrices', () => {
     expect(out.find(s => s.id === 'sinhvien')!.probeDir).toBe(-1);
   });
 
-  it('under the 20k ceiling Ông Cố Chấp and Sinh Viên rest; the others are capped at 20k', () => {
+  it('under the 20k ceiling Ông Cố Chấp, Lướt Sóng and Sinh Viên rest; the others are capped at 20k', () => {
     // day 2 repeats day 1; Tập Đoàn sold 18 at 27
     const shops = day1Shops().map(s => s.id === 'tapdoan'
       ? ai('tapdoan', [h(2, 27, 18)])
       : { ...s, history: [...s.history, { ...s.history[0], day: 2 as Day }] });
     const out = morningPrices(shops, [...day1Player, p(2, 31, 15)], rules(3), flags());
-    expect(out.filter(s => s.resting).map(s => s.id)).toEqual(['cochap', 'sinhvien']);
+    expect(out.filter(s => s.resting).map(s => s.id)).toEqual(['cochap', 'luotsong', 'sinhvien']);
     expect(priceOf(out, 'cochap')).toBeNull();
+    expect(priceOf(out, 'luotsong')).toBeNull();
     expect(priceOf(out, 'sinhvien')).toBeNull();
     expect(priceOf(out, 'batu')).toBe(20); // rule says 28
-    expect(priceOf(out, 'luotsong')).toBe(20); // rule says 31
-    expect(priceOf(out, 'giare')).toBe(20); // rule says 24
+    expect(priceOf(out, 'giare')).toBe(20); // rule says 27 − the undercut
+    expect(priceOf(out, 'tapdoan')).toBe(20); // rule says 29 − the undercut
   });
 
   it('morning of day 4 uses day-2 closes, not the capped day 3, then adds 3k tax pass-through', () => {
@@ -205,9 +214,9 @@ describe('morningPrices', () => {
     const player = [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18)];
     const out = morningPrices(shops, player, rules(4), flags());
     // batu: own 28, others (25 + 30) / 2 = 27.5 → 27, + 3 = 30
-    expect(priceOf(out, 'batu')).toBe(30);
-    // giare: min(28, 30) − 3 = 25, + 3 = 28
-    expect(priceOf(out, 'giare')).toBe(28);
+    expect(priceOf(out, 'batu')).toBe(28 - AP.batuNudge + AP.taxPassThrough);
+    // giare: min(28, 30) − the undercut, + 3
+    expect(priceOf(out, 'giare')).toBe(28 - AP.giareUndercut + AP.taxPassThrough);
   });
 
   it('morning of day 4 on the agreed-cartel branch falls back to day-1 closes', () => {
@@ -218,9 +227,9 @@ describe('morningPrices', () => {
     const player = [p(1, 31, 15), p(2, 36, 15), p(3, 20, 18)];
     const out = morningPrices(shops, player, rules(4), flags({ cartel: 'agreed' }));
     // batu: own 27, others (22 + 31) / 2 = 26.5 → 26, + 3 = 29
-    expect(priceOf(out, 'batu')).toBe(29);
-    // giare: min(27, 31) − 3 = 24, + 3 = 27
-    expect(priceOf(out, 'giare')).toBe(27);
+    expect(priceOf(out, 'batu')).toBe(27 - AP.batuNudge + AP.taxPassThrough);
+    // giare: min(27, 31) − the undercut, + 3
+    expect(priceOf(out, 'giare')).toBe(27 - AP.giareUndercut + AP.taxPassThrough);
   });
 
   const day5Shops = () => [
@@ -235,16 +244,16 @@ describe('morningPrices', () => {
     // day-4 closes become batu 27, giare 26, luotsong 28; the player stays 33.
     // batu: others (26 + 28 + 33) / 3 = 29 > 27 → 28
     expect(priceOf(out, 'batu')).toBe(28);
-    // giare: min(27, 28, 33) − 3 = 24
-    expect(priceOf(out, 'giare')).toBe(24);
+    // giare: min(27, 28, 33) − the undercut
+    expect(priceOf(out, 'giare')).toBe(27 - AP.giareUndercut);
     // earned: batu 14 × 12 = 168, giare 13 × 12 = 156, luotsong 15 × 5 = 75, player 20 × 15 = 300 → copy 33
     expect(priceOf(out, 'luotsong')).toBe(33);
   });
 
   it('morning of day 5: a player day-4 close at the street minimum is read as is (R7)', () => {
     const out = morningPrices(day5Shops(), day5Player(25), rules(5), flags());
-    // giare: min(27, 28, 25) − 3 = 22 (taking 3k off the player too would give 19)
-    expect(priceOf(out, 'giare')).toBe(22);
+    // giare: min(27, 28, 25) − the undercut (taking 3k off the player too would start from 22)
+    expect(priceOf(out, 'giare')).toBe(25 - AP.giareUndercut);
   });
 
   it('clamps the rule result', () => {
@@ -263,9 +272,14 @@ describe('morningPrices', () => {
   });
 
   describe('entry reaction (§4 "Phản ứng khi có quán mới")', () => {
-    it('the morning Tập Đoàn opens, every incumbent but Ông Cố Chấp asks at most its open price + 2k', () => {
-      // Tập Đoàn opens at 25 (see above) → cap 27. Own rules: batu 28, giare 24, luotsong 31, sinhvien 31.
-      const out = morningPrices(day1Shops(), day1Player, rules(2), flags(), withPricing({ cochapPrice: 40 }));
+    /** The rule with its numbers spelled out, so the cases below do not move with the tuning. */
+    const fixed = (over: Partial<typeof CONFIG.aiPricing> = {}) => withPricing({
+      cochapPrice: 40, giareUndercut: 3, tapdoanUndercut: 4, entryReaction: { gap: 2, exempt: ['cochap'] }, ...over,
+    });
+
+    it('the morning Tập Đoàn opens, every incumbent but Ông Cố Chấp asks at most its open price + the gap', () => {
+      // Tập Đoàn opens at 29 − 4 = 25 → cap 27. Own rules: batu 28, giare 24, luotsong 31, sinhvien 31.
+      const out = morningPrices(day1Shops(), day1Player, rules(2), flags(), fixed());
       expect(priceOf(out, 'tapdoan')).toBe(25);
       expect(priceOf(out, 'batu')).toBe(27);
       expect(priceOf(out, 'giare')).toBe(24);
@@ -277,10 +291,17 @@ describe('morningPrices', () => {
     });
 
     it('takes the gap and the shops that do not react from config', () => {
-      const ap = CONFIG.aiPricing.entryReaction;
-      expect(ap).toEqual({ gap: 2, exempt: ['cochap'] });
+      // The configured numbers: Tập Đoàn opens at 29 − its undercut; Bà Tư's own rule says 28, Ông Cố Chấp stays.
+      const { gap, exempt } = AP.entryReaction;
+      expect(exempt).toEqual(['cochap']);
+      const open = 29 - AP.tapdoanUndercut;
+      const cfgOut = morningPrices(day1Shops(), day1Player, rules(2), flags());
+      expect(priceOf(cfgOut, 'tapdoan')).toBe(open);
+      expect(priceOf(cfgOut, 'batu')).toBe(Math.min(28, open + gap));
+      expect(priceOf(cfgOut, 'cochap')).toBe(AP.cochapPrice);
+      // Another gap, and nobody exempt.
       const out = morningPrices(day1Shops(), day1Player, rules(2),
-        flags(), withPricing({ cochapPrice: 40, entryReaction: { gap: 0, exempt: [] } }));
+        flags(), fixed({ entryReaction: { gap: 0, exempt: [] } }));
       expect(priceOf(out, 'batu')).toBe(25);
       expect(priceOf(out, 'cochap')).toBe(25);
       expect(priceOf(out, 'giare')).toBe(24);
@@ -305,14 +326,14 @@ describe('morningPrices', () => {
     it('caps after the tax pass-through and before the clamp', () => {
       // An entrant opening on day 4: Tập Đoàn = avg(28 batu, 30 player) − 4 = 25, + 3 = 28 → cap 30.
       // batu: own 28, others 30 → 29, + 3 = 32 → 30.
-      const cfg = { ...CONFIG, aiShops: { ...CONFIG.aiShops, tapdoan: { ...CONFIG.aiShops.tapdoan, firstDay: 4 as Day } } };
+      const cfg = { ...fixed(), aiShops: { ...CONFIG.aiShops, tapdoan: { ...CONFIG.aiShops.tapdoan, firstDay: 4 as Day } } };
       const shops = [ai('batu', [h(1, 27, 12), h(2, 28, 12), h(3, 20, 12)]), ai('tapdoan', [], { status: 'notYet' })];
       const out = morningPrices(shops, [p(1, 31, 15), p(2, 30, 15), p(3, 20, 18)], rules(4), flags(), cfg);
       expect(priceOf(out, 'tapdoan')).toBe(28);
       expect(priceOf(out, 'batu')).toBe(30);
       // The clamp still applies to the capped price: Sinh Viên (floor 16) under an entrant at its floor of 12.
       const low = morningPrices([ai('sinhvien', [h(1, 20, 10)]), ai('tapdoan', [], { status: 'notYet' })],
-        [p(1, 12, 10)], rules(2), flags());
+        [p(1, 12, 10)], rules(2), flags(), fixed());
       expect(priceOf(low, 'tapdoan')).toBe(12);
       expect(priceOf(low, 'sinhvien')).toBe(16);   // rule 17, cap 14, floor 16
     });
@@ -404,8 +425,9 @@ describe('midRushPrice', () => {
   it('clamps, and reports no change when the clamp eats the move', () => {
     expect(at(300, 0, 4, { price: 49 })).toBe(50);
     expect(at(300, 0, 4, { price: 20 }, rules(3))).toBeNull();
-    expect(at(300, 0, 0, { price: 14 })).toBeNull();
-    expect(at(300, 0, 0, { price: 20 }, rules(4))).toBe(19); // floor 13 + 5 + 1
+    const floor = costOf('batu') + AP.clampMargin;
+    expect(at(300, 0, 0, { price: floor })).toBeNull();
+    expect(at(300, 0, 0, { price: floor + TAX + 1 }, rules(4))).toBe(floor + TAX); // the tax day's floor: cost + 5 + 1
   });
 });
 
@@ -415,21 +437,21 @@ const result = (id: ShopDayResult['id'], over: Partial<ShopDayResult>): ShopDayR
 });
 
 describe('aiProfit', () => {
-  it('sums the price at each sale, pays cost for unsold cups and the 80k rent', () => {
-    // 8 cups at 27 + 2 at 29 = 274; − 13 × 10 sold − 13 × 2 unsold − 80 = 38
+  it('sums the price at each sale, pays cost for unsold cups and the rent', () => {
+    // 8 cups at 27 + 2 at 29 = 274; − cost × 10 sold − cost × 2 unsold − rent
     const r = result('batu', { sold: 10, revenue: 274, closePrice: 29, trail: [[0, 27], [300, 29]] });
-    expect(aiProfit('batu', r, rules(1))).toBe(38);
+    expect(aiProfit('batu', r, rules(1))).toBe(274 - 12 * costOf('batu') - AP.rent);
   });
 
   it('pays the tax on every cup sold', () => {
-    // 18 × 25 = 450; − 11 × 18 − 5 × 18 − 80 = 82
+    // 18 × 25 = 450; − cost × 18 − 5 × 18 − rent
     const r = result('tapdoan', { sold: 18, capacity: 18, revenue: 450, soldOut: true });
-    expect(aiProfit('tapdoan', r, rules(4))).toBe(82);
+    expect(aiProfit('tapdoan', r, rules(4))).toBe(450 - (costOf('tapdoan') + TAX) * 18 - AP.rent);
   });
 
   it('a resting day costs only the rent', () => {
     const r = result('cochap', { status: 'resting', openPrice: null, closePrice: null, trail: [] });
-    expect(aiProfit('cochap', r, rules(3))).toBe(-80);
+    expect(aiProfit('cochap', r, rules(3))).toBe(-AP.rent);
   });
 });
 

@@ -245,7 +245,7 @@ type Stocking = Pick<MorningPlan, 'teaMl' | 'toppings'>;
 
 /** How a style differs from `reasonable`. */
 interface Style {
-  price?: (run: RunState, cfg: SimConfig) => K;
+  price?: (run: RunState, brief: MorningBrief, cfg: SimConfig) => K;
   tea?: (run: RunState, cfg: SimConfig) => TeaGrade;
   stock?: (run: RunState, draft: MorningPlan, cfg: SimConfig) => Stocking;
   cards?: Partial<Record<CardId, Choice>>;
@@ -273,6 +273,20 @@ function streetPrice(run: RunState, cfg: SimConfig): K {
     if (n > 0) return Math.round(sum / n);
   }
   return cfg.morning.defaultPrice;
+}
+
+/** How far under the street's price `reasonable` opens on the morning a new AI shop opens (R48). */
+export const ENTRY_UNDERCUT: K = 3;
+
+/**
+ * The price `reasonable` asks (R38, R48): the street's price, and `ENTRY_UNDERCUT` under it on the morning the brief
+ * announces a new AI shop, when the shops already there cut their prices too (§4 "Phản ứng khi có quán mới"). Not on
+ * a cartel day, when the whole street asks the cartel price.
+ */
+function usualPrice(run: RunState, brief: MorningBrief, cfg: SimConfig): K {
+  const street = streetPrice(run, cfg);
+  const entry = !brief.rules.cartel && brief.street.some(row => row.status === 'new');
+  return entry ? street - ENTRY_UNDERCUT : street;
 }
 
 /** The upgrade `reasonable` reaches for (R42b): the machine any morning until owned, then the staff from day 3. */
@@ -324,7 +338,7 @@ function stepDown(run: RunState, draft: MorningPlan, target: Stocking, cfg: SimC
  * upgrade and as much of the style's stock as allowed (no stock at all always is).
  */
 function planOf(run: RunState, brief: MorningBrief, style: Style, cfg: SimConfig): MorningPlan {
-  const price = dayPrice((style.price ?? streetPrice)(run, cfg), brief.rules, cfg);
+  const price = dayPrice((style.price ?? usualPrice)(run, brief, cfg), brief.rules, cfg);
   const tea = style.tea === undefined ? 'standard' : style.tea(run, cfg);
   const stockOf = style.stock ?? highStock;
   const base: MorningPlan = { ...run.plan, price, tea, upgrade: null };
@@ -378,11 +392,11 @@ const lastDayTop = (cfg: SimConfig): K => {
 };
 
 /**
- * `day5cheat`'s price: the street's, except on the last day no higher than the highest morning price that still
+ * `day5cheat`'s price: `reasonable`'s, except on the last day no higher than the highest morning price that still
  * leaves room for a gouging rise under the top price (so the mid-rush rise always gouges).
  */
-function cheatPrice(run: RunState, cfg: SimConfig): K {
-  const street = streetPrice(run, cfg);
+function cheatPrice(run: RunState, brief: MorningBrief, cfg: SimConfig): K {
+  const street = usualPrice(run, brief, cfg);
   if (run.day !== cfg.run.dayCount) return street;
   const top = lastDayTop(cfg);
   let m = Math.min(street, top);
