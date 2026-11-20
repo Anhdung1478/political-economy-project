@@ -202,10 +202,11 @@ export class PlayController {
     const known = this.view.local;
     let patch: Partial<PlayView> = { session: s, local: { code: s.code, seed: s.seed } };
     if (known !== null && known.code !== s.code) {
-      // The host reset the session: the old run, votes and rank are of no use. Until the resume is answered the phone
-      // does not claim to be in (an offline phone's token may be gone with the reset).
+      // The host reset the session: the old run, votes and rank are of no use. While a token is still to be checked
+      // (every connect asks `player:resume`, which always answers: in, refused, or retried) the phone does not claim
+      // to be in. With no token nothing will answer, so it is the join form (`anon`), never the loading dots.
       this.forget(known.code);
-      patch = { ...patch, vote: null, rank: null, hasRun: false, ...(this.attached ? {} : { resume: 'checking' as const }) };
+      patch = { ...patch, vote: null, rank: null, hasRun: false, ...(this.token === null ? { resume: 'anon' as const } : this.attached ? {} : { resume: 'checking' as const }) };
     } else if (known === null) {
       // The first session this page hears of: what storage holds for it, once.
       this.rankNote = parseRankRecord(this.store.get(PLAY_KEYS.rank), s.code);

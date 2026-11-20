@@ -383,4 +383,35 @@ describe('PlayController', () => {
     expect(store.get(KEYS.class('OLD1'))).toBeNull();
     expect(p.view().name).toBe('An'); // remembered for the join form
   });
+  it('N1: a phone with no token that is on the join form stays there when the host resets', async () => {
+    const url = await server();
+    const host = await hostOf(url);
+    const p = await phone(url);
+    await until(() => p.view().resume === 'anon', 'join form');
+    const before = p.view().session?.code;
+    host.reset();
+    await until(() => p.view().session?.code !== before, 'the new code');
+    expect(p.view().resume).toBe('anon');
+    await pause(150);
+    expect(p.view().resume).toBe('anon');
+  });
+
+  it('N1: a reload with an older session and no token shows the join form when the state comes after the connect', async () => {
+    const url = await server();
+    const store = memoryStore({ [PLAY_KEYS.session]: JSON.stringify({ code: 'OLD1', seed: 5 }) });
+    const socket: ClassSocket = io(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+    sockets.push(socket);
+    const client = createClient(socket, 1500);
+    await until(() => socket.connected && client.lastState() !== null, 'the socket and its first state');
+    const snap = client.lastState()!;
+    // A slow link: the connect is seen first and the `state` after it (the replay is held back, as on 4G).
+    const ctl = new PlayController({ ...client, lastState: () => null } as SessionClient, store, { retryMs: 20, resumeRetryMs: 30 });
+    stops.push(ctl.attach());
+    await until(() => ctl.getView().resume === 'anon', 'the join form');
+    socket.listeners('state').forEach(l => (l as (s: typeof snap) => void)(snap));
+    expect(ctl.getView().session?.code).toBe(snap.code);
+    expect(ctl.getView().resume).toBe('anon');
+    await pause(150);
+    expect(ctl.getView().resume).toBe('anon');
+  });
 });
