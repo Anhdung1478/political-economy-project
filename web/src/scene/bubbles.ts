@@ -17,8 +17,11 @@ import type { Day, K, ShopId, StockItem } from '../../../shared/sim/types';
 import type { BubbleRequest, BubbleTopic } from './director';
 import type { Rect } from './layout';
 
-/** A bubble's situation: the director's topics, the trust/value side of "too expensive", and a happy serve. */
-export type Situation = BubbleTopic | 'valueDoubt' | 'served';
+/**
+ * A bubble's situation: the director's topics, the trust/value side of "too expensive", "another shop is better"
+ * when that shop really was cheaper, and a happy serve.
+ */
+export type Situation = BubbleTopic | 'valueDoubt' | 'otherCheaper' | 'served';
 
 /** How a bubble is coloured: a good word, a bad one, or plain. */
 export type Tone = 'good' | 'bad' | 'plain';
@@ -61,10 +64,14 @@ export const LINES: Readonly<Record<Situation, readonly string[]>> = {
     'Thiếu {item} rồi, qua quán khác thôi.',
   ],
   otherBetter: [
-    'Bên kia rẻ hơn mà.',
     'Quán bên kia được hơn.',
+    'Thôi, qua bên kia xem sao.',
+    'Bên kia ổn hơn nè.',
+  ],
+  otherCheaper: [
+    'Bên kia rẻ hơn mà.',
     'Qua bên kia cho hời.',
-    'Chỗ khác ngon hơn, đi thôi.',
+    'Bên kia rẻ hơn, đi thôi.',
   ],
   chosePlayer: [
     'Quán này giá ổn nè.',
@@ -123,7 +130,7 @@ const OUT_GENERIC = ['Hết hàng rồi à…', 'Ơ, bán hết rồi sao?', 'H�
 
 export const TONE: Readonly<Record<Situation, Tone>> = {
   tooExpensive: 'bad', valueDoubt: 'bad', tooCrowded: 'plain', lowTrust: 'bad', outOfStock: 'plain',
-  otherBetter: 'plain', chosePlayer: 'good', patience: 'bad', wrongCup: 'bad', priceUp: 'bad', steepDiscount: 'plain',
+  otherBetter: 'plain', otherCheaper: 'plain', chosePlayer: 'good', patience: 'bad', wrongCup: 'bad', priceUp: 'bad', steepDiscount: 'plain',
   shopClosed: 'plain', emptyHanded: 'plain', rumor: 'bad', served: 'good',
 };
 
@@ -132,16 +139,30 @@ export const TONE: Readonly<Record<Situation, Tone>> = {
  * what they did wrong at the counter, then why they lost someone, then the street's mood.
  */
 export const WEIGHT: Readonly<Record<Situation, number>> = {
-  wrongCup: 9, patience: 8, priceUp: 8, outOfStock: 7, tooExpensive: 6, valueDoubt: 6, lowTrust: 6, tooCrowded: 5,
-  steepDiscount: 5, shopClosed: 5, otherBetter: 4, emptyHanded: 4, rumor: 4, chosePlayer: 3, served: 2,
+  wrongCup: 9, patience: 8, priceUp: 8, emptyHanded: 7, outOfStock: 7, rumor: 6, tooExpensive: 6, valueDoubt: 6,
+  lowTrust: 6, tooCrowded: 5, steepDiscount: 5, shopClosed: 5, otherBetter: 4, otherCheaper: 4, chosePlayer: 3,
+  served: 2,
 };
 
 /** Situation names in a fixed order, for hashing. */
 const SITUATIONS = Object.keys(LINES) as Situation[];
 
-/** The situation of a request (refining "too expensive" and leaving the rest). */
-export function situationOf(r: Pick<BubbleRequest, 'topic' | 'priceOk'>): Situation {
-  return r.topic === 'tooExpensive' && r.priceOk === true ? 'valueDoubt' : r.topic;
+/**
+ * The situation of a request: "too expensive" whose price alone was affordable is about trust and value; "another
+ * shop is better" says "cheaper" only when the chosen shop was cheaper (`cheaper`); the rest as they come.
+ */
+export function situationOf(r: Pick<BubbleRequest, 'topic' | 'priceOk' | 'cheaper'>): Situation {
+  if (r.topic === 'tooExpensive' && r.priceOk === true) return 'valueDoubt';
+  if (r.topic === 'otherBetter' && r.cheaper === true) return 'otherCheaper';
+  return r.topic;
+}
+
+/** The street's theme of the day (the ceiling day's empty hands, day 5's rumor): ranked with the player's words. */
+const THEME: ReadonlySet<Situation> = new Set<Situation>(['emptyHanded', 'rumor']);
+
+/** How much a word deserves the board: about the player's shop (or the day's theme) first, then its weight. */
+export function rankOf(x: { player: boolean; situation: Situation }): number {
+  return (x.player || THEME.has(x.situation) ? 100 : 0) + WEIGHT[x.situation];
 }
 
 /** The seed of the day's lines: the `scene/{day}` stream of the run's seed. */
@@ -208,10 +229,17 @@ export interface Shown {
   until: number;
   /** The placement option it had last frame (layout hysteresis); −1 before the first. */
   opt: number;
-  /** Measured by the renderer: the wrapped lines and the box size (units). */
+  /** Measured by the renderer: the wrapped lines and the box size (units), for this unit size and font epoch. */
   lines: string[] | null;
   w: number;
   h: number;
+  unit: number;
+  epoch: number;
+  /** Where it was last drawn (an outgoing bubble keeps its spot). */
+  lastX: number;
+  lastY: number;
+  /** The renderer's painted body (opaque here). */
+  art: unknown;
 }
 
 /** A candidate to speak: a request from the director, or a happy serve. */
@@ -241,10 +269,17 @@ export function candidates(reqs: readonly BubbleRequest[],
   return out;
 }
 
-/** Ordering of candidates: the player's first, then the weightier situation, then the earlier. */
+/** Ordering of candidates: the higher rank (the player's or the day's theme, then the weight), then the earlier. */
 export function byPriority(a: Candidate, b: Candidate): number {
-  return Number(b.player) - Number(a.player) || WEIGHT[b.situation] - WEIGHT[a.situation] || a.t - b.t;
+  return rankOf(b) - rankOf(a) || a.t - b.t;
 }
+
+/** A bubble stays at least this long (ticks) before a weightier word may push it out (no flicker). */
+export const MIN_SHOW = 6;
+/** A word that finds the board full waits this long (ticks) for room, then is dropped. */
+export const WAIT_TICKS = 15;
+/** At most this many words wait. */
+const MAX_WAITING = 6;
 
 export interface AdmitContext {
   now: number;
@@ -256,13 +291,17 @@ export interface AdmitContext {
 }
 
 /**
- * The bubbles on screen after this frame's candidates: gone ones dropped (time up, or the speaker left), then the
- * candidates by priority. One bubble per customer (a weightier new word replaces theirs). At most MAX_BUBBLES that
- * are not popping out; a full board takes a player-related word by pushing out the oldest bubble that is not; a
- * plain word does not repeat a situation already shown. Returns the new list and the bubbles pushed out (to pop out).
+ * The bubbles on screen after this frame's candidates, and the words still waiting for room.
+ * - Gone bubbles are dropped (time up after the pop-out, or the speaker left: then it pops out).
+ * - New and waiting words go by rank (`rankOf`: the player's shop and the day's theme first, then the weight), the
+ *   earlier first on a tie.
+ * - One bubble per customer and one per situation: a word of higher rank replaces the one there, else it waits.
+ * - At most MAX_BUBBLES live. On a full board a word replaces the live bubble of lowest rank (the oldest on a tie)
+ *   that has shown MIN_SHOW ticks, if that rank is strictly lower than its own; else it waits up to WAIT_TICKS.
+ * Returns the bubbles, the words waiting, and the bubbles pushed out (to pop out).
  */
-export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: AdmitContext):
-  { shown: Shown[]; out: Shown[] } {
+export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: AdmitContext,
+  waiting: readonly Candidate[] = []): { shown: Shown[]; out: Shown[]; waiting: Candidate[] } {
   const next: Shown[] = [];
   const out: Shown[] = [];
   for (const b of shown) {
@@ -273,34 +312,54 @@ export function admit(shown: readonly Shown[], cands: readonly Candidate[], c: A
     }
     next.push(b);
   }
-  const live = () => next.filter(b => b.until > c.now);
-  for (const k of [...cands].sort(byPriority)) {
-    if (!c.canSpeak(k.customer)) continue;
-    const mine = next.findIndex(b => b.customer === k.customer);
-    if (mine >= 0) {
-      const cur = next[mine];
-      if (cur.until > c.now && WEIGHT[cur.situation] > WEIGHT[k.situation] && cur.player >= k.player) continue;
-      next.splice(mine, 1);
+  const pushOut = (b: Shown) => {
+    next.splice(next.indexOf(b), 1);
+    if (b.until > c.now) out.push({ ...b, until: c.now });
+  };
+  const wait: Candidate[] = [];
+  const pool = [...waiting.filter(k => k.t + WAIT_TICKS >= c.now), ...cands].sort(byPriority);
+  const seen = new Set<number>();
+  for (const k of pool) {
+    if (seen.has(k.customer) || !c.canSpeak(k.customer)) continue;
+    seen.add(k.customer);
+    const r = rankOf(k);
+    const live = next.filter(b => b.until > c.now);
+    const mine = live.find(b => b.customer === k.customer);
+    if (mine !== undefined) {
+      if (rankOf(mine) >= r) continue;
+      pushOut(mine);
     }
-    const active = live();
-    if (!k.player && active.some(b => b.situation === k.situation)) continue;
+    const same = live.find(b => b !== mine && b.situation === k.situation);
+    if (same !== undefined) {
+      if (rankOf(same) >= r) {
+        wait.push(k);
+        continue;
+      }
+      pushOut(same);
+    }
+    const active = next.filter(b => b.until > c.now);
     if (active.length >= MAX_BUBBLES) {
-      if (!k.player) continue;
-      let oldest: Shown | null = null;
-      for (const b of active) if (!b.player && (oldest === null || b.born < oldest.born)) oldest = b;
-      if (oldest === null) continue;
-      next.splice(next.indexOf(oldest), 1);
-      out.push({ ...oldest, until: c.now });
+      let low: Shown | null = null;
+      for (const b of active) {
+        if (c.now - b.born < MIN_SHOW) continue;
+        if (low === null || rankOf(b) < rankOf(low) || (rankOf(b) === rankOf(low) && b.born < low.born)) low = b;
+      }
+      if (low === null || rankOf(low) >= r) {
+        wait.push(k);
+        continue;
+      }
+      pushOut(low);
     }
     const n = k.situation === 'outOfStock' && k.missing === undefined ? OUT_GENERIC.length : LINES[k.situation].length;
     const text = wordsFor(k.situation, lineIndex(c.daySeed, k.customer, k.situation, n),
       { missing: k.missing, price: c.priceOf(k.shop) }, t => next.some(b => b.text === t));
     next.push({
       customer: k.customer, situation: k.situation, text, tone: TONE[k.situation], player: k.player, shop: k.shop,
-      born: c.now, until: c.now + lifeOf(text), opt: -1, lines: null, w: 0, h: 0,
+      born: c.now, until: c.now + lifeOf(text), opt: -1, lines: null, w: 0, h: 0, unit: 0, epoch: -1, lastX: NaN,
+      lastY: NaN, art: null,
     });
   }
-  return { shown: next, out };
+  return { shown: next, out, waiting: wait.slice(0, MAX_WAITING) };
 }
 
 /** How far into its life a bubble is: its scale for the pop (overshooting in, shrinking out) and its opacity. */
@@ -353,13 +412,16 @@ const overlap = (a: Rect, b: Rect): number => {
   return w > 0 && h > 0 ? w * h : 0;
 };
 
+/** Something to keep clear of, and how much covering it costs (3 by default: the van's banner, the ceiling sign). */
+export type AvoidRect = Rect & { weight?: number };
+
 /**
  * Places the bubbles in order (the first gets the best spot): each tries the options above its speaker, kept inside
  * the view, and takes the first that overlaps neither a bubble already placed nor an `avoid` rect (the inspection
  * van's banner, the ceiling sign); if none is clear, the least covered. The option it had last frame is tried first,
  * so a bubble does not hop about. `tail` is the gap between the bubble and the head.
  */
-export function placeBubbles(items: readonly Placing[], view: Rect, avoid: readonly Rect[], tail: number,
+export function placeBubbles(items: readonly Placing[], view: Rect, avoid: readonly AvoidRect[], tail: number,
   pad: number): Placed[] {
   const placed: Placed[] = [];
   const boxes: Rect[] = [];
@@ -383,7 +445,7 @@ export function placeBubbles(items: readonly Placing[], view: Rect, avoid: reado
       const r = { x, y, w: it.w, h: it.h };
       let cost = 0;
       for (const b of boxes) cost += overlap(r, b) * 4;
-      for (const a of avoid) cost += overlap(r, a) * 3;
+      for (const a of avoid) cost += overlap(r, a) * (a.weight ?? 3);
       // Away from the speaker costs a little (rows up, beside, below), so the nearest clear spot wins.
       const away = o.at === 'above' ? o.row * 0.02 + Math.abs(o.dx) * 0.01 : o.at === 'below' ? 0.04 : 0.012;
       cost += away * it.w * it.h;

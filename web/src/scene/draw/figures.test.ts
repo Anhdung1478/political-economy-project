@@ -1,11 +1,70 @@
 import { describe, expect, it } from 'vitest';
 import {
-  actorSpace, CYCLE_FRAMES, cycleFrame, cycleKey, frameBox, framePhase, framesFor, LOOK_KEYS, lookKey, lookSpace, Lru,
+  actorSpace, CYCLE_FRAMES, FigureCache, cycleFrame, cycleKey, frameBox, framePhase, framesFor, LOOK_KEYS, lookKey, lookSpace, Lru,
   PACE_STEPS, paceStep, slotKey, staggerOf, stepPace, FRAME_MS, EXTRA_STEPS, loopStep, stepLoop, type FrameLook,
 } from './figures';
 
 const look = (o: Partial<FrameLook> = {}): FrameLook =>
   ({ clip: 'walk', view: 'side', mood: 'neutral', blink: 0, flags: 0, ...o });
+
+/** A canvas stand-in with a 2D context that records nothing (node has no canvas). */
+class StubCanvas {
+  constructor(public width: number, public height: number) {}
+  getContext() {
+    const noop = () => {};
+    return { setTransform: noop, clearRect: noop, scale: noop, fillRect: noop };
+  }
+}
+
+describe('the frame cache', () => {
+  const withCanvas = (f: (c: FigureCache) => void) => {
+    const g = globalThis as { OffscreenCanvas?: unknown };
+    const had = g.OffscreenCanvas;
+    g.OffscreenCanvas = StubCanvas;
+    try { f(new FigureCache()); } finally { g.OffscreenCanvas = had; }
+  };
+
+  it('paints a shared walk frame once and finds it again; a zoom change starts over', () => withCanvas(c => {
+    expect(c.available).toBe(true);
+    c.begin(38, 2, 0);
+    let painted = 0;
+    const draw = () => { painted++; };
+    expect(c.get(lookSpace(5), 7)).toBeUndefined();
+    const f = c.paint(lookSpace(5), 7, draw);
+    expect(f).not.toBeNull();
+    expect(c.get(lookSpace(5), 7)).toBe(f);
+    expect(f?.canvas.width).toBe(c.box.pw);
+    expect(painted).toBe(1);
+    c.begin(46, 2, 0);
+    expect(c.get(lookSpace(5), 7)).toBeUndefined();
+  }));
+
+  it('keeps one canvas per actor, painted over in place, outside the LRU, forgotten when not drawn', () => withCanvas(c => {
+    c.begin(38, 2, 0);
+    const a = c.paint(actorSpace(3), 100, () => {});
+    expect(c.get(actorSpace(3), 100)).toBe(a);
+    expect(c.get(actorSpace(3), 101)).toBeUndefined();
+    const b = c.paint(actorSpace(3), 101, () => {});
+    expect(b?.canvas).toBe(a?.canvas);
+    expect(c.size).toBe(0);
+    expect(c.owners).toBe(1);
+    c.begin(38, 2, 5000);
+    c.sweep(3000);
+    expect(c.owners).toBe(0);
+  }));
+
+  it('recycles the evicted canvas for the next shared frame', () => withCanvas(c => {
+    c.begin(1000, 2, 0); // huge frames: a small budget
+    const cap = framesFor(c.box.pw, c.box.ph);
+    const first = c.paint(lookSpace(1), 0, () => {});
+    for (let i = 1; i <= cap; i++) c.paint(lookSpace(1), i, () => {});
+    expect(c.get(lookSpace(1), 0)).toBeUndefined();
+    const next = c.paint(lookSpace(1), cap + 1, () => {});
+    expect(c.size).toBe(cap);
+    expect(next?.canvas).toBeDefined();
+    expect(first).not.toBeNull();
+  }));
+});
 
 describe('the LRU', () => {
   it('keeps the most recently used up to its capacity and hands the evicted one back', () => {
@@ -74,11 +133,12 @@ describe('frame keys', () => {
     for (let s = 0; s < PACE_STEPS; s++) expect(paceStep(stepPace(s))).toBe(s);
   });
 
-  it('a walk with a cup keys the sip, a scared walk the glance back, and back again', () => {
+  it('a walk with a cup keys the sip in three steps, a scared walk the glance back, and back again', () => {
     expect(loopStep('walkDrink', 2.5)).toBe(0); // cup down
-    expect(loopStep('walkDrink', 0.05)).toBe(1);
-    expect(loopStep('walkDrink', 3.2 * 5 + 1.42)).toBe(15);
-    for (let k = 0; k < EXTRA_STEPS; k++) expect(loopStep('walkDrink', stepLoop('walkDrink', k))).toBe(k);
+    expect(loopStep('walkDrink', 0.17)).toBe(1); // on its way up
+    expect(loopStep('walkDrink', 3.2 * 5 + 0.7)).toBe(2); // at the lips
+    for (let k = 0; k < 3; k++) expect(loopStep('walkDrink', stepLoop('walkDrink', k))).toBe(k);
+    expect(EXTRA_STEPS).toBeGreaterThanOrEqual(PACE_STEPS);
     for (const k of [0, 1]) expect(loopStep('walkScared', stepLoop('walkScared', k))).toBe(k);
     expect(loopStep('walk', 7)).toBe(0);
   });
@@ -135,9 +195,9 @@ describe('frame keys', () => {
     expect(a.ax).toBe(a.pw / 2);
     expect(a.ay).toBeGreaterThan(38 * 2 * 1.06);
     expect(a.ph).toBeGreaterThan(a.ay);
-    expect(framesFor(a.pw, a.ph)).toBeGreaterThanOrEqual(64);
-    expect(framesFor(a.pw, a.ph)).toBeLessThanOrEqual(400);
-    expect(framesFor(2000, 2000)).toBe(64);
-    expect(framesFor(10, 10)).toBe(400);
+    expect(framesFor(a.pw, a.ph)).toBeGreaterThanOrEqual(400);
+    expect(framesFor(a.pw, a.ph)).toBeLessThanOrEqual(1200);
+    expect(framesFor(2000, 2000)).toBe(16);
+    expect(framesFor(10, 10)).toBe(1200);
   });
 });

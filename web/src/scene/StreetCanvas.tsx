@@ -7,13 +7,13 @@
 // to a hidden tab. `ambient`: the street with no rush running, on the wall clock, with made-up walkers strolling,
 // glancing at the boards and buying now and then (ambient.ts), at a lower frame rate and without speech bubbles; its
 // street is `snapshot` (the day's shops at rest) or, without one, the first morning of a run from `seed`.
-// If the canvas cannot start, or drawing keeps failing, `fallback` shows instead (spec §13); by default the list of
-// shops (StreetList.tsx: name, price, status, queue).
+// If the canvas cannot start, or drawing keeps failing, `fallback` shows instead (spec §13); by default, live, the
+// list of shops (StreetList.tsx: name, price, status, queue), and nothing behind an ambient screen.
 import {
   useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref,
 } from 'react';
 import type { RushState, SimEvent } from '../../../shared/sim/types';
-import { AmbientDriver, ambientStreet } from './ambient';
+import { AmbientClock, AmbientDriver, ambientStreet } from './ambient';
 import { Director } from './director';
 import { fitLayout } from './layout';
 import type { TimeOfDay } from './lighting';
@@ -71,8 +71,8 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
   const scene = useRef<Scene | null>(null);
   /** The last push: its tick and when it came. */
   const clock = useRef({ tick: 0, wall: 0 });
-  /** The ambient walkers and their clock: the director's time `base` at wall time `wall`. */
-  const ambient = useRef<{ driver: AmbientDriver; wall: number; base: number } | null>(null);
+  /** The ambient walkers and their clock (hidden time does not count). */
+  const ambient = useRef<{ driver: AmbientDriver; clock: AmbientClock } | null>(null);
   const latest = useRef({ mode, simTime, tickMs, onFps, seed, timeOfDay });
   useLayoutEffect(() => { latest.current = { mode, simTime, tickMs, onFps, seed, timeOfDay }; });
   const [failed, setFailed] = useState(false);
@@ -102,7 +102,7 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
     const time = () => {
       const l = latest.current;
       const amb = ambient.current;
-      if (l.mode === 'ambient') return amb === null ? d.now : amb.base + (performance.now() - amb.wall) / TICK_MS;
+      if (l.mode === 'ambient') return amb === null ? d.now : amb.clock.read(performance.now());
       if (l.simTime !== undefined) return l.simTime();
       const c = clock.current;
       return c.tick + Math.min(1, Math.max(0, (performance.now() - c.wall) / l.tickMs));
@@ -164,10 +164,13 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
       calm: sc?.reducedMotion ?? false,
     });
     driver.warm(AMBIENT_WARM);
-    ambient.current = { driver, wall: performance.now(), base: d.now };
-  }, [snapshot, mode]);
+    ambient.current = { driver, clock: new AmbientClock(d.now, performance.now()) };
+  }, [snapshot, mode, seed]);
 
-  useEffect(() => { scene.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
+  useEffect(() => {
+    scene.current?.setReducedMotion(reducedMotion);
+    ambient.current?.driver.setPace(latest.current.timeOfDay ?? 'noon', scene.current?.reducedMotion ?? false);
+  }, [reducedMotion]);
   useEffect(() => {
     scene.current?.setTimeOfDay(timeOfDay ?? 'noon');
     ambient.current?.driver.setPace(timeOfDay ?? 'noon', scene.current?.reducedMotion ?? false);
@@ -176,7 +179,7 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
 
   return (
     <div ref={box} className={className} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-      {failed ? fallback ?? <StreetList director={director} /> : (
+      {failed ? fallback ?? (mode === 'live' ? <StreetList director={director} /> : null) : (
         <canvas ref={canvas} data-scene="" role="img" aria-label="Phố trà sữa"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
       )}

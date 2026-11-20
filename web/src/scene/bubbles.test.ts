@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BubbleRequest } from './director';
 import {
-  admit, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, placeBubbles, popOf, POP_OUT,
-  situationOf, tailTip, wordsFor, type AdmitContext, type Candidate, type Placing, type Shown, type Situation,
+  admit, byPriority, candidates, daySeed, lifeOf, LINES, lineIndex, MAX_BUBBLES, MIN_SHOW, placeBubbles, popOf, POP_OUT,
+  rankOf, situationOf, tailTip, WAIT_TICKS, wordsFor, type AdmitContext, type Candidate, type Placing, type Shown, type Situation,
 } from './bubbles';
 
 const ctx = (o: Partial<AdmitContext> = {}): AdmitContext => ({
@@ -23,7 +23,7 @@ describe('the lines', () => {
     expect(LINES.tooExpensive).toContain('Quán này đắt quá, đi quán khác thôi.');
     expect(LINES.tooCrowded).toContain('Đông quá, xếp hàng chắc lâu lắm, mình qua quán khác.');
     expect(LINES.lowTrust).toContain('Quán này nghe nói không ổn lắm, chọn quán khác vậy.');
-    expect(LINES.otherBetter).toContain('Bên kia rẻ hơn mà.');
+    expect(LINES.otherCheaper).toContain('Bên kia rẻ hơn mà.');
     expect(LINES.chosePlayer).toContain('Quán này giá ổn nè.');
     expect(LINES.patience).toContain('Chờ lâu quá, thôi khỏi!');
     expect(LINES.wrongCup).toContain('Ủa, sai món rồi?');
@@ -57,6 +57,14 @@ describe('the lines', () => {
     for (let i = 0; i < 4; i++) expect(wordsFor('valueDoubt', i, { price: 25 }).toLowerCase()).not.toMatch(/đắt/);
   });
 
+  it('says "cheaper" only when the chosen shop was cheaper; otherwise neutral words', () => {
+    expect(situationOf(req({ topic: 'otherBetter', cheaper: true }))).toBe('otherCheaper');
+    expect(situationOf(req({ topic: 'otherBetter', cheaper: false }))).toBe('otherBetter');
+    expect(situationOf(req({ topic: 'otherBetter' }))).toBe('otherBetter');
+    for (const l of LINES.otherBetter) expect(l).not.toMatch(/rẻ|hời|ngon/);
+    for (const l of LINES.otherCheaper) expect(l).toMatch(/rẻ|hời/);
+  });
+
   it('picks a line per customer and situation from the day\'s seed: the same each time, varied across customers', () => {
     const s = daySeed(7, 3);
     expect(lineIndex(s, 12, 'patience', 4)).toBe(lineIndex(s, 12, 'patience', 4));
@@ -84,9 +92,11 @@ describe('who speaks', () => {
     expect(candidates([], [{ shop: 'player', customer: 1, correct: false, t: 5 }], 0)).toEqual([]);
   });
 
-  it('orders the player\'s first, then the weightier situation, then the earlier', () => {
-    const list = [cand(1, 'tooCrowded'), cand(2, 'chosePlayer', true), cand(3, 'wrongCup', true), cand(4, 'patience')];
-    expect([...list].sort(byPriority).map(c => c.customer)).toEqual([3, 2, 4, 1]);
+  it('orders the player\'s and the day\'s theme first, then the weightier situation, then the earlier', () => {
+    const list = [cand(1, 'tooCrowded'), cand(2, 'chosePlayer', true), cand(3, 'wrongCup', true), cand(4, 'patience'),
+      cand(5, 'emptyHanded')];
+    expect([...list].sort(byPriority).map(c => c.customer)).toEqual([3, 5, 2, 4, 1]);
+    expect(rankOf({ player: false, situation: 'rumor' })).toBeGreaterThan(rankOf({ player: true, situation: 'served' }));
   });
 
   it('shows at most three; a player-related word pushes out the oldest that is not; plain words do not', () => {
@@ -102,13 +112,57 @@ describe('who speaks', () => {
     expect(r.out[0].until).toBe(102);
   });
 
-  it('does not repeat a plain situation already on screen, but always lets the player\'s through', () => {
+  it('shows one bubble per situation: a word of the same rank waits, a higher one takes its place', () => {
     let r = admit([], [cand(1, 'tooCrowded')], ctx());
-    r = admit(r.shown, [cand(2, 'tooCrowded')], ctx({ now: 101 }));
+    r = admit(r.shown, [cand(2, 'tooCrowded')], ctx({ now: 101 }), r.waiting);
     expect(r.shown.map(b => b.customer)).toEqual([1]);
-    r = admit(r.shown, [cand(3, 'tooCrowded', true)], ctx({ now: 102 }));
-    expect(r.shown.map(b => b.customer)).toEqual([1, 3]);
-    expect(r.shown[0].text).not.toBe(r.shown[1].text);
+    expect(r.waiting.map(k => k.customer)).toEqual([2]);
+    r = admit(r.shown, [cand(3, 'tooCrowded', true)], ctx({ now: 102 }), r.waiting);
+    expect(r.shown.map(b => b.customer)).toEqual([3]);
+    expect(r.out.map(b => b.customer)).toEqual([1]);
+  });
+
+  it('a full board of lighter player words takes a wrong cup (once they have shown a moment)', () => {
+    let r = admit([], [cand(1, 'tooCrowded', true), cand(2, 'otherBetter', true), cand(3, 'chosePlayer', true)], ctx());
+    expect(r.shown).toHaveLength(3);
+    r = admit(r.shown, [cand(4, 'wrongCup', true)], ctx({ now: 102 }), r.waiting);
+    expect(r.shown.map(b => b.customer)).not.toContain(4); // too soon: it waits
+    expect(r.waiting.map(k => k.customer)).toEqual([4]);
+    r = admit(r.shown, [], ctx({ now: 100 + MIN_SHOW }), r.waiting);
+    expect(r.shown.map(b => b.customer)).toContain(4);
+    expect(r.shown.map(b => b.customer)).not.toContain(3); // the lightest (chose the player) made room
+  });
+
+  it('a waiting word is dropped after a while', () => {
+    let r = admit([], [cand(1, 'wrongCup', true), cand(2, 'patience', true), cand(3, 'priceUp', true)], ctx());
+    r = admit(r.shown, [cand(4, 'tooCrowded', true)], ctx({ now: 101 }), r.waiting);
+    expect(r.waiting).toHaveLength(1);
+    r = admit(r.shown, [], ctx({ now: 101 + WAIT_TICKS + 1 }), r.waiting);
+    expect(r.waiting).toHaveLength(0);
+  });
+
+  it('under a saturated stream every situation gets airtime by rank: wrong cups and the day\'s theme get through', () => {
+    // 600 ticks, three player words a tick of the light kinds, and now and then a weighty one.
+    const light: Situation[] = ['otherBetter', 'tooCrowded', 'chosePlayer', 'tooExpensive', 'lowTrust'];
+    let shown: Shown[] = [];
+    let waiting: Candidate[] = [];
+    const heavy = { wrongCup: [0, 0], emptyHanded: [0, 0] };
+    let id = 0;
+    for (let t = 0; t < 600; t++) {
+      const cs: Candidate[] = [];
+      for (let k = 0; k < 3; k++) cs.push(cand(id++, light[(t * 3 + k) % light.length], true, t));
+      if (t % 40 === 7) { cs.push(cand(id++, 'wrongCup', true, t)); heavy.wrongCup[0]++; }
+      if (t % 40 === 23) { cs.push(cand(id++, 'emptyHanded', false, t)); heavy.emptyHanded[0]++; }
+      const r = admit(shown, cs, ctx({ now: t }), waiting);
+      shown = r.shown;
+      waiting = r.waiting;
+      expect(shown.filter(b => b.until > t).length).toBeLessThanOrEqual(MAX_BUBBLES);
+      const live = shown.filter(b => b.until > t).map(b => b.situation);
+      expect(new Set(live).size).toBe(live.length);
+      for (const b of shown) if (b.born === t && (b.situation === 'wrongCup' || b.situation === 'emptyHanded')) heavy[b.situation][1]++;
+    }
+    expect(heavy.wrongCup[1]).toBe(heavy.wrongCup[0]);
+    expect(heavy.emptyHanded[1]).toBe(heavy.emptyHanded[0]);
   });
 
   it('one bubble per customer: a weightier word replaces theirs', () => {
@@ -179,7 +233,8 @@ describe('where they go', () => {
   it('keeps clear of the van\'s banner and the ceiling sign', () => {
     const banner = { x: 120, y: 230, w: 200, h: 80 };
     const [p] = placeBubbles([item(200, 320)], view, [banner], 8, 4);
-    expect(overlaps(p, banner, 120, 30) && overlaps({ x: banner.x, y: banner.y }, p, banner.w, banner.h)).toBe(false);
+    const clear = p.x + 120 <= banner.x || p.x >= banner.x + banner.w || p.y + 30 <= banner.y || p.y >= banner.y + banner.h;
+    expect(clear).toBe(true);
   });
 
   it('stays inside the view, the tail still toward the speaker', () => {

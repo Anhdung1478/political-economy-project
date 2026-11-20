@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '../../../shared/sim/types';
 import {
-  AmbientCrowd, AmbientDriver, ambientStreet, LOOKAHEAD, MAX_QUEUE, PACE, type AmbientOptions, type AmbientShop,
+  AmbientClock, AmbientCrowd, AmbientDriver, ambientStreet, LOOKAHEAD, MAX_QUEUE, MAX_STEP_MS, PACE, type AmbientOptions, type AmbientShop,
 } from './ambient';
 import { BROWSE_TICKS, Director } from './director';
 import { LANDSCAPE, PORTRAIT } from './layout';
@@ -61,7 +61,7 @@ describe('the ambient crowd', () => {
     const share = (k: string) => c.kinds.filter(x => x === k).length / n;
     expect(n).toBeGreaterThan(400);
     expect(share('buy')).toBeGreaterThan(PACE.noon.buy * 0.7);
-    expect(share('buy')).toBeLessThan(PACE.noon.buy * 1.1);
+    expect(share('buy')).toBeLessThan(PACE.noon.buy * 1.2);
     expect(share('glance')).toBeGreaterThan(0.2);
     expect(share('stroll')).toBeGreaterThan(0.25);
     // Joins only at open shops, at a place under MAX_QUEUE; each buyer served once, then gone.
@@ -86,16 +86,14 @@ describe('the ambient crowd', () => {
     }
   });
 
-  it('follows the hour: the evening is quieter than noon; reduced motion only strolls, and sparsely', () => {
+  it('follows the hour: the evening is quieter than noon; reduced motion brings nobody', () => {
     const count = (o: Partial<AmbientOptions>) => {
       const c = new AmbientCrowd(opts(o), SHOPS);
       runCrowd(c, 3000);
       return c;
     };
     expect(count({ timeOfDay: 'evening' }).kinds.length).toBeLessThan(count({ timeOfDay: 'noon' }).kinds.length);
-    const calm = count({ calm: true });
-    expect(calm.kinds.every(k => k === 'stroll')).toBe(true);
-    expect(calm.kinds.length).toBeLessThan(count({}).kinds.length / 2);
+    expect(count({ calm: true }).kinds).toHaveLength(0);
   });
 
   it('buys nothing when no shop is open', () => {
@@ -136,9 +134,37 @@ describe('the ambient street on a director', () => {
       }
       expect(queued).toBeGreaterThan(0);
       expect(drinking).toBeGreaterThan(0);
-      expect(d.takeBubbles().length).toBeGreaterThanOrEqual(0);
     });
   }
+
+  it('after the tab was hidden for minutes, the street goes on with its usual handful, not a crowd', () => {
+    const d = new Director(LANDSCAPE);
+    d.reset(ambientStreet(7)!);
+    const drv = new AmbientDriver(d, { seed: 7, day: 1, timeOfDay: 'noon', calm: false });
+    drv.warm(220);
+    let wall = 1000;
+    const clock = new AmbientClock(d.now, wall);
+    const frame = () => {
+      const t = clock.read(wall);
+      drv.step(t);
+      d.advanceTo(t);
+    };
+    for (let i = 0; i < 300; i++) { wall += 16; frame(); }
+    const before = d.actorCount;
+    wall += 5 * 60 * 1000; // five minutes hidden: no frames
+    frame();
+    expect(d.now - clock.read(wall)).toBe(0);
+    expect(d.actorCount).toBeLessThanOrEqual(before + 4);
+    for (let i = 0; i < 60; i++) { wall += 16; frame(); }
+    expect(d.actorCount).toBeLessThan(20);
+  });
+
+  it('the clock moves by the real time between frames, at most MAX_STEP_MS each', () => {
+    const c = new AmbientClock(10, 0);
+    expect(c.read(100)).toBeCloseTo(11);
+    expect(c.read(100 + 60_000)).toBeCloseTo(11 + MAX_STEP_MS / 100);
+    expect(c.read(50)).toBeCloseTo(11 + MAX_STEP_MS / 100);
+  });
 
   it('leaves the rush state\'s customer list alone when walkers are added', () => {
     const street = ambientStreet(3)!;

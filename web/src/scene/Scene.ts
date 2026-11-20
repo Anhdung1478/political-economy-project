@@ -79,6 +79,8 @@ export interface RenderContext {
   dt: number;
   /** Device pixels per logical unit (hairlines: 1 / pxPerUnit). */
   pxPerUnit: number;
+  /** CSS pixels per logical unit (how big the street is on screen: text with a readable floor). */
+  cssPerUnit: number;
   /** Logical → device pixels (k = pxPerUnit), for sprites blitted on the device grid (sprites.ts). */
   grid: Grid;
   /** The light of the hour (the rush is at noon). */
@@ -323,6 +325,7 @@ export class Scene {
     ctx.setTransform(k, 0, 0, k, g.devX, g.devY);
     const rc: RenderContext = {
       ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: wall - this.lastWall, pxPerUnit: k,
+      cssPerUnit: fit.scale,
       grid: g, timeOfDay: this.tod, sprites: this.sprites,
       reducedMotion: this.reducedMotion, palette: this.palette, seed: this.seed, speech: this.speech,
       bubbles: this.speech ? d.takeBubbles() : (d.takeBubbles(), NO_BUBBLES), cues: d.takeCues(), store: this.store,

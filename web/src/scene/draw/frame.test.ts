@@ -59,7 +59,7 @@ function frame(d: Director, store: Map<string, unknown>, wall: number, reduced: 
   const fit = fitTo(d.layout, d.layout === PORTRAIT ? 390 : 844, d.layout === PORTRAIT ? 844 : 390);
   const ctx = stubContext(count);
   const rc: RenderContext = {
-    ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: 16, pxPerUnit: fit.scale * 2,
+    ctx, director: d, layout: d.layout, view: fit.view, now: d.now, wall, dt: 16, pxPerUnit: fit.scale * 2, cssPerUnit: fit.scale,
     grid: { k: fit.scale * 2, devX: fit.ox * 2, devY: fit.oy * 2 }, timeOfDay: tod, sprites, reducedMotion: reduced,
     palette: PALETTE, seed: 7, speech: true, bubbles: d.takeBubbles(), cues: d.takeCues(), store,
   };

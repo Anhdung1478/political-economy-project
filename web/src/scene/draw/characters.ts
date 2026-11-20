@@ -1714,6 +1714,7 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   if (rc.wall - cast.frame > 1000) {
     cast.frame = rc.wall;
     if (cast.memos.size > 60) cast.memos.forEach(sweepMemo, rc.wall);
+    cast.figures.sweep(3000);
   }
   let m = cast.memos.get(a.id);
   if (m === undefined) {
@@ -1784,7 +1785,7 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   }
 
   // The frame: a shared walk-cycle frame, or the actor's own for this refresh slot.
-  figs.begin(H, rc.pxPerUnit);
+  figs.begin(H, rc.pxPerUnit, rc.wall);
   const look = cast.look;
   look.clip = sel.clip;
   look.view = view;
@@ -1793,6 +1794,11 @@ export function drawCustomer(rc: RenderContext, a: Actor): void {
   look.flags = (fx.cup ? 1 : 0) | (fx.phone ? 2 : 0) | (rc.reducedMotion ? 4 : 0);
   const blending = rc.wall - m.blendFrom < BLEND_MS;
   const cyclic = !blending && CYCLIC.has(sel.clip);
+  // A walk frame does not fork on the blink (a blink mid-stride does not show at street size).
+  if (cyclic) {
+    look.blink = 0;
+    fx.blink = 0;
+  }
   const cf = cyclic ? cycleFrame(m.phase) : 0;
   const ps = !cyclic ? 0 : sel.clip === 'walk' ? paceStep(input.pace) : loopStep(sel.clip, input.loop);
   const space = cyclic ? lookSpace(tr.look) : actorSpace(a.id);

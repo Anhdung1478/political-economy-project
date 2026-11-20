@@ -128,7 +128,7 @@ export default function ShopSheet() {
       ctx.fillRect(0, 0, w, h);
       const rc: RenderContext = {
         ctx, director: null as unknown as Director, layout: L, view: { x: 0, y: 0, w, h }, now: NOW, wall, sprites,
-        dt: now - last, pxPerUnit: k, grid: { k, devX: 0, devY: 0 }, timeOfDay: 'noon', reducedMotion: reduced,
+        dt: now - last, pxPerUnit: k, cssPerUnit: zoom, grid: { k, devX: 0, devY: 0 }, timeOfDay: 'noon', reducedMotion: reduced,
         palette, seed: 0, speech: false, bubbles: [], cues: [], store,
       };
       last = now;

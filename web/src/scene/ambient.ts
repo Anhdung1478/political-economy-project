@@ -7,7 +7,9 @@
 // - `AmbientCrowd` (pure): the made-up walkers and what they do, as `Customer`s and the `SimEvent`s the rush would
 //   have sent for them. Three kinds: strollers walk straight through; glancers stop to read the boards, take a last
 //   look and walk on; buyers pick an open shop, queue (never more than two deep) and walk off drinking. How often
-//   people come, and how many buy, follows the hour (`timeOfDay`); with reduced motion only a few stroll by.
+//   people come, and how many buy, follows the hour (`timeOfDay`); with reduced motion nobody comes (the street's
+//   ambience is off, spec §9).
+// - `AmbientClock`: the street's time from the wall clock, not counting time the tab was hidden.
 // - `AmbientDriver`: feeds a crowd into a `Director` as time goes on, and can warm the street up so it opens busy.
 // - `ambientStreet(seed)`: a street to walk on when the screen has none of its own (title, lobby, projector): the
 //   first morning of a run from that seed, with nobody on it.
@@ -26,8 +28,6 @@ export const PACE: Readonly<Record<TimeOfDay, { gap: number; buy: number; glance
   afternoon: { gap: 12, buy: 0.26, glance: 0.3 },
   evening: { gap: 15, buy: 0.26, glance: 0.26 },
 };
-/** Reduced motion: this many times fewer walkers, and none stop or buy. */
-const CALM_SPARSER = 3;
 /** Walkers are made this far ahead of their arrival (ticks), so they can walk in from the street's ends in time. */
 export const LOOKAHEAD = 160;
 /** At most this many ambient customers in one queue. */
@@ -71,7 +71,7 @@ export class AmbientCrowd {
   readonly kinds: AmbientKind[] = [];
 
   constructor(private o: AmbientOptions, private shops: readonly AmbientShop[]) {
-    this.rng = stream(o.seed, `ambient/${o.day}/${o.timeOfDay}`);
+    this.rng = stream(o.seed, `scene/${o.day}/ambient/${o.timeOfDay}`);
     this.next = o.start;
     this.nextId = o.firstId;
   }
@@ -89,9 +89,13 @@ export class AmbientCrowd {
   /** Walkers to add now (in id order) and the events due by `now` (in tick order, removed from the crowd). */
   take(now: number): { customers: Customer[]; events: SimEvent[] } {
     const customers: Customer[] = [];
+    // Reduced motion turns the street's ambience off (spec §9): nobody new comes; the clock of arrivals still runs.
     while (this.next <= now + LOOKAHEAD) {
-      customers.push(this.make(this.next));
-      this.next += this.gap();
+      if (this.o.calm) this.next = now + LOOKAHEAD + 1;
+      else {
+        customers.push(this.make(this.next));
+        this.next += this.gap();
+      }
     }
     let n = 0;
     while (n < this.events.length && this.events[n].t <= now) n++;
@@ -100,7 +104,7 @@ export class AmbientCrowd {
 
   private gap(): number {
     const p = PACE[this.o.timeOfDay];
-    const mean = p.gap * (this.o.calm ? CALM_SPARSER : 1);
+    const mean = p.gap;
     // 0.4 to 1.6 times the mean: a street, not a metronome.
     return Math.max(4, Math.round(mean * (0.4 + this.rng() * 1.2)));
   }
@@ -118,7 +122,7 @@ export class AmbientCrowd {
       tie: 0, look, scared: false, onlyShop: null,
     };
     const p = PACE[this.o.timeOfDay];
-    let kind: AmbientKind = this.o.calm ? 'stroll' : roll < p.buy ? 'buy' : roll < p.buy + p.glance ? 'glance' : 'stroll';
+    let kind: AmbientKind = roll < p.buy ? 'buy' : roll < p.buy + p.glance ? 'glance' : 'stroll';
     let shop: ShopId | null = null;
     if (kind === 'buy') {
       shop = this.choose(arrive, pick);
@@ -176,6 +180,24 @@ export class AmbientCrowd {
     let i = this.events.length;
     while (i > 0 && this.events[i - 1].t > e.t) i--;
     this.events.splice(i, 0, e);
+  }
+}
+
+/** Real time per tick (ms), and the most real time one frame may move the ambient street on. */
+const TICK_MS = 100;
+export const MAX_STEP_MS = 250;
+
+/**
+ * The ambient street's clock (ticks) from the wall clock: frames move it on by the real time between them, at most
+ * MAX_STEP_MS each, so time the tab spent hidden (no frames) does not count and no crowd piles up on return.
+ */
+export class AmbientClock {
+  constructor(private t: number, private last: number) {}
+
+  read(wall: number): number {
+    this.t += Math.min(MAX_STEP_MS, Math.max(0, wall - this.last)) / TICK_MS;
+    this.last = wall;
+    return this.t;
   }
 }
 

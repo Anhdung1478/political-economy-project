@@ -757,6 +757,28 @@ describe('"too expensive" when the price alone was affordable', () => {
   });
 });
 
+describe('"another shop is better" says whether the chosen shop was cheaper', () => {
+  it('compares the chosen shop\'s board with the passed one\'s', () => {
+    const d = director();
+    const p = d.shop('player').price;
+    at(d, 5, { t: 5, type: 'shopPrice', shop: 'batu', from: d.shop('batu').price, to: p - 2 },
+      enter(5, 0), consider(5, 0, 'batu', [verdict('player', 'otherBetter'), verdict('batu', 'chosen')]));
+    expect(d.takeBubbles().find(b => b.customer === 0)?.cheaper).toBe(true);
+    at(d, 10, { t: 10, type: 'shopPrice', shop: 'batu', from: p - 2, to: p + 3 },
+      enter(10, 1), consider(10, 1, 'batu', [verdict('player', 'otherBetter'), verdict('batu', 'chosen')]));
+    expect(d.takeBubbles().find(b => b.customer === 1)?.cheaper).toBe(false);
+  });
+});
+
+describe('the last event applied', () => {
+  it('is the street\'s clock as the sim sees it, even when the picture does not move', () => {
+    const d = director();
+    d.apply([enter(42, 0)]);
+    expect(d.now).toBe(0);
+    expect(d.lastEventTick).toBe(42);
+  });
+});
+
 describe("customers added after the rush state's (the ambient walkers)", () => {
   it("come in on the director's schedule, ids following on; the rush state's list is left alone", () => {
     const rush = quiet(day1());

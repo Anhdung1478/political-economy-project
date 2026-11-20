@@ -70,6 +70,9 @@
   content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(180deg, rgba(255, 246, 234, 0.78) 0%, rgba(255, 246, 234, 0.3) 16%, rgba(255, 246, 234, 0) 34%);
 }
+.street-slot[data-street-slot='ambient'] ~ .stage .proj__brand {
+  padding: 6px 24px; border-radius: var(--r-pill); background: rgba(255, 252, 247, 0.92); box-shadow: var(--shadow-sm);
+}
 .proj-market { height: 100%; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 32px; padding-top: 24px; }
 .proj-market__card { padding: 40px 48px; display: grid; gap: 22px; max-width: 980px; background: var(--paper); }
 .proj-market__kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--matcha-deep); font-size: 18px; }

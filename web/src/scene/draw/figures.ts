@@ -126,20 +126,24 @@ export const CYCLIC: ReadonlySet<Clip> = new Set<Clip>([
 ]);
 /** Steps of a walk frame's second dimension: the plain walk's pace, the sip of a walk with a cup, a scared glance. */
 export const EXTRA_STEPS = 16;
-/** Seconds of the sip cycle (rig.ts walkDrink): the cup is up for its first 1.5 s, down for the rest. */
+/** Seconds of the sip cycle (rig.ts walkDrink): the cup comes up over 0.35 s, stays to 1.15 s, is down by 1.5 s. */
 const SIP_PERIOD = 3.2;
-const SIP_UP = 1.5;
-const SIP_STEP = 0.1;
+
+/** How far the cup is up at `c` seconds into the sip cycle (rig.ts walkDrink's curve). */
+function sipUp(c: number): number {
+  const sm = (x: number) => x * x * (3 - 2 * x);
+  return c < 0.35 ? sm(c / 0.35) : c < 1.15 ? 1 : c < 1.5 ? 1 - sm((c - 1.15) / 0.35) : 0;
+}
 
 /**
- * The second dimension of a walk frame from the free-running clock (seconds): for a walk with a cup, the moment of
- * the sip (0 when the cup is down, else its tenth of a second); for a scared walk, whether they glance back (rig.ts:
- * sin(2.3·loop) > 0.3). Other walks: 0 (the plain walk's pace step is passed separately).
+ * The second dimension of a walk frame from the free-running clock (seconds): for a walk with a cup, how far the cup
+ * is up (down, half, at the lips); for a scared walk, whether they glance back (rig.ts: sin(2.3·loop) > 0.3). Other
+ * walks: 0 (the plain walk's pace step is passed separately).
  */
 export function loopStep(clip: Clip, loop: number): number {
   if (clip === 'walkDrink') {
-    const c = ((loop % SIP_PERIOD) + SIP_PERIOD) % SIP_PERIOD;
-    return c >= SIP_UP ? 0 : 1 + Math.min(EXTRA_STEPS - 2, Math.floor(c / SIP_STEP));
+    const up = sipUp(((loop % SIP_PERIOD) + SIP_PERIOD) % SIP_PERIOD);
+    return up < 0.25 ? 0 : up < 0.75 ? 1 : 2;
   }
   if (clip === 'walkScared') return Math.sin(loop * 2.3) > 0.3 ? 1 : 0;
   return 0;
@@ -147,7 +151,7 @@ export function loopStep(clip: Clip, loop: number): number {
 
 /** A clock value that gives `loopStep` = step (the middle of its slice), to draw the frame at. */
 export function stepLoop(clip: Clip, step: number): number {
-  if (clip === 'walkDrink') return step === 0 ? (SIP_UP + SIP_PERIOD) / 2 : (step - 1 + 0.5) * SIP_STEP;
+  if (clip === 'walkDrink') return step === 0 ? 2.35 : step === 1 ? 0.175 : 0.75;
   if (clip === 'walkScared') return step === 1 ? Math.PI / 2 / 2.3 : (3 * Math.PI) / 2 / 2.3;
   return 0;
 }
@@ -158,9 +162,9 @@ export const PACE_STEPS = 8;
 
 /** Refresh period of an actor's own frames, per clip (ms): quick motions more often, slow breathing less. */
 export const FRAME_MS: Readonly<Record<Clip, number>> = {
-  idle: 150, walk: 66, shuffle: 66, walkDrink: 66, walkAngry: 66, walkScared: 66, walkPhone: 66, walkCane: 66,
-  lookBoard: 133, phone: 133, selfie: 100, tap: 83, crossed: 83, happy: 50, puzzled: 66, stomp: 50, shrug: 66,
-  whisper: 100,
+  idle: 250, walk: 66, shuffle: 66, walkDrink: 66, walkAngry: 66, walkScared: 66, walkPhone: 66, walkCane: 66,
+  lookBoard: 200, phone: 200, selfie: 160, tap: 125, crossed: 125, happy: 50, puzzled: 83, stomp: 66, shrug: 83,
+  whisper: 160,
 };
 
 const CLIP_INDEX = new Map<Clip, number>(CLIPS.map((c, i) => [c, i]));
@@ -192,11 +196,11 @@ export interface FrameLook { clip: Clip; view: View; mood: Mood; blink: number; 
 export function lookKey(f: FrameLook): number {
   const c = CLIP_INDEX.get(f.clip) ?? 0;
   const m = MOOD_INDEX.get(f.mood) ?? 0;
-  return ((((c * 3 + VIEW_INDEX[f.view]) * 8 + m) * 2 + (f.blink > 0.5 ? 1 : 0)) * 8) + (f.flags & 7);
+  return ((((c * 3 + VIEW_INDEX[f.view]) * MOODS.length + m) * 2 + (f.blink > 0.5 ? 1 : 0)) * 8) + (f.flags & 7);
 }
 
 /** Key space of `lookKey`. */
-export const LOOK_KEYS = CLIPS.length * 3 * 8 * 2 * 8;
+export const LOOK_KEYS = CLIPS.length * 3 * MOODS.length * 2 * 8;
 
 /** A shared walk frame's key (under the look's own space): the look part, the cycle frame and the second step. */
 export function cycleKey(f: FrameLook, frame: number, extra: number): number {
@@ -239,9 +243,9 @@ const TALLEST = 1.08;
 /** Memory for frames, in bytes (RGBA). */
 const BUDGET_BYTES = 24 * 1024 * 1024;
 
-/** How many frames fit the budget at a frame size (at least 64, at most 400). */
+/** How many shared frames fit the budget at a frame size (at least 16, at most 1200). */
 export function framesFor(pw: number, ph: number): number {
-  return Math.max(64, Math.min(400, Math.floor(BUDGET_BYTES / Math.max(1, pw * ph * 4))));
+  return Math.max(16, Math.min(1200, Math.floor(BUDGET_BYTES / Math.max(1, pw * ph * 4))));
 }
 
 /** The device-pixel box of a frame for actors `H` units tall at `k` device px per unit; feet at (ax, ay). */
@@ -263,16 +267,23 @@ function makeCanvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas |
   return null;
 }
 
+/** An actor's own frame: one canvas per actor, painted over in place (never in the LRU). */
+interface Own { frame: Frame | null; key: number; seen: number }
+
 /**
- * The frames of one scene. `begin(H, k)` each frame (a new zoom starts over); `get` finds a frame; `paint` takes a
- * canvas (a fresh one, or the least recently used frame's) and stores the result. Not usable without a canvas
- * (node): `available` is false and the street draws live.
+ * The frames of one scene. `begin(H, k)` each frame (a new zoom starts over); `get` finds a frame; `paint` paints one.
+ * Shared walk frames (a look's space, `lookSpace`) live in a least-recently-used set, up to the memory budget; an
+ * actor's own frames (`actorSpace`) are one canvas per actor, painted over each refresh, so they never push the walk
+ * cycles out. `sweep` forgets actors not drawn for a while. Not usable without a canvas (node): `available` is false
+ * and the street draws live.
  */
 export class FigureCache {
   private lru: Lru<Frame>;
+  private readonly own = new Map<number, Own>();
   private H = 0;
   private k = 0;
   private spare: Frame | null = null;
+  private wall = 0;
   box = { pw: 1, ph: 1, ax: 0, ay: 0 };
   readonly available: boolean;
   /** Frames painted (for the dev bench). */
@@ -280,28 +291,49 @@ export class FigureCache {
 
   constructor() {
     this.available = typeof document !== 'undefined' || typeof OffscreenCanvas === 'function';
-    this.lru = new Lru<Frame>(64, f => { this.spare = f; });
+    this.lru = new Lru<Frame>(16, f => { this.spare = f; });
   }
 
-  begin(H: number, k: number): void {
+  /** Each frame: the actor height and zoom (a change starts over) and the wall clock (for `sweep`). */
+  begin(H: number, k: number, wall = 0): void {
+    this.wall = wall;
     if (H === this.H && k === this.k) return;
     this.H = H;
     this.k = k;
     this.box = frameBox(H, k);
     this.lru = new Lru<Frame>(framesFor(this.box.pw, this.box.ph), f => { this.spare = f; });
+    this.own.clear();
     this.spare = null;
   }
 
-  get(a: number, b: number): Frame | undefined { return this.lru.get(a, b); }
+  get(a: number, b: number): Frame | undefined {
+    if (a >= 0) return this.lru.get(a, b);
+    const o = this.own.get(a);
+    if (o === undefined) return undefined;
+    o.seen = this.wall;
+    return o.key === b && o.frame !== null ? o.frame : undefined;
+  }
 
   /**
-   * Paints a frame under (a, b): `draw` gets a context whose transform puts the feet at the origin with one unit per
-   * device px times `scale` (the caller scales to the person). Returns null without a canvas.
+   * Paints a frame under (a, b): `draw` gets a context whose transform puts the feet at the origin, in street units
+   * (the caller scales to the person). Returns null without a canvas.
    */
   paint(a: number, b: number, draw: (ctx: CanvasRenderingContext2D) => void): Frame | null {
     const { pw, ph, ax, ay } = this.box;
-    let f = this.spare;
-    this.spare = null;
+    let o: Own | undefined;
+    let f: Frame | null;
+    if (a < 0) {
+      o = this.own.get(a);
+      if (o === undefined) {
+        o = { frame: null, key: -1, seen: this.wall };
+        this.own.set(a, o);
+      }
+      f = o.frame;
+      o.key = -1;
+    } else {
+      f = this.spare;
+      this.spare = null;
+    }
     if (f === null || f.canvas.width !== pw || f.canvas.height !== ph) {
       const canvas = makeCanvas(pw, ph);
       if (canvas === null) return null;
@@ -317,14 +349,28 @@ export class FigureCache {
     this.painted++;
     figureStats.painted++;
     figureStats.paintMs += performance.now() - t0;
-    this.lru.set(a, b, f);
+    if (o !== undefined) {
+      o.frame = f;
+      o.key = b;
+      o.seen = this.wall;
+    } else {
+      this.lru.set(a, b, f);
+    }
     return f;
   }
 
+  /** Forgets the own frames of actors not drawn for `ms`. */
+  sweep(ms: number): void {
+    for (const [id, o] of this.own) if (this.wall - o.seen > ms) this.own.delete(id);
+  }
+
+  /** Shared frames kept, and actors with a frame of their own. */
   get size(): number { return this.lru.size; }
+  get owners(): number { return this.own.size; }
 
   clear(): void {
     this.lru.clear();
+    this.own.clear();
     this.spare = null;
     this.H = 0;
     this.k = 0;

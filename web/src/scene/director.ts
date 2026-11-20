@@ -179,6 +179,11 @@ export interface BubbleRequest {
    * not the price.
    */
   priceOk?: boolean;
+  /**
+   * `otherBetter` only: whether the shop the customer chose had a lower price than the one they passed. The verdict
+   * only says it scored higher (price, reputation or a shorter queue), so "cheaper" is said only when it was.
+   */
+  cheaper?: boolean;
   /** About the player's shop, or said by someone who queued there. */
   playerRelated: boolean;
 }
@@ -301,6 +306,7 @@ export class Director {
   private customers: readonly Customer[] = [];
   /** `customers` is the director's own copy (customers were added), not the rush state's. */
   private ownCustomers = false;
+  private lastEventT = -Infinity;
   /** Customers not on the street yet, by the time they come in. */
   private pending: { id: number; at: number }[] = [];
   private readonly shopViews = new Map<ShopId, ShopView>();
@@ -410,6 +416,7 @@ export class Director {
     this.rulesV = s.rules;
     this.customers = s.customers;
     this.ownCustomers = false;
+    this.lastEventT = s.tick;
     this.shopViews.clear();
     for (const sh of s.shops) this.shopViews.set(sh.id, viewOf(sh));
     const counter = this.shopViews.get('player');
@@ -462,9 +469,15 @@ export class Director {
     this.pending.sort((a, b) => a.at - b.at);
   }
 
+  /** The latest tick of an event applied (the street's clock as the sim sees it, even with the picture stopped). */
+  get lastEventTick(): number { return this.lastEventT; }
+
   /** Applies one tick's events, in order. */
   apply(events: readonly SimEvent[]): void {
-    for (const e of events) this.on(e);
+    for (const e of events) {
+      if (e.t > this.lastEventT) this.lastEventT = e.t;
+      this.on(e);
+    }
     this.enforceCap();
   }
 
@@ -610,7 +623,8 @@ export class Director {
     this.cues.push(m);
   }
 
-  private say(t: Tick, customer: number, topic: BubbleTopic, shop: ShopId | null, missing?: StockItem): void {
+  private say(t: Tick, customer: number, topic: BubbleTopic, shop: ShopId | null, missing?: StockItem,
+    chosen: ShopId | null = null): void {
     const playerRelated = shop === 'player' || (this.cast.get(customer)?.playerRelated ?? false);
     const b: BubbleRequest = missing === undefined
       ? { customer, t, topic, shop, playerRelated }
@@ -618,6 +632,10 @@ export class Director {
     const c = this.customers[customer];
     const v = shop === null ? undefined : this.shopViews.get(shop);
     if (topic === 'tooExpensive' && c !== undefined && v !== undefined && v.price > 0) b.priceOk = c.budget >= v.price;
+    if (topic === 'otherBetter' && v !== undefined) {
+      const w = chosen === null ? undefined : this.shopViews.get(chosen);
+      b.cheaper = w !== undefined && w.price > 0 && w.price < v.price;
+    }
     this.bubbles.push(b);
   }
 
@@ -625,7 +643,7 @@ export class Director {
     chosen: ShopId | null): void {
     const a = this.ensure(id);
     const topic = considerTopic(verdicts, chosen);
-    if (topic !== null) this.say(t, id, topic.topic, topic.shop, topic.missing);
+    if (topic !== null) this.say(t, id, topic.topic, topic.shop, topic.missing, chosen);
     if (reshop || chosen !== null) return;
     // Nothing will do: a last look at the board they talk about (else the nearest), then they walk on.
     a.plan = a.plan.filter(s => !s.hold);
