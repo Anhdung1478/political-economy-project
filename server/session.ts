@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   AWARDS, type Ack, type AwardsResult, type BoardMember, CHOICE_LABELS, type HostBoard, LIMITS, type Progress,
-  type SessionCounts, type SessionPhase, type SessionSnapshot, type Vote, type VoteChoice,
+  type DayAck, type SessionCounts, type SessionPhase, type SessionSnapshot, type Vote, type VoteChoice,
   parseDaySummary, parseProgress, parseVote,
 } from '../shared/protocol';
 import type { ChoiceLabel, Day, DaySummary, Phase } from '../shared/sim/types';
@@ -139,9 +139,11 @@ export class Session {
   /**
    * One day of a run. Only the player's first run id, only the next expected day; a day already stored is a
    * duplicate: ignored, answered with its rank. Accepted while open and after the awards (which stay frozen).
-   * `code` is the session the run was played in: a run from before a reset (an old seed) is refused.
+   * `code` is the session the run was played in: a run from before a reset (an old seed) is refused. A day out of
+   * order is refused `notNext` with the day expected, so a phone that lost days (server restarted before saving)
+   * can send them again.
    */
-  submitDay(id: string, code: string, runId: string, raw: DaySummary): Ack<{ rank: number }> {
+  submitDay(id: string, code: string, runId: string, raw: DaySummary): DayAck {
     const p = this.players.get(id);
     if (!p) return { ok: false, error: 'unknownPlayer' };
     if (code !== this.code) return { ok: false, error: 'wrongSession' };
@@ -152,7 +154,7 @@ export class Session {
     if (!s) return { ok: false, error: 'badSummary' };
     if (s.day <= p.days.length) return { ok: true, rank: this.rankOnDay(p, s.day) };
     if (totals(p.days).finished) return { ok: false, error: 'finished' };
-    if (s.day !== p.days.length + 1) return { ok: false, error: 'notNext' };
+    if (s.day !== p.days.length + 1) return { ok: false, error: 'notNext', expected: (p.days.length + 1) as Day };
     p.runId = runId;
     p.days.push(s);
     p.lastActive = this.now();

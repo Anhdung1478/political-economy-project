@@ -151,8 +151,56 @@ describe('createSaver', () => {
     const log = vi.fn();
     const saver = createSaver(path.join(dir, 's.json'), 5, log);
     saver.save(() => { throw new Error('bad state'); });
-    await expect(saver.flush()).resolves.toBeUndefined();
+    await expect(saver.flush()).resolves.toBe(false);
     expect(log).toHaveBeenCalledOnce();
+  });
+
+  it('flush tells whether every change saved so far is on disk', async () => {
+    const file = path.join(dir, 's.json');
+    let fail = true;
+    const io: SaverIo = {
+      mkdir: d => fsp.mkdir(d, { recursive: true }),
+      writeFile: (f, t) => fsp.writeFile(f, t, 'utf8'),
+      rename: async (a, b) => { if (fail) throw new Error('EPERM'); await fsp.rename(a, b); },
+    };
+    const saver = createSaver(file, 60_000, () => {}, io);
+    expect(await saver.flush()).toBe(true); // nothing ever changed
+    saver.save(() => ({ v: 1 }));
+    expect(await saver.flush()).toBe(false);
+    expect(await saver.flush()).toBe(false); // the retry fails too
+    fail = false;
+    expect(await saver.flush()).toBe(true); // the retry writes the failed state
+    expect(await saver.flush()).toBe(true);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ v: 1 });
+  });
+
+  it('concurrent flushes share writes: a change during a write gets one more write, not one each', async () => {
+    const file = path.join(dir, 's.json');
+    let writes = 0;
+    let release: () => void = () => {};
+    let started: () => void = () => {};
+    const firstStarted = new Promise<void>(r => { started = r; });
+    const io: SaverIo = {
+      mkdir: d => fsp.mkdir(d, { recursive: true }),
+      writeFile: async (f, t) => {
+        writes++;
+        if (writes === 1) await new Promise<void>(r => { release = r; started(); });
+        await fsp.writeFile(f, t, 'utf8');
+      },
+      rename: (a, b) => fsp.rename(a, b),
+    };
+    let n = 0;
+    const saver = createSaver(file, 60_000, () => {}, io);
+    saver.save(() => ({ n }));
+    const first = saver.flush();
+    await firstStarted;
+    const later: Promise<boolean>[] = [];
+    for (let i = 0; i < 10; i++) { n++; saver.save(() => ({ n })); later.push(saver.flush()); }
+    release();
+    expect(await first).toBe(true);
+    expect(await Promise.all(later)).toEqual(Array(10).fill(true));
+    expect(writes).toBe(2);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ n: 10 });
   });
 
   it('round-trips a session saved through the persist callback', async () => {

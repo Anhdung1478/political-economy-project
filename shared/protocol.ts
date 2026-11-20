@@ -89,18 +89,40 @@ export interface HostBoard {
 export type Ack<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 /**
+ * The reply to `player:vote` and `player:day` once handled. The server answers only after the session file holds
+ * the change, so a server killed right after the reply keeps it. `durable: false`: accepted, but the save failed
+ * (the change lives only in the server's memory) - the phone keeps the item and sends it again later; the resend is
+ * answered as a duplicate once a save succeeds.
+ */
+export type ReportAck<T extends object = object> = Ack<T & { durable?: false }>;
+/** `notNext`: the day is not the one the server waits for; `expected` is that day (null: none, the run is full). */
+export interface NotNext { ok: false; error: 'notNext'; expected: Day | null }
+export type DayAck = ReportAck<{ rank: number }> | NotNext;
+
+/** `expected` of a `notNext` reply (null when the server waits for no day); undefined for any other reply. */
+export function notNextExpected(r: unknown): Day | null | undefined {
+  if (!isObj(r) || r.ok !== false || r.error !== 'notNext') return undefined;
+  // A missing or garbled `expected` (an older server) reads as null: nothing to resend.
+  return safe(() => day(r.expected));
+}
+
+/** Whether a handled reply is final: false for an accepted report the server could not save yet. */
+export const isDurable = (r: Ack<object>): boolean => !(r.ok && (r as { durable?: unknown }).durable === false);
+
+/**
  * Socket events. A reply from the server to `player:vote` or `player:day` means "handled, drop it from the queue",
- * whether ok or not (a refused summary will never be accepted on resend); only a timeout means resend.
+ * whether ok or not (a refused summary will never be accepted on resend); only a timeout (or `unknownPlayer`, or
+ * `durable: false`) means resend, and a `notNext` with a lower `expected` means "send the missing days first".
  */
 export interface ClientToServer {
   'player:join': (p: { nickname: string }, ack: (r: Ack<{ playerId: string; token: string }>) => void) => void;
   'player:resume': (p: { token: string }, ack: (r: Ack<{ playerId: string; name: string }>) => void) => void;
   /** `code`: the session the vote was queued in; a vote from before a reset is refused (`wrongSession`). */
-  'player:vote': (p: Vote & { code: string }, ack: (r: Ack) => void) => void;
+  'player:vote': (p: Vote & { code: string }, ack: (r: ReportAck) => void) => void;
   'player:progress': (p: Progress) => void;
   /** Rank among the players who have finished that day (by that day's score). `code`: the session the run was
    *  played in; a run from before a reset (old seed) is refused (`wrongSession`). */
-  'player:day': (p: { code: string; runId: string; summary: DaySummary }, ack: (r: Ack<{ rank: number }>) => void) => void;
+  'player:day': (p: { code: string; runId: string; summary: DaySummary }, ack: (r: DayAck) => void) => void;
   'host:auth': (p: { key: string }, ack: (r: Ack) => void) => void;
   'host:open': () => void;
   'host:awards': () => void;

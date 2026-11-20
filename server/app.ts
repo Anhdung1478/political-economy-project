@@ -1,13 +1,14 @@
 // The class-session server (spec §10, §11): express + socket.io around one `Session`. Phones join, vote and send
 // their days; the host opens the market, freezes the awards and resets. Every mutation is followed by a coalesced
-// `state` broadcast and a throttled `host:board` to the authenticated host sockets only.
+// `state` broadcast and a throttled `host:board` to the authenticated host sockets only. Accepted joins, votes and
+// days are answered only once saved (`persistNow`).
 import compression from 'compression';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { Server } from 'socket.io';
-import type { Ack, ClientToServer, ServerToClient } from '../shared/protocol';
+import type { Ack, ClientToServer, ReportAck, ServerToClient } from '../shared/protocol';
 import { Session } from './session';
 
 interface SocketData {
@@ -23,6 +24,12 @@ export interface AppOptions {
   session?: Session;
   /** At most one `host:board` per this many ms (the board can be ~0.5 MB at 200 players). */
   boardThrottleMs?: number;
+  /**
+   * Writes the session file now (the saver's `flush`); resolves true when every change so far is on disk. Accepted
+   * joins, votes and days are answered only after it resolves, so a server killed right after an answer keeps what
+   * it answered (spec §11 "Server khởi động lại"). Default: nothing to save, always true.
+   */
+  persistNow?: () => Promise<boolean>;
 }
 
 /** Bursts of changes (200 phones sending a day at once) go out as one `state`. */
@@ -41,6 +48,16 @@ export function createApp(opts: AppOptions) {
   const io = new Server<ClientToServer, ServerToClient, object, SocketData>(http, { pingInterval: 5000, pingTimeout: 5000 });
   const session = opts.session ?? new Session();
   const boardThrottle = opts.boardThrottleMs ?? BOARD_THROTTLE_MS;
+  const persistNow = opts.persistNow ?? (() => Promise.resolve(true));
+  /**
+   * Answers an accepted request once the session file holds it. A failed save still answers (the change is in
+   * memory and cannot be taken back) but with `durable: false`, so the phone keeps the report and sends it again;
+   * the resend is a duplicate, answered after the next save. Concurrent calls share writes (see `Saver.flush`).
+   */
+  const replyWhenSaved = (reply: Reply, r: { ok: true }) => {
+    const unsaved: ReportAck = { ...r, durable: false };
+    persistNow().catch(() => false).then(saved => reply(saved ? r : unsaved), () => {});
+  };
 
   app.use(compression());
   app.get('/healthz', (_req, res) => { res.type('text').send('ok'); });
@@ -99,12 +116,15 @@ export function createApp(opts: AppOptions) {
       if (!socket.data.isHost) return;
       fn();
       changed();
+      // No ack to hold back, but write at once: a phase lost in a crash would get every day refused.
+      void persistNow().catch(() => false);
     };
 
     socket.on('player:join', (p, ack) => handle(ack, reply => {
       const r = session.join(field(p, 'nickname') as string);
-      if (r.ok) attach(r.playerId);
-      reply(r);
+      if (!r.ok) { reply(r); return; }
+      attach(r.playerId);
+      replyWhenSaved(reply, r);
     }));
     socket.on('player:resume', (p, ack) => handle(ack, reply => {
       const r = session.resume(field(p, 'token') as string);
@@ -117,8 +137,9 @@ export function createApp(opts: AppOptions) {
       if (!id) { reply({ ok: false, error: 'unknownPlayer' }); return; }
       const r = session.vote(id, field(p, 'code') as string,
         { choice: field(p, 'choice'), when: field(p, 'when') } as never);
-      reply(r);
-      if (r.ok) changed();
+      if (!r.ok) { reply(r); return; }
+      changed();
+      replyWhenSaved(reply, r);
     }));
     socket.on('player:progress', p => handle(undefined, () => {
       const id = me();
@@ -129,8 +150,9 @@ export function createApp(opts: AppOptions) {
       const id = me();
       if (!id) { reply({ ok: false, error: 'unknownPlayer' }); return; }
       const r = session.submitDay(id, field(p, 'code') as string, field(p, 'runId') as string, field(p, 'summary') as never);
-      reply(r);
-      if (r.ok) changed();
+      if (!r.ok) { reply(r); return; }
+      changed();
+      replyWhenSaved(reply, r);
     }));
 
     socket.on('host:auth', (p, ack) => handle(ack, reply => {

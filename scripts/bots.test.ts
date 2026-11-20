@@ -1,8 +1,14 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
+import { Session } from '../server/session';
+import { createSaver, loadSession, type SaverIo } from '../server/sessionFile';
 import { playRun, STRATEGIES } from '../shared/sim/autoplay';
-import { afterVote, botName, chooseStrategy, hostCommand, runBots, type Bot } from './bots';
+import { afterVote, botName, chooseStrategy, hostCommand, runBots, startBot, type Bot } from './bots';
 
 describe('bot helpers', () => {
   it('names bots in turn with a marker and a lap number', () => {
@@ -84,4 +90,84 @@ describe('bots against the server', () => {
     await expect(hostCommand(url, 'wrong', 'host:open')).rejects.toThrow(/host:auth refused/);
     await expect(hostCommand('http://localhost:1', 'k', 'host:open')).rejects.toThrow(/cannot reach/);
   }, 20000);
+
+});
+
+describe('bots across a hard-killed server', () => {
+  let dir = '';
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = ''; });
+
+  /**
+   * A server wired like `server/index.ts` on `file` (debounce long enough never to run here, so only the writes made
+   * before an answer reach the file). `kill` stops it with no flush and makes its saver unable to write again.
+   */
+  async function boot(file: string, port = 0) {
+    let dead = false;
+    const alive = () => (dead ? Promise.reject(new Error('killed')) : Promise.resolve());
+    const io: SaverIo = {
+      mkdir: d => alive().then(() => fsp.mkdir(d, { recursive: true })),
+      writeFile: (f, t) => alive().then(() => fsp.writeFile(f, t, 'utf8')),
+      rename: (a, b) => alive().then(() => fsp.rename(a, b)),
+    };
+    const saver = createSaver(file, 60_000, () => {}, io);
+    const persist = (x: Session) => saver.save(() => x.toJSON());
+    const session = loadSession(file, { persist }) ?? new Session({ persist });
+    app = createApp({ hostKey: 'k', boardThrottleMs: 50, session, persistNow: () => saver.flush() });
+    await new Promise<void>(r => app.http.listen(port, r));
+    const killed = app;
+    return {
+      url: `http://localhost:${(app.http.address() as AddressInfo).port}`,
+      port: (app.http.address() as AddressInfo).port,
+      kill: () => { dead = true; return killed.close(); },
+    };
+  }
+  /** One bot; resolves `onDay(d)` the moment day d is answered (logged). */
+  function oneBot(url: string) {
+    const waiters = new Map<number, () => void>();
+    const log = (m: string) => { const d = /day (\d) sent/.exec(m); if (d) waiters.get(Number(d[1]))?.(); };
+    const bot = startBot({ url, name: 'Lan 🤖', delay: [60, 90], strategy: STRATEGIES.reasonable, log });
+    bots.push(bot);
+    const onDay = (d: number) => new Promise<void>(r => waiters.set(d, r));
+    return { bot, onDay };
+  }
+
+  it('killed right after an ack and restarted on the same file, the run still delivers all 5 days', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'pts-kill-'));
+    const file = path.join(dir, 'session.json');
+    const first = await boot(file);
+    const { bot, onDay } = oneBot(first.url);
+    await wait(300);
+    await hostCommand(first.url, 'k', 'host:open');
+    await onDay(2);
+    await first.kill(); // no flush
+    expect(loadSession(file)!.board().members[0].days.map(d => d.day)).toEqual([1, 2]);
+    await boot(file, first.port);
+    await bot.whenDone();
+    const board = app.session.board();
+    const expected = playRun(board.seed, STRATEGIES.reasonable).reports.map(r => r.summary);
+    expect(expected).toHaveLength(5);
+    expect(board.members).toHaveLength(1);
+    expect(board.members[0].days).toEqual(expected);
+    expect(board.members[0].vote.after).not.toBeNull();
+    expect(bot.stats()).toEqual({ accepted: 5, refused: 0 });
+  }, 60000);
+
+  it('a server restarted with days missing (older file) gets them sent again in order', async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'pts-kill-'));
+    const file = path.join(dir, 'session.json');
+    const first = await boot(file);
+    const { bot, onDay } = oneBot(first.url);
+    await wait(300);
+    await hostCommand(first.url, 'k', 'host:open');
+    await onDay(1);
+    const old = readFileSync(file, 'utf8');
+    await onDay(3);
+    await first.kill();
+    writeFileSync(file, old); // days 2 and 3 are lost
+    await boot(file, first.port);
+    await bot.whenDone();
+    const board = app.session.board();
+    expect(board.members[0].days).toEqual(playRun(board.seed, STRATEGIES.reasonable).reports.map(r => r.summary));
+    expect(bot.stats()).toEqual({ accepted: 5, refused: 0 });
+  }, 60000);
 });

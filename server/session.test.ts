@@ -151,13 +151,13 @@ describe('submitDay', () => {
     expect(s.board().members[0].days).toHaveLength(1);
     expect(s.submitDay(ids[0], C(s), 'run-a', day(2)).ok).toBe(true);
   });
-  it('accepts only the next expected day', () => {
+  it('accepts only the next expected day and says which one it expects', () => {
     const { s, ids } = joined(['An']);
     s.open();
-    expect(s.submitDay(ids[0], C(s), 'run-a', day(2)).ok).toBe(false);
+    expect(s.submitDay(ids[0], C(s), 'run-a', day(2))).toEqual({ ok: false, error: 'notNext', expected: 1 });
     expect(s.board().members[0].days).toHaveLength(0);
     expect(s.submitDay(ids[0], C(s), 'run-a', day(1)).ok).toBe(true);
-    expect(s.submitDay(ids[0], C(s), 'run-a', day(3)).ok).toBe(false);
+    expect(s.submitDay(ids[0], C(s), 'run-a', day(3))).toEqual({ ok: false, error: 'notNext', expected: 2 });
   });
   it('ignores duplicates but still answers with the rank', () => {
     const { s, ids, o } = joined(['An']);

@@ -1,9 +1,11 @@
 // The phone's report queue (spec §11): the votes and the finished days of a class run wait here until the server
 // answers, in order, one at a time, without duplicates, and survive a reload. Any reply from the server (ok or not,
-// `wrongSession` included) means "handled, drop it"; only a timeout means "send again". The queue belongs to one
-// session code: when the session changes (host Reset), the old queue is dropped.
-import { type Ack, parseDaySummary, parseVote, type Vote } from '../../../shared/protocol';
-import type { DaySummary } from '../../../shared/sim/types';
+// `wrongSession` included) means "handled, drop it"; a timeout, `unknownPlayer` or an accepted-but-unsaved reply
+// (`durable: false`) means "send again". A day refused `notNext` with a lower `expected` day (the server restarted
+// and lost days) puts the missing days back in front, taken from the run's reports (`resync`). The queue belongs to
+// one session code: when the session changes (host Reset), the old queue is dropped.
+import { type Ack, isDurable, notNextExpected, parseDaySummary, parseVote, type Vote } from '../../../shared/protocol';
+import type { Day, DaySummary } from '../../../shared/sim/types';
 import type { KeyValueStore } from './storage';
 
 export interface DayPayload { runId: string; summary: DaySummary }
@@ -78,6 +80,33 @@ export function ack(q: ReportQueue, id: string): ReportQueue {
   };
 }
 
+/**
+ * Item `id` (a day) was refused `notNext` because the server waits for day `expected`, an earlier one: puts the days
+ * of the same run from `expected` on, taken from `summaries` (any order; only the unbroken stretch from `expected`),
+ * at the front in day order, replacing queued copies, and forgets they were answered. Null when `summaries` lacks
+ * day `expected` (nothing can be resent).
+ */
+export function resync(q: ReportQueue, id: string, summaries: readonly DaySummary[], expected: Day): ReportQueue | null {
+  const item = q.items.find(i => i.id === id);
+  if (item?.kind !== 'day') return null;
+  const { runId } = item.payload;
+  const byDay = new Map(summaries.map(s => [s.day, s]));
+  const fresh: DaySummary[] = [];
+  for (let d = expected; byDay.has(d); d++) fresh.push(byDay.get(d)!);
+  if (fresh.length === 0) return null;
+  const days = new Set<number>(fresh.map(s => s.day));
+  const replaced = (i: QueueItem) => i.kind === 'day' && i.payload.runId === runId && days.has(i.payload.summary.day);
+  const front = fresh.map((summary, k) => ({ id: `${item.code}-${q.seq + 1 + k}`, kind: 'day', code: item.code,
+    payload: { runId, summary } }) as QueueItem);
+  return {
+    ...q,
+    seq: q.seq + fresh.length,
+    items: [...front, ...q.items.filter(i => !replaced(i))],
+    inFlight: q.inFlight === id ? null : q.inFlight,
+    sent: q.sent.filter(k => !fresh.some(s => k === dayKey({ runId, summary: s }))),
+  };
+}
+
 /** No answer for item `id`: it stays first and is sent again by the next `next`. */
 export function timeout(q: ReportQueue, id: string): ReportQueue {
   return q.inFlight === id ? { ...q, inFlight: null } : q;
@@ -128,6 +157,11 @@ export interface OutboxOptions {
   onReply?: (item: QueueItem, reply: Ack) => void;
   /** Wait before resending after a timeout. */
   retryMs?: number;
+  /**
+   * The summaries of run `runId` from day `from` on (the Play screen gives them from `run.reports`; [] for another
+   * run). Asked when the server waits for an earlier day than the one sent (it restarted and lost some).
+   */
+  resync?: (runId: string, from: Day) => readonly DaySummary[];
 }
 
 export interface Outbox {
@@ -161,7 +195,17 @@ export function createOutbox(opts: OutboxOptions): Outbox {
     const { item } = n;
     const sent = (() => { try { return opts.send(item); } catch (err) { return Promise.reject(err); } })();
     sent.then(r => {
-      if (opts.isTimeout(r) || (!r.ok && RETRY_ERRORS.includes(r.error))) { retryLater(item.id); return; }
+      if (opts.isTimeout(r) || (!r.ok && RETRY_ERRORS.includes(r.error)) || !isDurable(r)) { retryLater(item.id); return; }
+      const expected = item.kind === 'day' ? notNextExpected(r) : undefined;
+      if (item.kind === 'day' && expected != null && expected < item.payload.summary.day) {
+        const fixed = (() => {
+          try { return resync(q, item.id, opts.resync?.(item.payload.runId, expected) ?? [], expected); } catch (err) {
+            console.error('[reportQueue] resync failed', err);
+            return null;
+          }
+        })();
+        if (fixed) { q = fixed; save(); pump(); return; }
+      }
       q = ack(q, item.id);
       save();
       try { opts.onReply?.(item, r); } catch (err) { console.error('[reportQueue] onReply failed', err); }

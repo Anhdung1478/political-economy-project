@@ -118,7 +118,7 @@ describe('class session over sockets', () => {
     expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 1 });
     expect(await sendDay(b, code, 1, 200, 'run-b')).toEqual({ ok: true, rank: 1 });
     expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 2 }); // duplicate: ignored, current rank
-    expect(await sendDay(a, code, 3, 100)).toEqual({ ok: false, error: 'notNext' });
+    expect(await sendDay(a, code, 3, 100)).toEqual({ ok: false, error: 'notNext', expected: 2 });
     expect(await sendDay(a, code, 2, 100, 'run-2')).toEqual({ ok: false, error: 'otherRun' });
     expect(await sendDay(a, code, 2, 300)).toEqual({ ok: true, rank: 1 });
     a.s.emit('player:progress', { day: 3, phase: 'morning' });
@@ -233,6 +233,87 @@ describe('class session over sockets', () => {
     expect(app.session.board().members[0].connected).toBe(true);
     tab2.s.close();
     await h.untilBoard(b => connected(b) === false);
+  });
+
+  it('answers an accepted day, vote or join only after the session is saved', async () => {
+    const saves: (() => void)[] = [];
+    const persistNow = () => new Promise<boolean>(r => saves.push(() => r(true)));
+    await start({ persistNow });
+    const h = await host();
+    const joining = client();
+    let joined: Ack<{ playerId: string; token: string }> | null = null;
+    void joining.emit<Ack<{ playerId: string; token: string }>>('player:join', { nickname: 'An' }).then(r => { joined = r; });
+    await wait(80);
+    expect(joined).toBeNull();
+    expect(saves).toHaveLength(1);
+    saves.shift()!();
+    await wait(50);
+    expect(joined!.ok).toBe(true);
+    const code = (await h.until(s => s.counts.joined === 1)).code;
+
+    let voted: unknown = null;
+    void joining.emit('player:vote', { code, choice: 'visible', when: 'before' }).then(r => { voted = r; });
+    await wait(80);
+    expect(voted).toBeNull();
+    saves.shift()!();
+    await wait(50);
+    expect(voted).toEqual({ ok: true });
+
+    h.s.emit('host:open');
+    await joining.until(s => s.phase === 'open');
+    saves.splice(0).forEach(f => f()); // the save after host:open
+    let day1: unknown = null;
+    void sendDay(joining, code, 1, 100).then(r => { day1 = r; });
+    await wait(80);
+    expect(day1).toBeNull();
+    expect(app.session.board().members[0].days).toHaveLength(1); // in memory, not answered yet
+    saves.shift()!();
+    await wait(50);
+    expect(day1).toEqual({ ok: true, rank: 1 });
+    // Refusals change nothing and are answered at once.
+    expect(await sendDay(joining, code, 3, 100)).toEqual({ ok: false, error: 'notNext', expected: 2 });
+    expect(await joining.emit('player:vote', { code: 'NOPE', choice: 'visible', when: 'before' }))
+      .toEqual({ ok: false, error: 'wrongSession' });
+    expect(saves).toHaveLength(0);
+  });
+
+  it('marks an accepted report durable: false when the save fails', async () => {
+    let result: 'fail' | 'throw' | 'ok' = 'fail';
+    const persistNow = async () => {
+      if (result === 'throw') throw new Error('disk on fire');
+      return result === 'ok';
+    };
+    await start({ persistNow });
+    const h = await host();
+    const a = await player('An');
+    const { code } = await h.until(s => s.counts.joined === 1);
+    expect(await a.emit('player:vote', { code, choice: 'visible', when: 'before' })).toEqual({ ok: true, durable: false });
+    h.s.emit('host:open');
+    await a.until(s => s.phase === 'open');
+    expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 1, durable: false });
+    result = 'throw';
+    expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 1, durable: false });
+    result = 'ok';
+    // The phone resends; the duplicate is answered once the save works.
+    expect(await sendDay(a, code, 1, 100)).toEqual({ ok: true, rank: 1 });
+  });
+
+  it('a server killed right after an ack keeps that day (saver flushed per ack)', async () => {
+    const file = path.join(tmp, 'kill', 'session.json');
+    const saver = createSaver(file, 60_000); // the debounce never runs in this test
+    const session = new Session({ persist: s => saver.save(() => s.toJSON()) });
+    await start({ session, persistNow: saver.flush });
+    const h = await host();
+    const a = await player('An');
+    const { code } = await h.until(s => s.counts.joined === 1);
+    h.s.emit('host:open');
+    await a.until(s => s.phase === 'open');
+    expect((await sendDay(a, code, 1, 700)).ok).toBe(true);
+    expect((await sendDay(a, code, 2, 800)).ok).toBe(true);
+    // No flush, no shutdown: read the file as a restarted server would.
+    const back = loadSession(file)!;
+    expect(back.snapshot()).toMatchObject({ phase: 'open', code });
+    expect(back.board().members[0].days.map(d => d.score)).toEqual([700, 800]);
   });
 
   it('saves the session through the saver and loads it back', async () => {

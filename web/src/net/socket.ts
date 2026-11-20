@@ -3,7 +3,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
-  Ack, ClientToServer, HostBoard, Progress, ServerToClient, SessionSnapshot, Vote,
+  Ack, ClientToServer, DayAck, HostBoard, Progress, ReportAck, ServerToClient, SessionSnapshot, Vote,
 } from '../../../shared/protocol';
 import type { DaySummary } from '../../../shared/sim/types';
 
@@ -28,8 +28,8 @@ export interface SessionClient {
   join(nickname: string): Promise<Ack<{ playerId: string; token: string }>>;
   resume(token: string): Promise<Ack<{ playerId: string; name: string }>>;
   /** Send through the report queue (`createOutbox`), which tags each item with its session code. */
-  vote(p: Vote & { code: string }): Promise<Ack>;
-  day(p: { code: string; runId: string; summary: DaySummary }): Promise<Ack<{ rank: number }>>;
+  vote(p: Vote & { code: string }): Promise<ReportAck>;
+  day(p: { code: string; runId: string; summary: DaySummary }): Promise<DayAck>;
   progress(p: Progress): void;
   hostAuth(key: string): Promise<Ack>;
   open(): void;

@@ -13,7 +13,9 @@
   the first name (default random, so a second `join` gets other names).
 */
 import { io, type Socket } from 'socket.io-client';
-import type { Ack, ClientToServer, ServerToClient, SessionSnapshot, VoteChoice } from '../shared/protocol';
+import {
+  type Ack, type ClientToServer, isDurable, notNextExpected, type ServerToClient, type SessionSnapshot, type VoteChoice,
+} from '../shared/protocol';
 import { playRun, STRATEGIES, storyCombos, type Strategy } from '../shared/sim/autoplay';
 import type { DaySummary } from '../shared/sim/types';
 
@@ -50,10 +52,19 @@ export function chooseStrategy(rnd: () => number): Strategy {
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-const emitAck = <T extends object>(fire: (cb: (r: Ack<T>) => void) => void, timeoutMs = 10000) =>
+/**
+ * An ack-ed emit; `timeout` when no answer comes in time or the connection drops first (a killed server never
+ * answers). Never sent while disconnected: socket.io would flush it before `player:resume` after the reconnect.
+ */
+const emitAck = <T extends object>(s: Sock, fire: (cb: (r: Ack<T>) => void) => void, timeoutMs = 10000) =>
   new Promise<Ack<T>>(res => {
-    const t = setTimeout(() => res({ ok: false, error: 'timeout' }), timeoutMs);
-    fire(r => { clearTimeout(t); res(r); });
+    const timedOut = { ok: false, error: 'timeout' } as const;
+    if (!s.connected) { res(timedOut); return; }
+    const done = (r: Ack<T>) => { clearTimeout(t); s.off('disconnect', lost); res(r); };
+    const lost = () => done(timedOut);
+    const t = setTimeout(lost, timeoutMs);
+    s.once('disconnect', lost);
+    fire(done);
   });
 
 export interface BotOptions {
@@ -82,8 +93,9 @@ export interface Bot {
 
 /**
  * One fake student. It keeps its token and resumes after a reconnect or a server restart, resends a day whose ack
- * timed out or was refused as `unknownPlayer`, and on a session reset keeps its identity, votes again and plays the
- * new seed.
+ * timed out, was refused as `unknownPlayer` or came back `durable: false`, goes back to the day the server expects
+ * when a `notNext` names an earlier one (a restarted server lost days), and on a session reset keeps its identity,
+ * votes again and plays the new seed.
  */
 export function startBot(o: BotOptions): Bot {
   const rnd = o.rnd ?? Math.random;
@@ -119,12 +131,12 @@ export function startBot(o: BotOptions): Bot {
     identifying = true;
     try {
       if (token !== null) {
-        const r = await emitAck<{ playerId: string; name: string }>(cb => s.emit('player:resume', { token: token as string }, cb));
+        const r = await emitAck<{ playerId: string; name: string }>(s, cb => s.emit('player:resume', { token: token as string }, cb));
         if (r.ok) { identified = true; say('resumed'); void maybeStart(); return; }
         if (r.error === 'timeout') return;
         token = null;
       }
-      const r = await emitAck<{ playerId: string; token: string }>(cb => s.emit('player:join', { nickname: o.name }, cb));
+      const r = await emitAck<{ playerId: string; token: string }>(s, cb => s.emit('player:join', { nickname: o.name }, cb));
       if (r.ok) {
         token = r.token; identified = true;
         say(`joined (session ${snap?.code})`);
@@ -134,7 +146,8 @@ export function startBot(o: BotOptions): Bot {
   }
 
   async function sendVote(choice: VoteChoice, when: 'before' | 'after', code: string): Promise<boolean> {
-    const r = await emitAck(cb => s.emit('player:vote', { choice, when, code }, cb));
+    const r = await emitAck(s, cb => s.emit('player:vote', { choice, when, code }, cb));
+    if (!isDurable(r)) { say(`vote ${when} not saved by the server, will resend`); return false; }
     say(r.ok ? `voted ${when}: ${choice}` : `vote ${when} refused: ${r.error}`);
     return r.ok || (r.error !== 'timeout' && r.error !== 'unknownPlayer');
   }
@@ -161,22 +174,35 @@ export function startBot(o: BotOptions): Bot {
     say(`market open, playing "${strategy.id}" (${reports.length} days, score ${total})`);
     const alive = () => !stopped && epoch === mine;
     const dropped = () => { say('session changed, run dropped'); };
-    for (const rep of reports) {
-      await sleep(o.delay[0] + rnd() * (o.delay[1] - o.delay[0]));
-      const summary: DaySummary = rep.summary;
+    /** The day to send next is `reports[i]`; it steps back when the server lost days (`notNext`, lower `expected`). */
+    let i = 0;
+    let resent = false;
+    while (i < reports.length) {
+      if (!resent) await sleep(o.delay[0] + rnd() * (o.delay[1] - o.delay[0]));
+      resent = false;
+      const summary: DaySummary = reports[i].summary;
       for (;;) {
         if (!alive()) return dropped();
         if (!identified) { void identify(); await sleep(300); continue; }
         s.emit('player:progress', { day: summary.day, phase: 'report' });
-        const r = await emitAck<{ rank: number }>(cb => s.emit('player:day', { code, runId, summary }, cb));
-        if (r.ok) { accepted++; say(`day ${summary.day} sent, rank ${r.rank}`); break; }
-        if (r.error === 'timeout' || r.error === 'unknownPlayer') {
-          if (r.error === 'unknownPlayer') identified = false;
-          say(`day ${summary.day}: ${r.error}, will resend`);
+        const r = await emitAck<{ rank: number }>(s, cb => s.emit('player:day', { code, runId, summary }, cb));
+        if (r.ok && isDurable(r)) { accepted++; say(`day ${summary.day} sent, rank ${r.rank}`); i++; break; }
+        if (r.ok || r.error === 'timeout' || r.error === 'unknownPlayer') {
+          if (!r.ok && r.error === 'unknownPlayer') identified = false;
+          say(`day ${summary.day}: ${r.ok ? 'not saved by the server' : r.error}, will resend`);
           await sleep(500);
           continue;
         }
+        const expected = notNextExpected(r);
+        const back = expected == null ? -1 : reports.findIndex(x => x.summary.day === expected);
+        if (expected != null && expected < summary.day && back >= 0) {
+          say(`day ${summary.day}: the server lost days, resending from day ${expected}`);
+          accepted -= i - back;
+          i = back; resent = true;
+          break;
+        }
         refused++; say(`day ${summary.day} refused: ${r.error}`);
+        i++;
         break;
       }
     }
@@ -228,7 +254,7 @@ export async function hostCommand(url: string, key: string, cmd: 'host:open' | '
       s.once('state', st => { clearTimeout(t); res(st); });
       s.once('connect_error', () => { clearTimeout(t); rej(new Error(`cannot reach ${url}`)); });
     });
-    const auth = await emitAck(cb => s.emit('host:auth', { key }, cb), 5000);
+    const auth = await emitAck(s, cb => s.emit('host:auth', { key }, cb), 5000);
     if (!auth.ok) throw new Error(`host:auth refused: ${auth.error}`);
     const want = cmd === 'host:open' ? 'open' : cmd === 'host:awards' ? 'awards' : null;
     const changed = new Promise<SessionSnapshot>(res => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { daySummary as summary } from './protocol.fixtures';
-import { LIMITS, parseDaySummary, parseProgress, parseVote } from './protocol';
+import { isDurable, LIMITS, notNextExpected, parseDaySummary, parseProgress, parseVote } from './protocol';
 
 describe('LIMITS', () => {
   it('keeps the old name and player limits', () => {
@@ -97,5 +97,25 @@ describe('parseProgress', () => {
     expect(parseProgress({ day: 0, phase: 'rush' })).toBeNull();
     expect(parseProgress({ day: 2, phase: 'night' })).toBeNull();
     expect(parseProgress('x')).toBeNull();
+  });
+});
+
+describe('report replies', () => {
+  it('reads the expected day of a notNext reply', () => {
+    expect(notNextExpected({ ok: false, error: 'notNext', expected: 2 })).toBe(2);
+    expect(notNextExpected({ ok: false, error: 'notNext', expected: null })).toBeNull();
+    expect(notNextExpected({ ok: false, error: 'notNext' })).toBeNull();
+    expect(notNextExpected({ ok: false, error: 'notNext', expected: 9 })).toBeNull();
+    expect(notNextExpected({ ok: false, error: 'notNext', expected: '2' })).toBeNull();
+    expect(notNextExpected({ ok: false, error: 'finished', expected: 2 })).toBeUndefined();
+    expect(notNextExpected({ ok: true, rank: 1 })).toBeUndefined();
+    expect(notNextExpected(null)).toBeUndefined();
+    expect(notNextExpected('notNext')).toBeUndefined();
+  });
+  it('tells an accepted report the server could not save yet', () => {
+    expect(isDurable({ ok: true })).toBe(true);
+    expect(isDurable({ ok: true, rank: 2 } as never)).toBe(true);
+    expect(isDurable({ ok: true, rank: 2, durable: false } as never)).toBe(false);
+    expect(isDurable({ ok: false, error: 'wrongSession' })).toBe(true);
   });
 });

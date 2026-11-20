@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { daySummary } from '../../../shared/protocol.fixtures';
 import type { Ack } from '../../../shared/protocol';
+import type { Day, DaySummary } from '../../../shared/sim/types';
 import {
-  ack, createOutbox, emptyQueue, enqueue, next, QUEUE_KEY, restore, serialize, setCode, timeout,
+  ack, createOutbox, emptyQueue, enqueue, next, QUEUE_KEY, restore, resync, serialize, setCode, timeout,
   type QueueItem, type ReportQueue,
 } from './reportQueue';
 import { memoryStore } from './storage';
@@ -123,9 +124,40 @@ describe('report queue', () => {
   });
 });
 
+describe('resync', () => {
+  const days = (...ds: Day[]) => ds.map(d => daySummary({ day: d }));
+  const dayOf = (i: QueueItem) => (i.kind === 'day' ? i.payload.summary.day : 0);
+  it('puts the missing days first, in order, and forgets that they were answered', () => {
+    let q = emptyQueue();
+    for (const d of [1, 2, 3] as Day[]) q = enqueue(q, 'ABCD', 'day', day(d));
+    q = drain(q).q;
+    q = enqueue(q, 'ABCD', 'day', day(4));
+    q = enqueue(q, 'ABCD', 'vote', vote('after'));
+    const inFlight = next(q)!;
+    const fixed = resync(inFlight.queue, inFlight.item.id, days(4, 2, 3, 2), 2)!;
+    expect(fixed.inFlight).toBeNull();
+    expect(fixed.items.map(i => `${i.kind}${dayOf(i)}`)).toEqual(['day2', 'day3', 'day4', 'vote0']);
+    expect(fixed.sent).toEqual(['r1:1']);
+    expect(new Set(fixed.items.map(i => i.id)).size).toBe(4);
+  });
+  it('keeps the item when the source stops before it, and refuses a source without the expected day', () => {
+    let q = enqueue(emptyQueue(), 'ABCD', 'day', day(4));
+    const n = next(q)!;
+    q = resync(n.queue, n.item.id, days(2, 3), 2)!;
+    expect(q.items.map(dayOf)).toEqual([2, 3, 4]);
+    const m = next(q)!;
+    expect(resync(m.queue, m.item.id, days(3), 2)).toBeNull();
+    expect(resync(m.queue, m.item.id, [], 2)).toBeNull();
+    // A gap stops the list: day 4 is not taken from the source, the queued one stays.
+    const r = resync(m.queue, m.item.id, days(2, 4, 5), 2)!;
+    expect(r.items.map(dayOf)).toEqual([2, 3, 4]);
+  });
+});
+
 describe('outbox', () => {
   type Sent = { item: QueueItem; reply: (r: Ack | 'timeout' | Error) => void };
-  function setup(initial: Record<string, string> = {}, onReply?: (item: QueueItem, r: Ack) => void) {
+  function setup(initial: Record<string, string> = {}, onReply?: (item: QueueItem, r: Ack) => void,
+    source?: (runId: string, from: Day) => DaySummary[]) {
     const store = memoryStore(initial);
     const sent: Sent[] = [];
     const replies: [QueueItem, Ack][] = [];
@@ -137,6 +169,7 @@ describe('outbox', () => {
       isTimeout: r => !r.ok && r.error === 'timeout',
       onReply: onReply ?? ((item, r) => replies.push([item, r])),
       retryMs: 1,
+      resync: source,
     });
     const tick = () => new Promise(r => setTimeout(r, 5));
     return { store, sent, replies, box, tick };
@@ -232,5 +265,67 @@ describe('outbox', () => {
     expect(JSON.parse(store.get(QUEUE_KEY)!)).toMatchObject({ code: 'WXYZ', items: [] });
     box.online(true);
     expect(sent).toHaveLength(0);
+  });
+
+  it('keeps an accepted item the server could not save (durable: false) and resends it', async () => {
+    const { sent, replies, box, tick } = setup();
+    box.setCode('ABCD');
+    box.push('day', day(1));
+    box.online(true);
+    sent[0].reply({ ok: true, rank: 1, durable: false } as Ack);
+    await tick();
+    expect(box.pending()).toBe(1);
+    expect(replies).toHaveLength(0);
+    expect(sent[1].item.id).toBe(sent[0].item.id);
+    sent[1].reply({ ok: true, rank: 1 } as Ack);
+    await tick();
+    expect(box.pending()).toBe(0);
+    expect(replies).toHaveLength(1);
+  });
+
+  it('resends the days a restarted server lost (notNext with a lower expected day), then goes on', async () => {
+    const reports = [1, 2, 3, 4].map(d => daySummary({ day: d as Day, score: d * 100 }));
+    const asked: [string, Day][] = [];
+    const { sent, replies, box, tick } = setup({}, undefined, (runId, from) => {
+      asked.push([runId, from]);
+      return runId === 'r1' ? reports.filter(r => r.day >= from) : [];
+    });
+    box.setCode('ABCD');
+    box.online(true);
+    for (const d of [1, 2, 3] as Day[]) {
+      box.push('day', day(d));
+      sent[sent.length - 1].reply({ ok: true, rank: 1 } as Ack);
+      await tick();
+    }
+    // The server restarted and lost days 2 and 3.
+    box.push('day', day(4));
+    sent[3].reply({ ok: false, error: 'notNext', expected: 2 } as Ack);
+    await tick();
+    expect(asked).toEqual([['r1', 2]]);
+    expect(replies).toHaveLength(3); // the refusal is not a reply to show
+    for (const want of [2, 3, 4]) {
+      const s = sent[sent.length - 1];
+      expect(s.item.kind === 'day' && s.item.payload.summary).toEqual(reports[want - 1]);
+      s.reply({ ok: true, rank: 1 } as Ack);
+      await tick();
+    }
+    expect(box.pending()).toBe(0);
+    expect(sent).toHaveLength(7);
+  });
+
+  it('drops a day the server already has (notNext with a higher expected day) or cannot resync', async () => {
+    const { sent, replies, box, tick } = setup({}, undefined, () => []);
+    box.setCode('ABCD');
+    box.push('day', day(2));
+    box.push('day', day(3, 'r2'));
+    box.online(true);
+    sent[0].reply({ ok: false, error: 'notNext', expected: 4 } as Ack);
+    await tick();
+    expect(box.pending()).toBe(1);
+    sent[1].reply({ ok: false, error: 'notNext', expected: 1 } as Ack); // nothing to resend from
+    await tick();
+    expect(box.pending()).toBe(0);
+    expect(replies.map(r => r[1])).toEqual([
+      { ok: false, error: 'notNext', expected: 4 }, { ok: false, error: 'notNext', expected: 1 }]);
   });
 });

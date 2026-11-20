@@ -13,7 +13,8 @@ if (!process.env.HOST_KEY && process.env.NODE_ENV === 'production') {
 const hostKey = process.env.HOST_KEY ?? 'hai-ban-tay';
 if (!process.env.HOST_KEY) console.warn('⚠️  HOST_KEY chưa được đặt — đang dùng mặc định "hai-ban-tay" (chỉ nên dùng khi chạy thử).');
 
-// The session survives a restart (spec §11): loaded from the session file, saved (debounced) after every change.
+// The session survives a restart (spec §11): loaded from the session file, saved (debounced) after every change, and
+// written at once before an accepted join, vote or day is answered (`persistNow`), so a hard kill loses no answer.
 const file = sessionFilePath();
 const saver = createSaver(file, 500);
 const persist = (s: Session) => saver.save(() => s.toJSON());
@@ -27,6 +28,7 @@ const { http } = createApp({
   session,
   staticDir: process.env.STATIC_DIR ?? path.resolve(here, 'web'),
   publicUrl: process.env.PUBLIC_URL || undefined,
+  persistNow: () => saver.flush(),
 });
 
 http.listen(port, () => {
