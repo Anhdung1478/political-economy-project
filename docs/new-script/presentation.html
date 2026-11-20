@@ -147,7 +147,7 @@ button { font: inherit; color: inherit; }
 .lead { font-size: 32px; line-height: 1.35; font-weight: 500; text-wrap: pretty; }
 .cover__hands { display: flex; align-items: center; gap: 28px; }
 .vs { display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; background: var(--strawberry); color: #fff; font-family: var(--font-display); font-weight: 800; font-size: 30px; box-shadow: 0 5px 0 var(--strawberry-deep); transform: rotate(-8deg); }
-.team { display: flex; gap: 14px; }
+.team, .badge { display: none !important; }
 .member { display: flex; align-items: center; gap: 12px; padding: 9px 20px 9px 9px; border-radius: var(--r-pill); background: var(--paper); box-shadow: var(--shadow-sm); font-size: 18px; line-height: 1.25; }
 .member small { display: block; color: var(--ink-soft); font-size: 15px; }
 .num-dot { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #fff; font-family: var(--font-display); font-weight: 800; font-size: 20px; flex: none; }
@@ -1119,7 +1119,7 @@ slides.forEach((s, i) => {
   progress.appendChild(b);
   const o = document.createElement('button');
   o.style.setProperty('--c', sp.color);
-  o.innerHTML = `<small>${String(i + 1).padStart(2, '0')} · ${sp.name}</small><b>${s.dataset.label}</b>`;
+  o.innerHTML = `<small>${String(i + 1).padStart(2, '0')}</small><b>${s.dataset.label}</b>`;
   o.addEventListener('click', () => { go(i); ov.classList.remove('open'); });
   document.getElementById('ovGrid').appendChild(o);
 });
