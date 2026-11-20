@@ -5,7 +5,7 @@
 // the others (`Scene.setTimeOfDay`, `StreetCanvas timeOfDay`).
 //
 // `lightFor` is pure (tested); `drawLighting` paints it with cached gradients and, at evening, a glow sprite.
-import type { Rect, StreetLayout } from './layout';
+import { slotIndex, type Rect, type StreetLayout } from './layout';
 import { backTrees, houseWindows, poleLampY, poleXs, SIDE_CROWN_UP, sideTrees } from './draw/street';
 import type { RenderContext } from './Scene';
 import { blit, LAYER } from './sprites';
@@ -85,7 +85,7 @@ export function drawLighting(rc: RenderContext): void {
     // Which shops are lit: the ones selling (a shut, closed or empty shop stays dark).
     let lit = 0;
     for (const sh of rc.director.shops) {
-      if (sh.status === 'open' || sh.status === 'soldOut') lit |= 1 << (L.shops.findIndex(x => x.id === sh.id) + 1);
+      if (sh.status === 'open' || sh.status === 'soldOut') lit |= 1 << (slotIndex(L, sh.id) + 1);
     }
     const s = rc.sprites.peek(L, LAYER.glow, v, rc.grid, lit)
       ?? rc.sprites.get(L, LAYER.glow, v, rc.grid, lit, c => paintGlows(c, L, v, lit));

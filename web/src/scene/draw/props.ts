@@ -15,7 +15,7 @@
 // Reduced motion: no motorbikes, no cat, no swaying, no rings; the bus and the van appear parked while they matter.
 // Nothing here allocates per frame: the props list and its entries are reused, per-layout facts are memoised.
 import { CONFIG } from '../../../../shared/sim/config';
-import type { ShopSlot, StreetLayout } from '../layout';
+import { slotIndex, type Rect, type ShopSlot, type StreetLayout } from '../layout';
 import { counterTop, particlesOf } from '../particlesLayer';
 import { clipPose, newSkeleton, pose, solve, type ClipInput } from '../rig';
 import type { ArtKind, Palette, Prop, RenderContext } from '../Scene';
@@ -73,7 +73,7 @@ function factsOf(L: StreetLayout): LayoutFacts {
     site: portrait
       ? { x: L.busShelter.x + u * 0.2, y: L.sidewalkBottom.y0 + u * 1.25, k: 0.85, bx: L.width - u * 1.05,
         by: L.road.y1 - u * 0.62, bw: u * 2.0, bh: u * 0.82 }
-      : { x: L.busShelter.x, y: L.busShelter.y + u * 0.2, k: 1, bx: L.width - u * 0.85, by: L.sidewalkBottom.y0 - u * 0.62,
+      : { x: L.busShelter.x, y: L.busShelter.y + u * 0.2, k: 1, bx: L.width - u * 0.85, by: L.sidewalkBottom.y0 - u * 1.72,
         bw: u * 1.7, bh: u * 0.74 },
     topSlots: top,
     bottomSlots: L.shops.filter(s => s.row === 'bottom'),
@@ -97,6 +97,10 @@ interface Live {
   stops: Stop[]; stopSlots: ShopSlot[]; stopsKey: number; stopsL: StreetLayout | null; paid: number;
   /** Exhaust and dust timing. */
   motoPuff: number[]; busPuffAt: number; sitePuffAt: number;
+  /** Per motorbike stream: on the street last frame; this pass skipped (it would have ridden through the bus). */
+  motoOn: boolean[]; motoSkip: boolean[];
+  /** The poles' sprite rects, for the layout and view they were worked out for. */
+  poleRects: PoleRects | null;
   /** Motorbike bodies drawn once per look and direction (this scene's own). */
   motos: Map<number, { k: number; canvas: HTMLCanvasElement | null }>;
 }
@@ -107,7 +111,8 @@ function liveOf(rc: RenderContext): Live {
     l = {
       bus: newBusState(), officer: newWalker(), riders: MOTO_STREAMS.map(newRider), cat: newCat(), out: [], arts: [],
       overflows: [], stops: [], stopSlots: [], stopsKey: -1, stopsL: null, paid: -1, motoPuff: MOTO_STREAMS.map(() => -1),
-      busPuffAt: 0, sitePuffAt: 0, motos: new Map(),
+      busPuffAt: 0, sitePuffAt: 0, motos: new Map(), motoOn: MOTO_STREAMS.map(() => false),
+      motoSkip: MOTO_STREAMS.map(() => false), poleRects: null,
     };
     rc.store.set('props.live', l);
   }
@@ -172,9 +177,12 @@ export function props(rc: RenderContext): readonly Prop[] {
     const v = rc.view;
     for (let i = 0; i < MOTO_STREAMS.length; i++) {
       const r = live.riders[i];
-      if (!motoAt(rc.wall, i, v.x, v.x + v.w, MOTO_STREAMS[i][1] * u, MOTO_STREAMS[i][0], r)) continue;
-      // The near half of the road is the bus's while it is on the street: no motorbike rides through it.
-      if (bus && r.half === 1) continue;
+      const on = motoAt(rc.wall, i, v.x, v.x + v.w, MOTO_STREAMS[i][1] * u, MOTO_STREAMS[i][0], r);
+      // The near half of the road is the bus's while it is on the street: a bike due to come on along it then skips
+      // its pass; one already riding when the bus turns up finishes it.
+      if (on && !live.motoOn[i]) live.motoSkip[i] = bus && r.half === 1;
+      live.motoOn[i] = on;
+      if (!on || live.motoSkip[i]) continue;
       n = push(live, n, 'moto', r.x, L.road.y0 + (L.road.y1 - L.road.y0) * (r.half === 0 ? 0.4 : 0.62), i);
     }
     if (catAt(rc.wall, f.catX0, f.catX1, 41000, live.cat)) n = push(live, n, 'cat', live.cat.x, f.catDepth);
@@ -190,7 +198,7 @@ function officerStopsFor(rc: RenderContext, live: Live): void {
   const L = rc.layout;
   let key = 0;
   for (const s of rc.director.shops) {
-    if (s.status === 'open' || s.status === 'soldOut') key |= 1 << L.shops.findIndex(x => x.id === s.id);
+    if (s.status === 'open' || s.status === 'soldOut') key |= 1 << slotIndex(L, s.id);
   }
   if (live.stopsL === L && live.stopsKey === key) return;
   const f = factsOf(L);
@@ -209,6 +217,8 @@ function officerStopsFor(rc: RenderContext, live: Live): void {
   }
   live.stopsKey = key;
   live.stopsL = L;
+  // Stop numbers mean other shops now: let the next stop's coin fly.
+  live.paid = -1;
 }
 
 export function drawProp(rc: RenderContext, prop: Prop): void {
@@ -272,24 +282,27 @@ function pill(ctx: Ctx, s: string, x: number, y: number, size: number, bg: strin
 
 // ── Poles, wires, the loudspeaker and the ceiling sign ─────────────────────────────────────────────────────────────
 
-const rectMemo = new WeakMap<StreetLayout, { wires: { x: number; y: number; w: number; h: number }; vx: number; vw: number;
-  poles: { x: number; y: number; w: number; h: number }[] }>();
+interface PoleRects { L: StreetLayout; vx: number; vy: number; vw: number; wires: Rect; poles: Rect[] }
 
-/** The wires' strip across the view, and each pole's own narrow box (small sprites, not one view-wide one). */
-function poleRects(rc: RenderContext): { wires: { x: number; y: number; w: number; h: number }; poles: { x: number; y: number; w: number; h: number }[] } {
+/**
+ * The wires' strip across the view, and each pole's own narrow box (small sprites, not one view-wide one); kept per
+ * scene for the layout and view they were worked out for.
+ */
+function poleRects(rc: RenderContext): PoleRects {
   const L = rc.layout;
   const v = rc.view;
-  const m = rectMemo.get(L);
-  if (m !== undefined && m.vx === v.x && m.vw === v.w) return m;
+  const live = liveOf(rc);
+  const m = live.poleRects;
+  if (m !== null && m.L === L && m.vx === v.x && m.vy === v.y && m.vw === v.w) return m;
   const u = L.actorH;
   const top = poleTop(L);
   const base = L.sidewalkTop.y1;
-  const made = {
-    vx: v.x, vw: v.w,
+  const made: PoleRects = {
+    L, vx: v.x, vy: v.y, vw: v.w,
     wires: { x: v.x, y: top, w: v.w, h: u * 1.0 },
     poles: poleXs(L).map(x => ({ x: x - u * 0.62, y: top - u * 0.05, w: u * 1.3, h: base - top + u * 0.1 })),
   };
-  rectMemo.set(L, made);
+  live.poleRects = made;
   return made;
 }
 
@@ -791,25 +804,30 @@ function drawVan(rc: RenderContext): void {
   const ground = (L.road.y0 + L.road.y1) / 2;
   const y = ground - h;
   shadow(ctx, x + len / 2, ground, len * 0.5, u * 0.12, 0.2);
-  // A white van: a cab at the front (right), a boxy body with the red banner, a blue stripe, horns on a roof rack.
+  // A white van: a cab at the front (right), a boxy body with a blue stripe and the ward's name. The banner stands on
+  // a board on the roof, high enough that nothing on the near lane, the parked bus included, ever covers it.
   box(ctx, x, y + u * 0.32, len, h - u * 0.46, u * 0.14, '#f4f1ec', u * 0.04, '#9d968b');
   box(ctx, x + len - u * 0.62, y + u * 0.4, u * 0.48, u * 0.42, u * 0.1, '#a8cfe0', 0);
   ctx.fillStyle = '#2f6fb3';
   ctx.fillRect(x + u * 0.05, ground - u * 0.36, len - u * 0.1, u * 0.08);
-  const bw = len - u * 0.85;
-  box(ctx, x + u * 0.12, y + u * 0.4, bw, u * 0.5, u * 0.05, '#c0323e', u * 0.03, '#8a2028');
-  text(ctx, 'LOA LOA!', x + u * 0.12 + bw / 2, y + u * 0.54, u * 0.15, '#fffcf7', { maxW: bw - u * 0.1 });
-  text(ctx, 'KẾT QUẢ KIỂM ĐỊNH', x + u * 0.12 + bw / 2, y + u * 0.75, u * 0.17, '#ffd23f', { maxW: bw - u * 0.12 });
-  // The roof rack and the horns.
-  const hx = x + len * 0.4;
-  ctx.fillStyle = '#6e665c';
-  ctx.fillRect(x + u * 0.3, y + u * 0.26, len * 0.6, u * 0.06);
-  line(ctx, hx, y + u * 0.28, hx, y + u * 0.06, '#6e665c', u * 0.05);
-  horn(ctx, hx, y, u * 0.85, -1);
-  horn(ctx, hx, y, u * 0.85, 1);
+  text(ctx, 'UBND PHƯỜNG', x + (len - u * 0.62) / 2, y + u * 0.66, u * 0.15, '#2f6fb3', { maxW: len - u * 0.9 });
+  const bw = len - u * 0.3;
+  const bx = x + u * 0.08;
+  const by = y - u * 0.55;
+  line(ctx, bx + u * 0.3, by + u * 0.5, bx + u * 0.3, y + u * 0.34, '#6e665c', u * 0.05);
+  line(ctx, bx + bw - u * 0.3, by + u * 0.5, bx + bw - u * 0.3, y + u * 0.34, '#6e665c', u * 0.05);
+  box(ctx, bx, by, bw, u * 0.55, u * 0.06, '#c0323e', u * 0.035, '#8a2028');
+  text(ctx, 'LOA LOA!', bx + bw / 2, by + u * 0.15, u * 0.15, '#fffcf7', { maxW: bw - u * 0.1 });
+  text(ctx, 'KẾT QUẢ KIỂM ĐỊNH', bx + bw / 2, by + u * 0.38, u * 0.2, '#ffd23f', { maxW: bw - u * 0.14 });
+  // The horns on top of the board.
+  const hx = x + len * 0.42;
+  const hy = by - u * 0.2;
+  line(ctx, hx, by, hx, hy + u * 0.05, '#6e665c', u * 0.05);
+  horn(ctx, hx, hy, u * 0.85, -1);
+  horn(ctx, hx, hy, u * 0.85, 1);
   wheel(ctx, x + u * 0.55, ground - u * 0.16, u * 0.18);
   wheel(ctx, x + len - u * 0.6, ground - u * 0.16, u * 0.18);
-  if (!rc.reducedMotion) rings(ctx, hx, y, u, rc.wall / 700, 0.4, 0.9);
+  if (!rc.reducedMotion) rings(ctx, hx, hy, u, rc.wall / 700, 0.4, 0.9);
 }
 
 const MOTO_COLS = ['#de4f5a', '#2f6fb3', '#f2c14e', '#5b8f3e', '#2a2f3a', '#b49ad1'];

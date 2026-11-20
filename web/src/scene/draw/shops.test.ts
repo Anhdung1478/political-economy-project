@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ShopView } from '../director';
 import { lightFor, TIMES_OF_DAY } from '../lighting';
+import { LANDSCAPE, PORTRAIT, slotIndex } from '../layout';
 import { POSES, newSkeleton, pose, solve } from '../rig';
 import { ownerPose, ownerTraits } from './owners';
 import {
@@ -141,5 +142,12 @@ describe('the light of the hour', () => {
     expect(lightFor('evening').glow).toBeGreaterThan(0);
     expect(lightFor('evening').wash?.op).toBe('multiply');
     for (const t of ['morning', 'noon', 'afternoon'] as const) expect(lightFor(t).glow).toBe(0);
+  });
+});
+
+describe('slot lookups', () => {
+  it('slotIndex gives every shop its slot index in both layouts, and -1 for none', () => {
+    for (const L of [PORTRAIT, LANDSCAPE]) for (const s of L.shops) expect(slotIndex(L, s.id)).toBe(s.index);
+    expect(slotIndex(PORTRAIT, 'nobody' as never)).toBe(-1);
   });
 });

@@ -227,7 +227,7 @@ function geoOf(L: StreetLayout, slot: ShopSlot): Geo {
   const at = badgePos(g);
   g.badgeRect = top
     ? { x: x - u * 0.3, y: Math.min(at.y, g.signTop) - u * 0.45, w: w + u * 0.6,
-      h: Math.max(at.y, g.awnTop) - Math.min(at.y, g.signTop) + u * 1.0 }
+      h: Math.max(at.y, g.awnTop) - Math.min(at.y, g.signTop) + u * 1.15 }
     : { x: at.x - u * 0.45, y: at.y - u * 0.42, w: u * 0.9, h: u * 1.0 };
   return g;
 }
@@ -630,9 +630,10 @@ function stamp(ctx: Ctx, g: Geo, k: number): void {
     // Slams down from big, with a little shake.
     const s = k < 1 ? 2.2 - 1.2 * easeOutCubic(k) : 1;
     ctx.save();
-    if (g.top) ctx.translate(g.x + g.w / 2, (g.signTop + g.awnTop) / 2);
+    // Top row: on the awning under the sign, so the name above stays readable; bottom row: on the counter's face.
+    if (g.top) ctx.translate(g.x + g.w / 2, g.awnTop + u * 0.24);
     else ctx.translate(g.x + u * 0.75, g.ctrFace + u * 0.2);
-    ctx.rotate(-0.22);
+    ctx.rotate(g.top ? -0.12 : -0.22);
     ctx.scale(s, s);
     ctx.globalAlpha = clamp(k * 3, 0, 1);
     rr(ctx, -u * 0.62, -u * 0.2, u * 1.24, u * 0.4, u * 0.06);

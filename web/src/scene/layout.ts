@@ -142,6 +142,18 @@ export function slotOf(L: StreetLayout, id: ShopId): ShopSlot {
   return s;
 }
 
+const indexMemo = new WeakMap<StreetLayout, Map<ShopId, number>>();
+
+/** A shop's index in the layout (its slot's `index`), memoised: no search, no closure per call. */
+export function slotIndex(L: StreetLayout, id: ShopId): number {
+  let m = indexMemo.get(L);
+  if (m === undefined) {
+    m = new Map(L.shops.map(s => [s.id, s.index]));
+    indexMemo.set(L, m);
+  }
+  return m.get(id) ?? -1;
+}
+
 /** Place `i` of a shop's queue (0 at the counter); past the drawn places it goes on along the same line. */
 export function queuePoint(L: StreetLayout, slot: ShopSlot, i: number): Pt {
   // Every other person stands a little further back, so a tight queue still reads as people.
