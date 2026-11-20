@@ -42,7 +42,7 @@ function stateOf(rc: RenderContext): State {
   return s;
 }
 
-/** Text size and bubble metrics, in heights of a person (`unit` below, grown when the street is drawn small). */
+/** Text size and bubble metrics, in bubble units (see bubbleUnit: 0.6 of a person's height, more on a small street). */
 const SIZE = 0.3;
 const MAX_W = 4.4;
 const PAD_X = 0.26;
@@ -51,17 +51,19 @@ const LEAD = 1.22;
 const TAIL = 0.22;
 /** Longest tail, in units: a bubble pushed further off only points the way. */
 const TAIL_MAX = 0.6;
+/** The whole bubble is drawn at this share of its first size (R70: the passers-by's words were too big). */
+export const BUBBLE_SCALE = 0.6;
 /** The words are never smaller than this on screen (CSS px). */
-export const MIN_CSS_PX = 11.5;
+export const MIN_CSS_PX = 8;
 /** A bubble is at most this share of the view wide. */
 const MAX_VIEW_SHARE = 0.58;
 
 /**
- * The bubbles' unit (street units): a person's height on a street drawn at a readable size; bigger than a person
+ * The bubbles' unit (street units): BUBBLE_SCALE of a person's height on a street drawn at a readable size; bigger
  * when the street is drawn small, so the words stay at least MIN_CSS_PX (`cssPerUnit`: CSS px per street unit).
  */
 export function bubbleUnit(actorH: number, cssPerUnit: number): number {
-  return Math.max(actorH, MIN_CSS_PX / (SIZE * Math.max(1e-6, cssPerUnit)));
+  return Math.max(actorH * BUBBLE_SCALE, MIN_CSS_PX / (SIZE * Math.max(1e-6, cssPerUnit)));
 }
 
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
