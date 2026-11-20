@@ -2,18 +2,19 @@
   Rehearsal bots for a class session (Task 27).
 
     npm run bots -- join 12     12 bots join, vote, wait for the market to open, play a whole run on the session's
-                                seed (random play style), send each day after a random delay, then vote "after"
+                                seed (a random play style and story path), send each day after a random delay, then
+                                vote "after". They stay connected until the awards (or Ctrl+C) and play again if the
+                                host resets the session.
     npm run bots -- open        host: open the market        (needs HOST_KEY)
     npm run bots -- awards      host: hand out the awards    (needs HOST_KEY)
     npm run bots -- reset       host: start a new session    (needs HOST_KEY)
 
-  URL from BOT_URL (default http://localhost:3000), host key from HOST_KEY (default: the dev key).
-  `join` keeps its sockets open until every bot is done (Ctrl+C to stop early). If the host resets the session, the
-  bots drop their run and join again under the new session code.
+  URL from BOT_URL (default http://localhost:3000), host key from HOST_KEY (default: the dev key), BOT_OFFSET to fix
+  the first name (default random, so a second `join` gets other names).
 */
 import { io, type Socket } from 'socket.io-client';
 import type { Ack, ClientToServer, ServerToClient, SessionSnapshot, VoteChoice } from '../shared/protocol';
-import { playRun, STRATEGIES } from '../shared/sim/autoplay';
+import { playRun, STRATEGIES, storyCombos, type Strategy } from '../shared/sim/autoplay';
 import type { DaySummary } from '../shared/sim/types';
 
 type Sock = Socket<ServerToClient, ClientToServer>;
@@ -21,10 +22,11 @@ type Sock = Socket<ServerToClient, ClientToServer>;
 const NAMES = ['Tuấn', 'Linh', 'Huy', 'Trang', 'Minh', 'Ngọc', 'Phúc', 'Hà', 'Khoa', 'Vy', 'Bảo', 'My', 'Nam', 'Thảo',
   'Đạt', 'Quỳnh', 'Long', 'Chi', 'Sơn', 'An'];
 
-/** The i-th bot's nickname: names in turn, a number from the second lap, then the robot marker. */
-export function botName(i: number): string {
-  const lap = Math.floor(i / NAMES.length);
-  return `${NAMES[i % NAMES.length]}${lap > 0 ? ` ${lap + 1}` : ''} 🤖`;
+/** The i-th bot's nickname (counting from `offset`): names in turn, a number from the second lap, then the robot marker. */
+export function botName(i: number, offset = 0): string {
+  const n = i + offset;
+  const lap = Math.floor(n / NAMES.length);
+  return `${NAMES[n % NAMES.length]}${lap > 0 ? ` ${lap + 1}` : ''} 🤖`;
 }
 
 /** The "after" vote follows the reporter card: A is the invisible hand, B the visible one. */
@@ -32,7 +34,21 @@ export function afterVote(reporter: 'A' | 'B' | null): VoteChoice {
   return reporter === 'B' ? 'visible' : 'invisible';
 }
 
-const pick = <T>(xs: readonly T[], rnd: () => number): T => xs[Math.floor(rnd() * xs.length)];
+/** Play styles by weight (R58): `plainS` is a balance probe that always loses on day 1, so only a trickle of it. */
+const MIX: [string, number][] = [
+  ['reasonable', 20], ['premium', 12], ['delay1', 10], ['delay6', 10], ['half', 10], ['double', 10], ['flat15', 8],
+  ['day5cheat', 8], ['skimp', 4], ['flat45', 4], ['plainS', 2],
+];
+
+/** A random style from the mix, wrapped in a random story-card path (`storyCombos`) so the card choices vary. */
+export function chooseStrategy(rnd: () => number): Strategy {
+  let r = rnd() * MIX.reduce((a, [, w]) => a + w, 0);
+  let id = MIX[0][0];
+  for (const [k, w] of MIX) { id = k; if ((r -= w) < 0) break; }
+  const combos = storyCombos(STRATEGIES[id]);
+  return combos[Math.floor(rnd() * combos.length)];
+}
+
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const emitAck = <T extends object>(fire: (cb: (r: Ack<T>) => void) => void, timeoutMs = 10000) =>
   new Promise<Ack<T>>(res => {
@@ -46,100 +62,173 @@ export interface BotOptions {
   /** Delay before each day is sent, in ms. */
   delay: [number, number];
   rnd?: () => number;
+  /** Fixed play style (tests); otherwise `chooseStrategy`. */
+  strategy?: Strategy;
+  /** Consecutive failed connections before the bot gives up. */
+  maxConnectErrors?: number;
   log?: (msg: string) => void;
 }
-export interface Bot { done: Promise<void>; stop: () => void }
+export interface Bot {
+  /** Resolves when the bot has sent all its days and voted after in the CURRENT session code. */
+  whenDone: () => Promise<void>;
+  /** Resolves with the first state (after now) that `pred` accepts. */
+  nextState: (pred: (s: SessionSnapshot) => boolean) => Promise<SessionSnapshot>;
+  state: () => SessionSnapshot | null;
+  /** Resolves with a message if the bot gave up (server unreachable). */
+  failed: Promise<string>;
+  stats: () => { accepted: number; refused: number };
+  stop: () => void;
+}
 
-/** One fake student. `done` resolves when it has sent every day and voted after, or after `stop`. */
+/**
+ * One fake student. It keeps its token and resumes after a reconnect or a server restart, resends a day whose ack
+ * timed out or was refused as `unknownPlayer`, and on a session reset keeps its identity, votes again and plays the
+ * new seed.
+ */
 export function startBot(o: BotOptions): Bot {
   const rnd = o.rnd ?? Math.random;
   const log = o.log ?? (() => {});
   const say = (m: string) => log(`${o.name}: ${m}`);
+  const maxErrors = o.maxConnectErrors ?? 20;
   const s: Sock = io(o.url, { transports: ['websocket'], forceNew: true });
   let snap: SessionSnapshot | null = null;
-  let finish: () => void = () => {};
-  const done = new Promise<void>(r => { finish = r; });
+  const listeners = new Set<(st: SessionSnapshot) => void>();
+  const doneWaiters: (() => void)[] = [];
+  let token: string | null = null;
+  let identified = false;
+  let identifying = false;
   let stopped = false;
-  /** Bumped on every (re)join, so a run from an older session stops itself. */
+  /** Bumped on every session change, so a run from an older session stops itself. */
   let epoch = 0;
   let playing = false;
-  let joined = false;
-  let joining = false;
   let voted = false;
+  let finishedCode: string | null = null;
+  let accepted = 0;
+  let refused = 0;
+  let errors = 0;
+  let fail: (m: string) => void = () => {};
+  const failed = new Promise<string>(r => { fail = r; });
 
-  const stop = () => { stopped = true; s.close(); finish(); };
+  const stop = () => { stopped = true; s.close(); };
+  const isDone = () => finishedCode !== null && finishedCode === snap?.code;
+  const flushDone = () => { if (isDone()) doneWaiters.splice(0).forEach(r => r()); };
 
-  async function join() {
-    if (joining) return;
-    joining = true;
-    const r = await emitAck<{ playerId: string; token: string }>(cb => s.emit('player:join', { nickname: o.name }, cb));
-    joining = false;
-    if (!r.ok) { say(`join refused: ${r.error}`); return; }
-    joined = true; voted = false; playing = false;
-    epoch++;
-    say(`joined (session ${snap?.code})`);
-    void maybeStart();
+  /** Resume with the token, or join (first time, or after the server forgot us); the awards phase refuses a join. */
+  async function identify() {
+    if (identifying || stopped || !s.connected) return;
+    identifying = true;
+    try {
+      if (token !== null) {
+        const r = await emitAck<{ playerId: string; name: string }>(cb => s.emit('player:resume', { token: token as string }, cb));
+        if (r.ok) { identified = true; say('resumed'); void maybeStart(); return; }
+        if (r.error === 'timeout') return;
+        token = null;
+      }
+      const r = await emitAck<{ playerId: string; token: string }>(cb => s.emit('player:join', { nickname: o.name }, cb));
+      if (r.ok) {
+        token = r.token; identified = true;
+        say(`joined (session ${snap?.code})`);
+        void maybeStart();
+      } else say(`join refused: ${r.error} - waiting for reset`);
+    } finally { identifying = false; }
   }
 
-  async function sendVote(choice: VoteChoice, when: 'before' | 'after', code: string): Promise<void> {
+  async function sendVote(choice: VoteChoice, when: 'before' | 'after', code: string): Promise<boolean> {
     const r = await emitAck(cb => s.emit('player:vote', { choice, when, code }, cb));
     say(r.ok ? `voted ${when}: ${choice}` : `vote ${when} refused: ${r.error}`);
+    return r.ok || (r.error !== 'timeout' && r.error !== 'unknownPlayer');
   }
 
   async function maybeStart() {
-    if (!joined || !snap) return;
+    if (!identified || !snap || stopped) return;
+    const mine = epoch;
     if (!voted) {
       voted = true;
-      await sendVote(rnd() < 0.55 ? 'invisible' : 'visible', 'before', snap.code);
+      const ok = await sendVote(rnd() < 0.55 ? 'invisible' : 'visible', 'before', snap.code);
+      if (epoch !== mine) return;
+      if (!ok) voted = false;
     }
-    if (snap.phase === 'open' && !playing) void play(snap.code, snap.seed);
+    if (snap.phase === 'open' && !playing && finishedCode !== snap.code) void play(snap.code, snap.seed);
   }
 
   async function play(code: string, seed: number) {
     playing = true;
     const mine = epoch;
-    const style = pick(Object.keys(STRATEGIES), rnd);
-    const { run, reports, total } = playRun(seed, STRATEGIES[style]);
+    accepted = 0; refused = 0;
+    const strategy = o.strategy ?? chooseStrategy(rnd);
+    const { run, reports, total } = playRun(seed, strategy);
     const runId = `bot-${o.name}-${code}`;
-    say(`market open, playing "${style}" (${reports.length} days, score ${total})`);
-    const alive = () => !stopped && epoch === mine && snap?.code === code;
+    say(`market open, playing "${strategy.id}" (${reports.length} days, score ${total})`);
+    const alive = () => !stopped && epoch === mine;
+    const dropped = () => { say('session changed, run dropped'); };
     for (const rep of reports) {
       await sleep(o.delay[0] + rnd() * (o.delay[1] - o.delay[0]));
-      if (!alive()) { say('session changed, run dropped'); return; }
-      s.emit('player:progress', { day: rep.summary.day, phase: 'report' });
       const summary: DaySummary = rep.summary;
-      const r = await emitAck<{ rank: number }>(cb => s.emit('player:day', { code, runId, summary }, cb));
-      say(r.ok ? `day ${summary.day} sent, rank ${r.rank}` : `day ${summary.day} refused: ${r.error}`);
+      for (;;) {
+        if (!alive()) return dropped();
+        if (!identified) { void identify(); await sleep(300); continue; }
+        s.emit('player:progress', { day: summary.day, phase: 'report' });
+        const r = await emitAck<{ rank: number }>(cb => s.emit('player:day', { code, runId, summary }, cb));
+        if (r.ok) { accepted++; say(`day ${summary.day} sent, rank ${r.rank}`); break; }
+        if (r.error === 'timeout' || r.error === 'unknownPlayer') {
+          if (r.error === 'unknownPlayer') identified = false;
+          say(`day ${summary.day}: ${r.error}, will resend`);
+          await sleep(500);
+          continue;
+        }
+        refused++; say(`day ${summary.day} refused: ${r.error}`);
+        break;
+      }
     }
-    if (!alive()) { say('session changed, run dropped'); return; }
-    await sendVote(afterVote(run.flags.reporter), 'after', code);
-    say('finished');
-    finish();
+    if (!alive()) return dropped();
+    while (!(await sendVote(afterVote(run.flags.reporter), 'after', code))) {
+      if (!alive()) return dropped();
+      await sleep(500);
+    }
+    finishedCode = code;
+    say(`finished: ${accepted} days accepted, ${refused} refused`);
+    flushDone();
   }
+
+  const whenDone = () => new Promise<void>(res => { doneWaiters.push(res); flushDone(); });
+  const nextState = (pred: (st: SessionSnapshot) => boolean) => new Promise<SessionSnapshot>(res => {
+    const l = (st: SessionSnapshot) => { if (pred(st)) { listeners.delete(l); res(st); } };
+    listeners.add(l);
+  });
 
   s.on('state', st => {
     const changedCode = snap !== null && snap.code !== st.code;
     snap = st;
     if (stopped) return;
     if (changedCode) {
-      say(`new session ${st.code}, dropping the run and joining again`);
-      epoch++; joined = false; playing = false;
-      void join();
-    } else void maybeStart();
+      say(`new session ${st.code}: keeping my shop, voting again`);
+      epoch++; playing = false; voted = false;
+    }
+    for (const l of [...listeners]) l(st);
+    if (!identified) void identify(); else void maybeStart();
   });
-  s.on('connect', () => { if (!joined) void join(); });
-  s.on('connect_error', e => say(`connection error: ${e.message}`));
+  s.on('connect', () => { errors = 0; identified = false; void identify(); });
+  s.on('disconnect', () => { identified = false; });
+  s.on('connect_error', e => {
+    errors++;
+    if (errors === 1 || errors % 10 === 0) say(`connection error: ${e.message} (try ${errors})`);
+    if (errors >= maxErrors) { fail(`cannot reach ${o.url} after ${errors} tries`); stop(); }
+  });
 
-  return { done, stop };
+  return { whenDone, nextState, state: () => snap, failed, stats: () => ({ accepted, refused }), stop };
 }
 
 /** A host connection: authenticates, runs one command and closes. Resolves with the state after it. */
 export async function hostCommand(url: string, key: string, cmd: 'host:open' | 'host:awards' | 'host:reset'):
   Promise<SessionSnapshot> {
-  const s: Sock = io(url, { transports: ['websocket'], forceNew: true });
+  const s: Sock = io(url, { transports: ['websocket'], forceNew: true, reconnection: false });
   try {
-    const first = await new Promise<SessionSnapshot>(res => s.once('state', res));
-    const auth = await emitAck(cb => s.emit('host:auth', { key }, cb));
+    const first = await new Promise<SessionSnapshot>((res, rej) => {
+      const t = setTimeout(() => rej(new Error(`cannot reach ${url}`)), 5000);
+      s.once('state', st => { clearTimeout(t); res(st); });
+      s.once('connect_error', () => { clearTimeout(t); rej(new Error(`cannot reach ${url}`)); });
+    });
+    const auth = await emitAck(cb => s.emit('host:auth', { key }, cb), 5000);
     if (!auth.ok) throw new Error(`host:auth refused: ${auth.error}`);
     const want = cmd === 'host:open' ? 'open' : cmd === 'host:awards' ? 'awards' : null;
     const changed = new Promise<SessionSnapshot>(res => {
@@ -152,10 +241,10 @@ export async function hostCommand(url: string, key: string, cmd: 'host:open' | '
 }
 
 /** Starts `n` bots, a little apart. */
-export async function runBots(n: number, o: Omit<BotOptions, 'name'>): Promise<Bot[]> {
+export async function runBots(n: number, o: Omit<BotOptions, 'name'> & { offset?: number }): Promise<Bot[]> {
   const bots: Bot[] = [];
   for (let i = 0; i < n; i++) {
-    bots.push(startBot({ ...o, name: botName(i) }));
+    bots.push(startBot({ ...o, name: botName(i, o.offset ?? 0) }));
     await sleep(60);
   }
   return bots;
@@ -168,12 +257,30 @@ async function main() {
   const log = (m: string) => console.log(m);
   if (cmd === 'join') {
     const n = Number(arg ?? 10);
-    const bots = await runBots(n, { url, delay: [1500, 5000], log });
-    process.on('SIGINT', () => { bots.forEach(b => b.stop()); });
-    await Promise.all(bots.map(b => b.done));
-    log(`all ${n} bots done`);
+    if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error('N must be a whole number from 1 to 200');
+    const offset = Number(process.env.BOT_OFFSET ?? Math.floor(Math.random() * 400));
+    const bots = await runBots(n, { url, delay: [1500, 5000], offset, log });
+    process.on('SIGINT', () => { bots.forEach(b => b.stop()); process.exit(0); });
+    const run = async () => {
+      for (;;) {
+        await Promise.all(bots.map(b => b.whenDone()));
+        const code = bots[0].state()?.code;
+        const st = bots.map(b => b.stats());
+        log(`all ${n} bots done in session ${code}: ${st.reduce((a, x) => a + x.accepted, 0)} days accepted, `
+          + `${st.reduce((a, x) => a + x.refused, 0)} refused. Waiting for awards or a reset (Ctrl+C to quit).`);
+        const next = await bots[0].nextState(x => x.phase === 'awards' || x.code !== code);
+        if (next.phase === 'awards' && next.code === code) return;
+        log(`session reset (${next.code}), playing again`);
+      }
+    };
+    const msg = await Promise.race([run().then(() => null), ...bots.map(b => b.failed)]);
+    bots.forEach(b => b.stop());
+    if (msg) throw new Error(msg);
+    log('awards are out, bots done');
   } else if (cmd === 'open' || cmd === 'awards' || cmd === 'reset') {
     const st = await hostCommand(url, key, `host:${cmd}`);
+    const effect = cmd === 'open' ? st.phase === 'open' : cmd === 'awards' ? st.phase === 'awards' : true;
+    if (!effect) { console.error(`${cmd}: no effect (phase is ${st.phase})`); process.exitCode = 1; return; }
     log(`${cmd}: phase ${st.phase}, session ${st.code}, joined ${st.counts.joined}, playing ${st.counts.playing}, finished ${st.counts.finished}`);
     if (cmd === 'awards') {
       for (const a of st.awards?.awards ?? []) log(`${a.emoji} ${a.title}: ${a.name} (${a.value})`);
@@ -186,5 +293,5 @@ async function main() {
 }
 
 if (process.argv[1] && /bots\.ts$/.test(process.argv[1].replace(/\\/g, '/'))) {
-  main().then(() => process.exit(process.exitCode ?? 0), e => { console.error(String(e)); process.exit(1); });
+  main().then(() => process.exit(process.exitCode ?? 0), e => { console.error(String(e instanceof Error ? e.message : e)); process.exit(1); });
 }
