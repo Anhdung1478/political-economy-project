@@ -5,9 +5,9 @@ import { newRun } from '../../../shared/sim/run';
 import type {
   Customer, LeaveCause, RushState, ShopId, ShopVerdict, SimEvent, StockItem,
 } from '../../../shared/sim/types';
-import { replayOf, rushOfDay, stateAt, walkRush } from '../pages/Dev/replay';
-import { considerTopic, Director, LAG_TICKS, MAX_ACTORS, type Actor } from './director';
-import { asidePoint, LANDSCAPE, PORTRAIT, queuePoint, slotOf } from './layout';
+import { replayOf, rushOfDay, stateAt, walkRush, type Replay } from '../pages/Dev/replay';
+import { BROWSE_TICKS, considerTopic, Director, LAG_TICKS, MAX_ACTORS, type Actor } from './director';
+import { asidePoint, fitTo, LANDSCAPE, PORTRAIT, queuePoint, slotOf, type StreetLayout } from './layout';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,13 @@ function day1(): RushState {
   const run = newRun(1, 'test');
   return openDay(run, run.plan).rush;
 }
+
+/**
+ * The street with its own customers due long after any test looks, so the director brings nobody in by itself:
+ * the tests bring people in with `customerEnter` (which fills in for a walker not brought in yet).
+ */
+const quiet = (rush: RushState): RushState =>
+  ({ ...rush, customers: rush.customers.map(c => ({ ...c, arriveTick: c.arriveTick + 100_000 })) });
 
 const enter = (t: number, customer: number, entry: Customer['entry'] = 'left'): SimEvent =>
   ({ t, type: 'customerEnter', customer, entry });
@@ -34,10 +41,10 @@ const leave = (t: number, customer: number, outcome: 'served' | 'servedWrong' | 
 const verdict = (shop: ShopId, reason: ShopVerdict['reason'], missing?: StockItem): ShopVerdict =>
   (missing === undefined ? { shop, score10: null, reason } : { shop, score10: null, reason, missing });
 
-/** A director on day 1, its clock at 0. */
-function director(layout = PORTRAIT): Director {
+/** A director on a quiet day 1, its clock at 0. */
+function director(layout = PORTRAIT, rush = day1()): Director {
   const d = new Director(layout);
-  d.reset(day1());
+  d.reset(quiet(rush));
   return d;
 }
 
@@ -69,24 +76,75 @@ const near = (a: { x: number; y: number }, b: { x: number; y: number }, eps = 1e
   Math.abs(a.x - b.x) < eps && Math.abs(a.y - b.y) < eps;
 const placeOf = (shop: ShopId, i: number, L = PORTRAIT) => queuePoint(L, slotOf(L, shop), i);
 
-// ── Walkers and queues ──────────────────────────────────────────────────────────────────────────────────────────────
+// ── Coming in: the director's own schedule (R44) ────────────────────────────────────────────────────────────────────
 
-describe('a customer walks in and joins the right queue at the right place', () => {
-  it('spawns at the entry on customerEnter and walks into the street', () => {
-    const d = director();
-    at(d, 0, enter(0, 0, 'left'), enter(0, 1, 'right'));
-    const left = actor(d, 0);
-    const right = actor(d, 1);
-    expect(left.x).toBeLessThan(0);
-    expect(right.x).toBeGreaterThan(PORTRAIT.width);
-    play(d, 10);
-    expect(left.x).toBeGreaterThan(0);
-    expect(left.facing).toBe(1);
-    expect(right.x).toBeLessThan(PORTRAIT.width);
-    expect(right.facing).toBe(-1);
-    expect(left.activity).toBe('walk');
+describe('walkers come in on the director\'s schedule and read the boards before they choose', () => {
+  it('every customer is on the street before the sim walks them in, and reading the boards when they choose', () => {
+    const r = replayOf(7, 3, 'reasonable');
+    const d = new Director(PORTRAIT);
+    d.reset(r.rush);
+    let entered = 0;
+    let choices = 0;
+    walkRush(r, (t, events) => {
+      d.advanceTo(t);
+      for (const e of events) {
+        if (e.type === 'customerEnter') {
+          expect(d.actor(e.customer)).toBeDefined();
+          entered++;
+        }
+        if (e.type === 'customerConsider' && !e.reshop) {
+          expect(actor(d, e.customer).activity).toBe('lookBoard');
+          choices++;
+        }
+      }
+      d.apply(events);
+    });
+    expect(entered).toBe(r.rush.customers.length);
+    expect(choices).toBe(r.rush.customers.length);
   });
 
+  it('comes in at its entry, walks to its spot in the middle of the street, reads the boards facing their row', () => {
+    const rush = day1();
+    const d = new Director(PORTRAIT);
+    d.reset(rush);
+    const id = rush.arrivalOrder.find(i => rush.customers[i].arriveTick > 200 && rush.customers[i].entry === 'left');
+    if (id === undefined) throw new Error('no fixture customer');
+    const due = d.enterTime(id);
+    play(d, due - 0.25);
+    expect(d.actor(id)).toBeUndefined();
+    play(d, due + 0.25);
+    const a = actor(d, id);
+    expect(a.x).toBeLessThan(0);
+    expect(a.heading).toBe('right');
+    play(d, rush.customers[id].arriveTick - BROWSE_TICKS + 0.25);
+    expect(a.activity).toBe('lookBoard');
+    expect(a.x).toBeGreaterThanOrEqual(PORTRAIT.browse.x0);
+    expect(a.x).toBeLessThanOrEqual(PORTRAIT.browse.x1);
+    expect(slotOf(PORTRAIT, a.gaze as ShopId).row).toBe(a.heading === 'up' ? 'top' : 'bottom');
+  });
+
+  it('customerEnter only fills in for a walker not brought in yet: it does not move one already walking', () => {
+    const rush = day1();
+    const d = new Director(PORTRAIT);
+    d.reset(rush);
+    const id = rush.arrivalOrder[20];
+    const c = rush.customers[id];
+    play(d, c.arriveTick - 15);
+    const before = { x: actor(d, id).x, y: actor(d, id).y };
+    d.apply([enter(c.arriveTick - 15, id, c.entry)]);
+    expect(near(actor(d, id), before)).toBe(true);
+  });
+
+  it('bus passengers step off at the bus stop', () => {
+    const d = director();
+    at(d, 0, enter(0, 0, 'bus'));
+    expect(near(actor(d, 0), PORTRAIT.busStop)).toBe(true);
+  });
+});
+
+// ── Walkers and queues ──────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('a customer joins the right queue at the right place', () => {
   it('stands at its queue place within 15 ticks of the join, the queue in join order', () => {
     const d = director();
     queueUp(d, 0, 0, 'batu');
@@ -96,8 +154,7 @@ describe('a customer walks in and joins the right queue at the right place', () 
     expect(d.shop('player').queue).toEqual([2]);
     expect(actor(d, 1).shop).toBe('batu');
     expect(actor(d, 1).slot).toBe(1);
-    // Not there yet right after the join: it still has to walk over and read the board.
-    expect(near(actor(d, 0), placeOf('batu', 0))).toBe(false);
+    expect(near(actor(d, 0), placeOf('batu', 0))).toBe(false);   // still on the way
     play(d, 21 + LAG_TICKS);
     expect(near(actor(d, 0), placeOf('batu', 0))).toBe(true);
     expect(near(actor(d, 1), placeOf('batu', 1))).toBe(true);
@@ -106,34 +163,57 @@ describe('a customer walks in and joins the right queue at the right place', () 
     expect(actor(d, 0).joinedAt).toBe(15);
   });
 
-  it('stops to read the board of the shop it picked on the way', () => {
+  it('turns in straight from the boards to its place, at walking pace when there is time', () => {
     const d = director();
     at(d, 0, enter(0, 0));
-    at(d, 15, consider(15, 0, 'cochap'), join(15, 0, 'cochap', 0));
+    play(d, 40);
+    const a = actor(d, 0);
+    expect(a.activity).toBe('lookBoard');
+    at(d, 40, consider(40, 0, 'cochap'), join(40, 0, 'cochap', 0));
     const seen = new Set<string>();
-    for (let t = 15; t <= 15 + LAG_TICKS; t += 0.25) {
+    let fastest = 0;
+    for (let t = 40.25; t <= 40 + LAG_TICKS; t += 0.25) {
       d.advanceTo(t);
-      seen.add(actor(d, 0).activity);
-      if (actor(d, 0).activity === 'lookBoard') expect(actor(d, 0).gaze).toBe('cochap');
+      seen.add(a.activity);
+      fastest = Math.max(fastest, a.speed);
     }
-    expect(seen.has('lookBoard')).toBe(true);
+    expect(seen.has('lookBoard')).toBe(false);
+    expect(near(a, placeOf('cochap', 0))).toBe(true);
+    expect(fastest).toBeLessThan(2 * PORTRAIT.walk);
   });
 
-  it('a walker who picks nothing reads a board, then walks on out of the street and is gone', () => {
+  it('a walker who picks nothing takes a last look, then walks on out of the street and is gone', () => {
     const d = director();
     at(d, 0, enter(0, 0, 'left'));
-    at(d, 15, consider(15, 0, null, [verdict('player', 'tooExpensive')]), leave(15, 0, 'noOffer'));
-    play(d, 17);
+    at(d, 30, consider(30, 0, null, [verdict('player', 'tooExpensive')]), leave(30, 0, 'noOffer'));
+    play(d, 32);
     expect(actor(d, 0).activity).toBe('lookBoard');
+    expect(actor(d, 0).gaze).toBe('player');
     expect(actor(d, 0).leaving).toBe(true);
-    play(d, 120);
+    play(d, 40);
+    expect(actor(d, 0).heading).toBe('right');   // on the way they came
+    play(d, 140);
     expect(d.actor(0)).toBeUndefined();
   });
+});
 
-  it('bus passengers step off at the bus stop', () => {
+describe('heading: which way they face, for the walk-cycle view', () => {
+  it('side-on along the road; in a queue the head faces the shop and the rest the head; served, toward us', () => {
     const d = director();
-    at(d, 0, enter(0, 0, 'bus'));
-    expect(near(actor(d, 0), PORTRAIT.busStop)).toBe(true);
+    at(d, 0, enter(0, 9, 'right'));
+    play(d, 3);
+    expect(actor(d, 9).heading).toBe('left');
+    queueUp(d, 3, 0, 'batu');
+    queueUp(d, 4, 1, 'batu');
+    queueUp(d, 5, 2, 'player');
+    play(d, 60);
+    expect(actor(d, 0).heading).toBe('up');      // top row: the counter is up the screen
+    expect(actor(d, 1).heading).toBe('left');
+    expect(actor(d, 2).heading).toBe('down');    // bottom row
+    at(d, 60, served(60, 0, 'batu'), leave(60, 0, 'served'));
+    play(d, 64);
+    expect(actor(d, 0).activity).toBe('served');
+    expect(actor(d, 0).heading).toBe('down');
   });
 });
 
@@ -170,6 +250,17 @@ describe('served: steps out with a cup and walks off; the queue moves up', () =>
     expect(near(actor(d, 3), placeOf('player', 2))).toBe(true);
   });
 
+  it('a shuffle does not push back the deadline of someone still on the way to their first place', () => {
+    const d = director();
+    queueUp(d, 0, 0, 'batu');
+    play(d, 40);
+    at(d, 40, enter(40, 1, 'right'));
+    at(d, 60, consider(60, 1, 'batu'), join(60, 1, 'batu', 1));
+    at(d, 70, served(70, 0, 'batu'), leave(70, 0, 'served'));
+    play(d, 60 + LAG_TICKS + 0.25);
+    expect(near(actor(d, 1), placeOf('batu', 0))).toBe(true);
+  });
+
   it('a wrong cup: confused, and a bubble says so', () => {
     const d = director();
     queueUp(d, 0, 0, 'player');
@@ -198,7 +289,7 @@ describe('served: steps out with a cup and walks off; the queue moves up', () =>
 });
 
 describe('abandon and re-shop', () => {
-  it('stomps off out of patience, walks to the second shop and queues there; bubbles say why', () => {
+  it('stomps briefly, walks on angry to the second shop and queues there; bubbles say why', () => {
     const d = director();
     queueUp(d, 0, 0, 'batu');
     queueUp(d, 1, 1, 'batu');
@@ -213,14 +304,34 @@ describe('abandon and re-shop', () => {
       { customer: 0, t: 300, topic: 'patience', shop: 'batu', playerRelated: false },
       { customer: 0, t: 300, topic: 'chosePlayer', shop: 'player', playerRelated: true },
     ]);
-    play(d, 303);
+    play(d, 301.5);
     expect(actor(d, 0).activity).toBe('abandon');
-    expect(actor(d, 0).cause).toBe('patience');
+    play(d, 304);
+    expect(actor(d, 0).activity).toBe('walk');
+    expect(actor(d, 0).cause).toBe('patience');   // the stomp goes on in the walk
     play(d, 300 + LAG_TICKS + 1);
     expect(actor(d, 0).shop).toBe('player');
     expect(near(actor(d, 0), placeOf('player', 0))).toBe(true);
     expect(near(actor(d, 1), placeOf('batu', 0))).toBe(true);
     expect(actor(d, 0).playerRelated).toBe(true);
+  });
+
+  it('a re-shop across the whole street is walked, never jumped, and lands in time', () => {
+    const L = LANDSCAPE;
+    const d = director(L);
+    queueUp(d, 0, 0, 'batu');
+    play(d, 300);
+    at(d, 300, abandon(300, 0, 'batu', 'patience'), consider(300, 0, 'tapdoan', [], true),
+      join(300, 0, 'tapdoan', 0));
+    const a = actor(d, 0);
+    const frame = 0.25;
+    let prev = { x: a.x, y: a.y };
+    for (let t = 300 + frame; t <= 300 + LAG_TICKS; t += frame) {
+      d.advanceTo(t);
+      expect(Math.hypot(a.x - prev.x, a.y - prev.y)).toBeLessThanOrEqual(L.walk * 4 * frame + 1e-6);
+      prev = { x: a.x, y: a.y };
+    }
+    expect(near(a, queuePoint(L, slotOf(L, 'tapdoan'), 0))).toBe(true);
   });
 
   it('leaves the street when no second shop will do', () => {
@@ -240,25 +351,6 @@ describe('abandon and re-shop', () => {
 // ── Catch-up ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 describe('catch-up: an actor more than 15 ticks behind the sim jumps to where the sim has it', () => {
-  it('a long stomp and a re-shop across the street cannot be walked in time: it lands on time anyway', () => {
-    const d = director(LANDSCAPE);
-    queueUp(d, 0, 0, 'batu');
-    play(d, 300);
-    at(d, 300, abandon(300, 0, 'batu', 'patience'), consider(300, 0, 'tapdoan', [], true),
-      join(300, 0, 'tapdoan', 0));
-    const target = queuePoint(LANDSCAPE, slotOf(LANDSCAPE, 'tapdoan'), 0);
-    let before = { x: 0, y: 0 };
-    for (let t = 300; t <= 300 + LAG_TICKS; t += 0.25) {
-      d.advanceTo(t);
-      before = { x: actor(d, 0).x, y: actor(d, 0).y };
-    }
-    expect(near(before, target)).toBe(false);   // still on the way 15 ticks after the sim moved them
-    d.advanceTo(300 + LAG_TICKS + 0.25);
-    expect(near(actor(d, 0), target)).toBe(true);
-    // A jump, not a walk: farther than the fastest walk covers in one frame.
-    expect(Math.hypot(target.x - before.x, target.y - before.y)).toBeGreaterThan(LANDSCAPE.walk * 4 * 0.25);
-  });
-
   it('after a long pause (a hidden tab), everyone is where the sim has them in one frame', () => {
     const d = director();
     at(d, 0, enter(0, 0), enter(0, 1, 'right'));
@@ -280,12 +372,59 @@ describe('catch-up: an actor more than 15 ticks behind the sim jumps to where th
   });
 });
 
+// ── Motion quality over whole rushes ────────────────────────────────────────────────────────────────────────────────
+
+/** Plays a recorded rush at 60 frames a second into a director on a phone-sized canvas; counts hurry and jumps. */
+function motion(r: Replay, L: StreetLayout, w: number, h: number) {
+  const d = new Director(L, fitTo(L, w, h).view);
+  d.reset(r.rush);
+  const dt = 1 / 6;
+  const prev = new Map<number, { x: number; y: number }>();
+  const fastTicks = new Map<number, number>();
+  const jumps: number[] = [];
+  let joins = 0;
+  let fi = 0;
+  for (let t = 0; t <= 960; t += dt) {
+    d.advanceTo(t);
+    while (fi < r.frames.length && r.frames[fi].t <= t) {
+      const f = r.frames[fi++];
+      joins += f.events.filter(e => e.type === 'customerJoin').length;
+      d.apply(f.events);
+    }
+    for (const a of d.actors) {
+      const p = prev.get(a.id);
+      if (p !== undefined) {
+        const moved = Math.hypot(a.x - p.x, a.y - p.y);
+        if (moved > L.walk * 4 * dt * 1.05 + 1e-6) jumps.push(moved / L.actorH);
+      }
+      prev.set(a.id, { x: a.x, y: a.y });
+      if (!a.leaving && a.speed >= 2 * L.walk) fastTicks.set(a.id, (fastTicks.get(a.id) ?? 0) + dt);
+    }
+  }
+  const fast = [...fastTicks.values()].filter(ticks => ticks >= 3).length;
+  return { joins, fast, jumps };
+}
+
+describe('motion over a whole rush: people walk, they rarely hurry and do not teleport', () => {
+  for (const day of [1, 3] as const) {
+    for (const [name, L, w, h] of [['portrait', PORTRAIT, 390, 844], ['landscape', LANDSCAPE, 844, 390]] as const) {
+      it(`day ${day}, ${name}: at most 10% of joiners at 2× or more for 0.3 s; at most 2 jumps, each under 2 bodies`, () => {
+        const m = motion(replayOf(7, day, 'reasonable'), L, w, h);
+        expect(m.joins).toBeGreaterThan(50);
+        expect(m.fast).toBeLessThanOrEqual(Math.ceil(m.joins * 0.1));
+        expect(m.jumps.length).toBeLessThanOrEqual(2);
+        for (const j of m.jumps) expect(j).toBeLessThan(2);
+      });
+    }
+  }
+});
+
 // ── The 40-actor cap ────────────────────────────────────────────────────────────────────────────────────────────────
 
 const visible = (d: Director) => [...d.actors].filter(a => !a.hidden);
 const OPEN_DAY1: ShopId[] = ['batu', 'giare', 'cochap', 'luotsong', 'sinhvien', 'player'];
 
-/** Fills every open queue of day 1 with 5 people (30 actors), ids from 0. */
+/** Fills every open queue of day 1 with 5 people (30 actors, the player's are ids 25–29). */
 function fullQueues(d: Director): number {
   let id = 0;
   for (const shop of OPEN_DAY1) for (let i = 0; i < 5; i++) queueUp(d, id % 10, id++, shop, id % 2 ? 'left' : 'right');
@@ -293,32 +432,39 @@ function fullQueues(d: Director): number {
   return id;
 }
 
+/** `n` walkers who come in at `t` and are in the middle of the street by `t + 30`. */
+function walkersIn(d: Director, from: number, n: number, t: number): number[] {
+  const ids: number[] = [];
+  for (let k = 0; k < n; k++) {
+    ids.push(from + k);
+    at(d, t, enter(t, from + k, k % 2 ? 'left' : 'right'));
+  }
+  return ids;
+}
+
 describe(`at most ${MAX_ACTORS} actors on screen`, () => {
-  it('drops walkers leaving who have nothing to do with the player first', () => {
+  it('drops walkers leaving who never queued at the player\'s first', () => {
     const d = director();
-    let id = fullQueues(d);
-    // 15 walkers who look and leave, one of them about the player's shop.
-    const related = id;
-    at(d, 40, enter(40, related));
-    at(d, 55, consider(55, related, null, [verdict('player', 'tooExpensive')]), leave(55, related, 'noOffer'));
-    id++;
-    for (let k = 0; k < 14; k++, id++) {
-      at(d, 41, enter(41, id));
-      at(d, 56, consider(56, id, null, [verdict('batu', 'tooExpensive'), verdict('player', 'closed')]),
-        leave(56, id, 'noOffer'));
-    }
-    d.advanceTo(57);
-    expect(d.actorCount).toBe(MAX_ACTORS);
+    const id = fullQueues(d);
+    const walkers = walkersIn(d, id, 14, 41);
+    play(d, 70);
+    // The last of the player's queue gives up and leaves: someone the player would want to see go.
+    const related = 29;
+    at(d, 70, abandon(70, related, 'player', 'patience'), consider(70, related, null, [], true),
+      leave(70, related, 'gaveUp'));
+    for (const w of walkers) at(d, 70, consider(70, w, null), leave(70, w, 'noOffer'));
+    d.advanceTo(71);
     expect(visible(d)).toHaveLength(MAX_ACTORS);
+    expect(d.actorCount).toBe(MAX_ACTORS);
     expect(d.actor(related)).toBeDefined();
     for (const shop of OPEN_DAY1) expect(d.shop(shop).overflow).toBe(0);
   });
 
   it('then folds long queues into "+n", the player\'s last, never under its four counter places', () => {
     const d = director();
-    let id = fullQueues(d);
-    for (let k = 0; k < 15; k++, id++) at(d, 41, enter(41, id));   // 45 on the street, none leaving
-    d.advanceTo(42);
+    const id = fullQueues(d);
+    walkersIn(d, id, 15, 41);   // 45 on the street once they are in, none leaving
+    play(d, 70);
     expect(visible(d)).toHaveLength(MAX_ACTORS);
     for (const shop of OPEN_DAY1.filter(s => s !== 'player')) {
       expect(d.shop(shop).shown).toBe(4);
@@ -332,17 +478,22 @@ describe(`at most ${MAX_ACTORS} actors on screen`, () => {
     expect(plus[0]).toEqual({ shop: 'batu', n: 1, ...placeOf('batu', 4) });
   });
 
+  it('walkers still off the street\'s ends do not count', () => {
+    const d = director();
+    const id = fullQueues(d);
+    walkersIn(d, id, 15, 41);
+    d.advanceTo(41.5);   // all still beyond the ends of the view
+    expect(d.actorCount).toBe(45);
+    for (const shop of OPEN_DAY1) expect(d.shop(shop).overflow).toBe(0);
+  });
+
   it('unfolds again once the street thins out', () => {
     const d = director();
-    let id = fullQueues(d);
-    const walkers: number[] = [];
-    for (let k = 0; k < 15; k++, id++) {
-      walkers.push(id);
-      at(d, 41, enter(41, id));
-    }
-    d.advanceTo(42);
+    const id = fullQueues(d);
+    const walkers = walkersIn(d, id, 15, 41);
+    play(d, 70);
     expect(d.shop('batu').overflow).toBe(1);
-    for (const w of walkers) at(d, 56, consider(56, w, null), leave(56, w, 'noOffer'));
+    for (const w of walkers) at(d, 70, consider(70, w, null), leave(70, w, 'noOffer'));
     play(d, 200);   // they walk off the street
     expect(d.shop('batu').overflow).toBe(0);
     expect(actor(d, d.shop('batu').queue[4]).hidden).toBe(false);
@@ -465,9 +616,7 @@ describe('bubble requests carry the real reason', () => {
   });
 
   it('abandons carry their cause and what ran out; the ceiling day tells who went home empty-handed', () => {
-    const rush = rushOfDay(2, 3, STRATEGIES.reasonable);
-    const d = new Director(PORTRAIT);
-    d.reset(rush);
+    const d = director(PORTRAIT, rushOfDay(2, 3, STRATEGIES.reasonable));
     queueUp(d, 0, 0, 'player');
     play(d, 100);
     d.takeBubbles();
@@ -519,7 +668,8 @@ describe('reset(snapshot) rebuilds the model', () => {
       ...v, shown: 0, overflow: 0, lastSaleAt: 0, statusSince: 0, priceSince: 0, busyUntil: v.busyUntil > T + 1,
     });
     for (const s of fresh.shops) expect(comparable(watched.shop(s.id))).toEqual(comparable(s));
-    // Everyone the sim still has on the street (queued or walking in) is there, at the same place.
+    // Everyone the sim still has on the street (queued, or not yet arrived and already walking in) is there, at the
+    // same place.
     const onStreet = [...fresh.actors].map(a => a.id).sort((a, b) => a - b);
     expect(onStreet.length).toBeGreaterThan(10);
     for (const id of onStreet) {
@@ -530,7 +680,7 @@ describe('reset(snapshot) rebuilds the model', () => {
     }
   });
 
-  it('places walkers already on their way in, from their entry, at walking speed', () => {
+  it('places walkers already due on their way in, those the sim has walking in among them', () => {
     const r = replayOf(7, 1, 'reasonable');
     const s = stateAt(r, 200);
     const d = new Director(PORTRAIT);
@@ -538,9 +688,12 @@ describe('reset(snapshot) rebuilds the model', () => {
     const walking = s.arrivalOrder.slice(s.nextArrival, s.nextEnter);
     expect(walking.length).toBeGreaterThan(0);
     for (const id of walking) {
-      const a = actor(d, id);
-      expect(a.activity).toBe('walk');
-      expect(a.shop).toBeNull();
+      expect(['walk', 'lookBoard']).toContain(actor(d, id).activity);
+      expect(actor(d, id).shop).toBeNull();
+    }
+    // Exactly those due by now are on their way: the sim's walking-in ones and any due earlier still.
+    for (const id of s.arrivalOrder.slice(s.nextArrival)) {
+      expect(d.actor(id) !== undefined).toBe(d.enterTime(id) <= 200);
     }
     expect(d.now).toBe(200);
   });
@@ -563,5 +716,15 @@ describe('layout changes', () => {
     const bottom = slotOf(PORTRAIT, 'player');
     expect(asidePoint(PORTRAIT, top, 0).y).toBeGreaterThan(queuePoint(PORTRAIT, top, 0).y);
     expect(asidePoint(PORTRAIT, bottom, 0).y).toBeLessThan(queuePoint(PORTRAIT, bottom, 0).y);
+  });
+
+  it('five people fit along every shop; the bottom-row queue stands half a body clear of the shops', () => {
+    for (const L of [PORTRAIT, LANDSCAPE]) {
+      for (const s of L.shops) {
+        const last = queuePoint(L, s, L.queueSlots - 1);
+        expect(last.x + L.actorH * 0.2).toBeLessThanOrEqual(s.rect.x + s.rect.w);
+        if (s.row === 'bottom') expect(s.rect.y - s.counter.y).toBeGreaterThanOrEqual(L.actorH * 0.5);
+      }
+    }
   });
 });

@@ -3,8 +3,10 @@
 // second, the picture 60 frames), stops while the tab is hidden, draws back to front by depth (y), honours
 // prefers-reduced-motion, and measures frames per second (`window.__sceneFps` in dev).
 //
-// What is drawn comes from a renderer registry: the street, each shop, each customer, the props and an overlay.
-// Placeholder art fills it (draw/placeholder.ts); Tasks 15–17 plug in theirs with `registerRenderers`.
+// What is drawn comes from a renderer registry: the street, each shop, each customer, the props, then the named
+// overlay layers in order (lighting, particles, bubbles, hud). Placeholder art fills it (draw/placeholder.ts); Tasks
+// 15–17 plug in theirs with `registerRenderers`. A renderer that keeps throwing stops the scene and calls `onFail`
+// (the street then falls back to its list, spec §13).
 import type { Actor, BubbleRequest, Cue, Director, ShopView } from './director';
 import { placeholderRenderers } from './draw/placeholder';
 import { fitLayout, type Fit, type Rect, type ShopSlot, type StreetLayout } from './layout';
@@ -70,6 +72,14 @@ export interface RenderContext {
   store: Map<string, unknown>;
 }
 
+/**
+ * Layers drawn above the depth-sorted street, back to front: the light of the hour (Task 16), particles such as coins,
+ * hearts and confetti (Task 16), speech bubbles (Task 17), anything on top (hud).
+ */
+export const OVERLAY_LAYERS = ['lighting', 'particles', 'bubbles', 'hud'] as const;
+export type OverlayLayer = (typeof OVERLAY_LAYERS)[number];
+export type Overlay = (rc: RenderContext) => void;
+
 export interface Renderers {
   /** The ground: fills the whole view (back, sidewalks, road, front), under everything else. */
   drawStreet(rc: RenderContext): void;
@@ -79,15 +89,21 @@ export interface Renderers {
   /** The props this frame, each depth-sorted at its y. */
   props(rc: RenderContext): readonly Prop[];
   drawProp(rc: RenderContext, prop: Prop): void;
-  /** Above everything: bubbles (Task 17), flashes. */
-  drawOverlay(rc: RenderContext): void;
+  /** Above everything, in `OVERLAY_LAYERS` order; a layer left out is skipped. */
+  overlays: Partial<Record<OverlayLayer, Overlay>>;
 }
+
+/** What a task plugs in: any of the draw functions, and any overlay layers (merged layer by layer). */
+export type RendererPatch = Partial<Omit<Renderers, 'overlays'>> & { overlays?: Partial<Record<OverlayLayer, Overlay>> };
 
 let registry: Renderers = placeholderRenderers;
 
-/** Plugs renderers in (Tasks 15–17): `registerRenderers({ drawCustomer })` replaces only that one. */
-export function registerRenderers(r: Partial<Renderers>): void {
-  registry = { ...registry, ...r };
+/**
+ * Plugs renderers in (Tasks 15–17): `registerRenderers({ drawCustomer })` replaces only that one;
+ * `registerRenderers({ overlays: { particles } })` only that layer.
+ */
+export function registerRenderers(r: RendererPatch): void {
+  registry = { ...registry, ...r, overlays: { ...registry.overlays, ...r.overlays } };
 }
 
 export const getRenderers = (): Renderers => registry;
@@ -96,10 +112,15 @@ declare global {
   interface Window { __sceneFps?: number }
 }
 
+/** Frames in a row a renderer may throw before the scene gives up (an old browser without `roundRect`, say). */
+const MAX_FAILED_FRAMES = 3;
+
 export interface SceneOptions {
   /** The sim time to show now, in ticks (fractional). */
   time: () => number;
   onFps?: (fps: number) => void;
+  /** The scene stopped because drawing kept failing; show the fallback. */
+  onFail?: (error: unknown) => void;
   /** Forces reduced motion on or off; undefined follows prefers-reduced-motion. */
   reducedMotion?: boolean;
 }
@@ -120,6 +141,7 @@ export class Scene {
   private fpsFrames = 0;
   private fpsSince = 0;
   private forcedReduced: boolean | undefined;
+  private failures = 0;
   private readonly items: Item[] = [];
   private readonly shopsNow: ShopView[] = [];
   private readonly actorsNow: Actor[] = [];
@@ -152,7 +174,7 @@ export class Scene {
     if (fit.layout !== this.director.layout) this.director.setLayout(fit.layout, fit.view);
     else this.director.setView(fit.view);
     this.fit = fit;
-    if (this.running) this.draw(performance.now());
+    if (this.running) this.frame(performance.now());
   }
 
   /** Forget renderer memory (particles, bubbles) after the model was rebuilt. */
@@ -192,9 +214,21 @@ export class Scene {
   private readonly loop = (wall: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
-    this.draw(wall);
+    this.frame(wall);
     this.countFrame(wall);
   };
+
+  /** One frame; MAX_FAILED_FRAMES failures in a row stop the scene and report it. */
+  private frame(wall: number): void {
+    try {
+      this.draw(wall);
+      this.failures = 0;
+    } catch (e) {
+      if (++this.failures < MAX_FAILED_FRAMES) return;
+      this.stop();
+      this.opts.onFail?.(e);
+    }
+  }
 
   private countFrame(wall: number): void {
     this.fpsFrames++;
@@ -252,7 +286,7 @@ export class Scene {
         r.drawProp(rc, props[it.i]);
       }
     }
-    r.drawOverlay(rc);
+    for (const layer of OVERLAY_LAYERS) r.overlays[layer]?.(rc);
     if (this.canvas.dataset.ready !== '1') this.canvas.dataset.ready = '1';
   }
 }

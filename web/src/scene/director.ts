@@ -1,13 +1,19 @@
 // The street scene's model (spec §9 "Cảnh phố", "Kỹ thuật dựng hình"): reads the rush's `SimEvent`s tick by tick and
-// keeps what the street shows. Each customer on the street is an actor with a queue of intents (steps): walk in, walk
-// to a shop's price board, read it, take a place in its queue, shuffle forward, be served and walk off drinking, or
-// stomp off and try a second shop, or leave. Shops keep their sign (open, sold out, resting, closed, grand opening),
-// their price with the one it flipped from, their badges; the day's policy moments are kept; bubble requests (why a
-// customer did what they did) and cues (a sale, a price flip) are handed to the renderers once.
+// keeps what the street shows. Each customer on the street is an actor with a queue of intents (steps): walk in along
+// the road, stop in the middle of the street to read the price boards, turn in to a place in the chosen shop's queue,
+// shuffle forward, be served and walk off drinking, or stomp off and try a second shop, or walk on out of the street
+// (spec §9: "đi dọc đường, dừng nhìn bảng giá, rồi rẽ vào xếp hàng ở quán đã chọn hoặc đi tiếp ra khỏi phố"). Shops
+// keep their sign (open, sold out, resting, closed, grand opening), their price with the one it flipped from, their
+// badges; the day's policy moments are kept; bubble requests (why a customer did what they did) and cues (a sale, a
+// price flip, a walker coming in) are handed to the renderers once.
 //
 // Pure: no DOM, no canvas, no clock of its own. Time is the sim's tick, fractional between ticks; the scene advances
-// it every frame (`advanceTo`) and applies each tick's events as they come (`apply`). The picture may lag the sim by
-// at most 1.5 s (LAG_TICKS): every step that brings an actor to where the sim has them carries a deadline 15 ticks
+// it every frame (`advanceTo`) and applies each tick's events as they come (`apply`).
+//
+// Walkers come in on the director's own schedule (R44): every customer of the day is known from the rush state, so
+// each one enters early enough to walk to the middle of the street and read the boards for BROWSE_TICKS before the sim
+// has them choose (`customerEnter` only fills in for someone the director did not know). The picture may lag the sim
+// by at most 1.5 s (LAG_TICKS): every step that brings an actor to where the sim has them carries a deadline 15 ticks
 // after its event; actors hurry to meet it, and one still behind after it jumps there. At most MAX_ACTORS show: past
 // that, walkers leaving who have nothing to do with the player go first, then long queues fold into "+n".
 import { CONFIG } from '../../../shared/sim/config';
@@ -25,30 +31,31 @@ import { clamp } from './tween';
 export const LAG_TICKS = 15;
 /** Most actors drawn at once (spec §9). */
 export const MAX_ACTORS = 40;
+/** Least time a walker reads the boards in the middle of the street before the sim has them choose (ticks). */
+export const BROWSE_TICKS = 10;
 /** Fastest hurry, in walking speeds. */
 const HURRY_MAX = 4;
-/** Past this hurry (in walking speeds) a walker skips reading the board. */
-const SKIP_LOOK_AT = 3;
-/** Leaving walkers stroll a little slower (drinking). */
-const STROLL = 0.85;
 /** Folding stops at this many queue places for AI shops; the player keeps its counter's four. */
 const MIN_SHOWN_AI = 2;
 /** Unfold only when the street would stay this far under the cap (no flicker at the edge). */
 const UNFOLD_MARGIN = 2;
 /** Pause lengths, in ticks. */
-const LOOK_TICKS = 5;
-const PASS_LOOK_TICKS = 8;
+const PASS_LOOK_TICKS = 6;
 const SERVED_TICKS = 8;
 const WRONG_TICKS = 12;
 const STOMP_TICKS = 9;
 const UPSET_TICKS = 7;
+/** The stomp before walking to a second shop; the anger goes on in the walk (`cause`). */
+const RESHOP_STOMP_TICKS = 3;
 /** Arrive this early before a deadline, so float error never makes a step late. */
 const DUE_MARGIN = 0.5;
+/** A walk turns the actor's back or front to us (`up` / `down`) only when it is this much steeper than it is wide. */
+const STEEP = 1.2;
 
-/** What an actor is doing; Task 15 picks the pose and the gait (with `speed`) from it. */
+/** What an actor is doing; Task 15 picks the pose and the gait (with `speed` and `heading`) from it. */
 export type Activity =
   | 'walk' | 'idle' | 'queue'
-  /** Reading `gaze`'s price board. */
+  /** Reading `gaze`'s price board (in the middle of the street, or before walking on). */
   | 'lookBoard'
   /** Got a cup: happy. */
   | 'served'
@@ -57,6 +64,9 @@ export type Activity =
   /** Left a queue; `cause` says why (patience: a stomp). */
   | 'abandon';
 
+/** Which way an actor is turned, for the view of the walk cycle: side-on, back to us (`up`) or facing us (`down`). */
+export type Heading = 'left' | 'right' | 'up' | 'down';
+
 export interface Actor {
   readonly id: number;
   /** Appearance seed (`Customer.look`). */
@@ -64,7 +74,13 @@ export interface Actor {
   readonly entry: Customer['entry'];
   x: number;
   y: number;
+  /** Left or right, for mirroring; agrees with `heading` when that is side-on. */
   facing: 1 | -1;
+  /**
+   * The way they walk, or face while standing: in a queue the head faces the shop (up for the top row, down for the
+   * bottom row) and the rest face the head (left); reading a board, they face its row; served or upset, they face us.
+   */
+  heading: Heading;
   /** Logical units per tick while walking; 0 while standing. */
   speed: number;
   activity: Activity;
@@ -72,7 +88,7 @@ export interface Actor {
   since: number;
   /** The shop whose board they read. */
   gaze: ShopId | null;
-  /** Why they left their last queue. */
+  /** Why they left their last queue (null if they never did); still set on the walk to a second shop, an angry walk. */
   cause: LeaveCause | null;
   /** A cup in hand. */
   carrying: boolean;
@@ -85,7 +101,7 @@ export interface Actor {
   leaving: boolean;
   /** Folded into their shop's "+n". */
   hidden: boolean;
-  /** Queued at the player's shop, or said something about it. */
+  /** Has queued at the player's shop: kept on screen longest when the street is full. */
   playerRelated: boolean;
 }
 
@@ -123,7 +139,10 @@ export type Moment =
   | { kind: 'rumorLifted'; t: Tick }
   | { kind: 'rushEnd'; t: Tick; early: boolean };
 
-/** One-off things for the renderers to animate (coins, flips, the bus); handed out once by `takeCues`. */
+/**
+ * One-off things for the renderers to animate (coins, flips, the bus); handed out once by `takeCues`. `enter`: a
+ * walker came onto the street (at their entry, or at the bus stop), at director time `t`.
+ */
 export type Cue =
   | Moment
   | { kind: 'sale'; t: Tick; shop: ShopId; customer: number; paid: K; full: K; correct: boolean }
@@ -145,6 +164,7 @@ export interface BubbleRequest {
   shop: ShopId | null;
   /** What ran out (`outOfStock`). */
   missing?: StockItem;
+  /** About the player's shop, or said by someone who queued there. */
   playerRelated: boolean;
 }
 
@@ -190,7 +210,6 @@ type Side = 'left' | 'right';
 type Target =
   | { k: 'slot'; shop: ShopId; i: number }
   | { k: 'aside'; shop: ShopId; i: number }
-  | { k: 'look'; shop: ShopId }
   /** The actor's lane at x; x null: wherever the actor is when the step starts. */
   | { k: 'lane'; x: number | null }
   | { k: 'exit'; side: Side };
@@ -203,23 +222,23 @@ interface Step {
   gaze: ShopId | null;
   /** The sim tick this step must be done by (its event + LAG_TICKS); null: none. */
   due: number | null;
-  /** A pause skipped when running late (reading the board). */
-  optional: boolean;
-  /** Dropped as soon as the actor has something to do (walking in, a look before leaving). */
+  /** Dropped as soon as the actor has something to do (walking in and browsing, a look before leaving). */
   hold: boolean;
   /** On the way into the actor's queue place: dropped if they leave the queue first. */
   toQueue: boolean;
-  /** The walk into the queue place itself: follows the place as the queue moves. */
+  /** Follows the actor's queue place as the queue moves. */
   place: boolean;
+  /** Stepping out of a queue toward the road; skipped when they head straight for a second shop. */
+  stepOut: boolean;
   started: boolean;
 }
 
 const walkStep = (to: Target, o: Partial<Step> = {}): Step => ({
-  to, ticks: 0, act: 'walk', gaze: null, due: null, optional: false, hold: false, toQueue: false, place: false,
+  to, ticks: 0, act: 'walk', gaze: null, due: null, hold: false, toQueue: false, place: false, stepOut: false,
   started: false, ...o,
 });
 const pauseStep = (ticks: number, act: Activity, o: Partial<Step> = {}): Step => ({
-  to: null, ticks, act, gaze: null, due: null, optional: false, hold: false, toQueue: false, place: false,
+  to: null, ticks, act, gaze: null, due: null, hold: false, toQueue: false, place: false, stepOut: false,
   started: false, ...o,
 });
 
@@ -240,6 +259,11 @@ const mix = (n: number) => {
   return Math.imul(h, 0xc2b2ae35) >>> 0;
 };
 
+/** Lane, lane offset and where along the browse span a walker with this look stops (0..1). */
+const laneOf = (look: number, entry: Customer['entry']): 0 | 1 => (entry === 'bus' ? 1 : ((look & 1) as 0 | 1));
+const laneOffsetOf = (look: number, L: StreetLayout) => (((look >>> 3) % 7) - 3) * L.actorH * 0.05;
+const browseAt = (look: number) => ((look >>> 11) % 64) / 63;
+
 function viewOf(s: RushState['shops'][number]): ShopView {
   const n = s.trail.length;
   const changed = n >= 2;
@@ -258,6 +282,8 @@ export class Director {
   private dayN: Day = 1;
   private rulesV: DayRules | null = null;
   private customers: readonly Customer[] = [];
+  /** Customers not on the street yet, by the time they come in. */
+  private pending: { id: number; at: number }[] = [];
   private readonly shopViews = new Map<ShopId, ShopView>();
   private readonly cast = new Map<number, ActorState>();
   private momentList: Moment[] = [];
@@ -296,6 +322,22 @@ export class Director {
     return v;
   }
 
+  /**
+   * When customer `id` comes onto the street: early enough to walk from their entry to their spot in the middle of
+   * the street and read the boards there for BROWSE_TICKS before they arrive (R44). Depends on the layout and view.
+   */
+  enterTime(id: number): number {
+    const c = this.customers[id];
+    const L = this.L;
+    const lane = laneOf(c.look, c.entry);
+    const y = L.lanes[lane] + laneOffsetOf(c.look, L);
+    const bx = this.browseX(c.look);
+    const start = c.entry === 'bus' ? L.busStop : { x: this.exitX(c.entry), y };
+    // Off the bus: to the lane first, then along it (the walk `walkIn` plans).
+    const d = Math.abs(y - start.y) + Math.abs(bx - start.x);
+    return c.arriveTick - d / L.walk - BROWSE_TICKS;
+  }
+
   /** Where each folded queue shows its "+n": the first hidden place. In `STREET` order. */
   overflowMarkers(): OverflowMarker[] {
     const out: OverflowMarker[] = [];
@@ -324,10 +366,10 @@ export class Director {
   // ── Driving it ────────────────────────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Rebuilds everything from a rush state (on mount, after a turn of the phone or a hidden tab): shops as they stand,
-   * badges included (a shop certified from the start shows its badge, R20); queued customers at their places;
-   * customers walking in (entered, not yet arrived) on their way from their entry at walking speed. Customers already
-   * gone are not shown. The clock is set to `s.tick`.
+   * Rebuilds everything from a rush state (on mount, after a seek or a hidden tab): shops as they stand, badges
+   * included (a shop certified from the start shows its badge, R20); queued customers at their places; customers yet
+   * to arrive on the director's schedule, those already due on their way in where they would be by now. Customers
+   * already gone are not shown. The clock is set to `s.tick`.
    */
   reset(s: RushState): void {
     this.t = s.tick;
@@ -356,16 +398,12 @@ export class Director {
         a.joinedAt = s.rt[id].joinedTick;
         a.visits = s.rt[id].visited.length;
         a.playerRelated = s.rt[id].visited.includes('player');
-        a.facing = -1;
-        a.activity = 'queue';
+        this.settle(a, s.tick);
       });
     }
-    const lead = CONFIG.rush.enterLeadTicks;
-    for (const id of s.arrivalOrder.slice(s.nextArrival, s.nextEnter)) {
-      const c = s.customers[id];
-      const a = this.walkIn(id, c.entry);
-      this.advanceActor(a, s.tick - Math.max(0, c.arriveTick - lead), Math.max(0, c.arriveTick - lead));
-    }
+    this.pending = s.arrivalOrder.slice(s.nextArrival).map(id => ({ id, at: this.enterTime(id) }));
+    this.pending.sort((a, b) => a.at - b.at);
+    this.comeIn(s.tick, false);
     this.enforceCap();
   }
 
@@ -375,7 +413,10 @@ export class Director {
     this.enforceCap();
   }
 
-  /** Moves time on to `now` (sim ticks, fractional): actors walk, pause, catch up; leavers past the street go. */
+  /**
+   * Moves time on to `now` (sim ticks, fractional): actors walk, pause, catch up; walkers due come in; leavers past
+   * the street go.
+   */
   advanceTo(now: number): void {
     if (!(now > this.t)) return;
     const from = this.t;
@@ -385,6 +426,7 @@ export class Director {
       this.advanceActor(a, now - from, from);
       if (a.leaving && a.plan.length === 0) this.cast.delete(a.id);
     }
+    this.comeIn(now, true);
     this.enforceCap();
   }
 
@@ -398,6 +440,7 @@ export class Director {
     const sx = layout.width / old.width;
     const sy = layout.height / old.height;
     for (const a of this.cast.values()) {
+      a.laneOffset = laneOffsetOf(a.look, layout);
       for (const s of a.plan) if (s.to?.k === 'lane' && s.to.x !== null) s.to = { k: 'lane', x: s.to.x * sx };
       if (a.plan.length === 0 && a.shop !== null) {
         const p = queuePoint(layout, slotOf(layout, a.shop), a.slot);
@@ -408,11 +451,15 @@ export class Director {
         a.y *= sy;
       }
     }
+    this.reschedule();
     this.enforceCap();
   }
 
   /** The canvas shows a different part of the logical plane (entries and exits sit just outside it). */
-  setView(view: Rect): void { this.viewRect = view; }
+  setView(view: Rect): void {
+    this.viewRect = view;
+    this.reschedule();
+  }
 
   // ── Events ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -424,8 +471,8 @@ export class Director {
         this.moment({ kind: 'rushStart', t: e.t });
         return;
       case 'customerEnter':
-        if (!this.cast.has(e.customer)) this.walkIn(e.customer, e.entry);
-        this.cues.push({ kind: 'enter', t: e.t, customer: e.customer, entry: e.entry });
+        // The director brings walkers in itself; this only fills in for one it did not know or has not brought yet.
+        if (!this.cast.has(e.customer)) this.ensure(e.customer, e.entry);
         return;
       case 'customerConsider':
         this.onConsider(e.t, e.customer, e.reshop, e.verdicts, e.chosen);
@@ -503,9 +550,7 @@ export class Director {
   }
 
   private say(t: Tick, customer: number, topic: BubbleTopic, shop: ShopId | null, missing?: StockItem): void {
-    const a = this.cast.get(customer);
-    if (shop === 'player' && a !== undefined) a.playerRelated = true;
-    const playerRelated = shop === 'player' || (a?.playerRelated ?? false);
+    const playerRelated = shop === 'player' || (this.cast.get(customer)?.playerRelated ?? false);
     this.bubbles.push(missing === undefined
       ? { customer, t, topic, shop, playerRelated }
       : { customer, t, topic, shop, missing, playerRelated });
@@ -517,27 +562,32 @@ export class Director {
     const topic = considerTopic(verdicts, chosen);
     if (topic !== null) this.say(t, id, topic.topic, topic.shop, topic.missing);
     if (reshop || chosen !== null) return;
-    // Nothing will do: they stop to read a board (the one they talk about, else the nearest), then walk on.
+    // Nothing will do: a last look at the board they talk about (else the nearest), then they walk on.
     a.plan = a.plan.filter(s => !s.hold);
     a.plan.push(pauseStep(PASS_LOOK_TICKS, 'lookBoard', { gaze: topic?.shop ?? this.nearestShop(a), hold: true }));
   }
 
+  /**
+   * Into the queue at `position`: straight from where they are to the front of their place, then into it, by the
+   * deadline. Coming from another queue, the stomp is cut short (the walk carries it on, `cause`) and they do not step
+   * out toward the road first.
+   */
   private onJoin(t: Tick, id: number, shop: ShopId, position: number): void {
     const a = this.ensure(id);
     const v = this.shop(shop);
-    v.queue.splice(Math.min(position, v.queue.length), 0, id);
+    const at = Math.min(position, v.queue.length);
+    v.queue.splice(at, 0, id);
     a.shop = shop;
     a.joinedAt = t;
     a.leaving = false;
     if (shop === 'player') a.playerRelated = true;
-    a.plan = a.plan.filter(s => !s.hold);
-    const due = t + LAG_TICKS;
-    if (a.visits > 0) a.plan.push(walkStep({ k: 'lane', x: null }, { toQueue: true }));
-    a.plan.push(walkStep({ k: 'look', shop }, { toQueue: true }));
-    if (a.visits === 0) {
-      a.plan.push(pauseStep(LOOK_TICKS, 'lookBoard', { gaze: shop, optional: true, toQueue: true }));
-    }
-    a.plan.push(walkStep({ k: 'slot', shop, i: position }, { due, toQueue: true, place: true }));
+    a.plan = a.plan.filter(s => !s.hold && !(s.stepOut && !s.started));
+    for (const s of a.plan) if (s.to === null && s.act === 'abandon') s.ticks = Math.min(s.ticks, RESHOP_STOMP_TICKS);
+    a.plan.push(
+      walkStep({ k: 'aside', shop, i: at }, { toQueue: true, place: true }),
+      walkStep({ k: 'slot', shop, i: at }, { due: t + LAG_TICKS, toQueue: true, place: true }),
+    );
+    a.slot = at;
     a.visits++;
     this.requeue(v, t);
   }
@@ -558,7 +608,7 @@ export class Director {
       a.joinedAt = null;
       a.lane = slotOf(this.L, shop).row === 'top' ? 0 : 1;
       a.plan = a.plan.filter(s => !s.toQueue && !s.hold);
-      a.plan.push(walkStep({ k: 'aside', shop, i: place }, { due: t + LAG_TICKS }), pauseStep(ticks, act));
+      a.plan.push(walkStep({ k: 'aside', shop, i: place }, { due: t + LAG_TICKS, stepOut: true }), pauseStep(ticks, act));
     }
     this.requeue(v, t);
     return a ?? null;
@@ -569,7 +619,8 @@ export class Director {
     if (a !== undefined && a.shop !== null) {
       // Still queued at the end of the rush: they just go home.
       const v = this.shop(a.shop);
-      v.queue.splice(v.queue.indexOf(id), 1);
+      const at = v.queue.indexOf(id);
+      if (at >= 0) v.queue.splice(at, 1);
       a.lane = slotOf(this.L, a.shop).row === 'top' ? 0 : 1;
       a.plan = a.plan.filter(s => !s.toQueue && !s.hold);
       a.shop = null;
@@ -587,17 +638,22 @@ export class Director {
     a.plan.push(walkStep({ k: 'lane', x: null }), walkStep({ k: 'exit', side }));
   }
 
-  /** Every queued actor follows its place as the queue moves (the shuffle forward), by the deadline. */
+  /**
+   * Every queued actor follows its place as the queue moves (the shuffle forward), by 15 ticks after the move; one
+   * still on the way to their first place keeps the deadline of their join.
+   */
   private requeue(v: ShopView, t: Tick): void {
     v.queue.forEach((id, i) => {
       const a = this.cast.get(id);
       if (a === undefined || a.slot === i) return;
       a.slot = i;
-      const walk = a.plan.find(s => s.place);
-      if (walk !== undefined) {
-        walk.to = { k: 'slot', shop: v.id, i };
-        walk.due = Math.max(walk.due ?? -Infinity, t + LAG_TICKS);
-      } else {
+      let following = false;
+      for (const s of a.plan) {
+        if (!s.place || s.to === null || (s.to.k !== 'slot' && s.to.k !== 'aside')) continue;
+        s.to = { k: s.to.k, shop: v.id, i };
+        following = true;
+      }
+      if (!following) {
         a.plan.push(walkStep({ k: 'slot', shop: v.id, i }, { due: t + LAG_TICKS, toQueue: true, place: true }));
       }
     });
@@ -607,33 +663,74 @@ export class Director {
 
   private spawn(id: number, entry: Customer['entry']): ActorState {
     const look = this.customers[id]?.look ?? mix(id);
+    const dir: 1 | -1 = entry === 'left' ? 1 : -1;
     const a: ActorState = {
-      id, look, entry, x: 0, y: 0, facing: 1, speed: 0, activity: 'idle', since: this.t, gaze: null, cause: null,
-      carrying: false, shop: null, slot: -1, joinedAt: null, leaving: false, hidden: false, playerRelated: false,
-      plan: [], lane: entry === 'bus' ? 1 : ((look & 1) as 0 | 1),
-      laneOffset: (((look >>> 3) % 7) - 3) * this.L.actorH * 0.05,
-      dir: entry === 'left' ? 1 : -1, visits: 0,
+      id, look, entry, x: 0, y: 0, facing: dir, heading: dir > 0 ? 'right' : 'left', speed: 0, activity: 'idle',
+      since: this.t, gaze: null, cause: null, carrying: false, shop: null, slot: -1, joinedAt: null, leaving: false,
+      hidden: false, playerRelated: false,
+      plan: [], lane: laneOf(look, entry), laneOffset: laneOffsetOf(look, this.L), dir, visits: 0,
     };
     this.cast.set(id, a);
     return a;
   }
 
-  /** A customer comes in at their entry and walks along the street, until they choose. */
+  private browseX(look: number): number {
+    const b = this.L.browse;
+    return b.x0 + (b.x1 - b.x0) * browseAt(look);
+  }
+
+  private exitX(side: Side): number {
+    const v = this.viewRect;
+    return side === 'left' ? v.x - this.L.actorH : v.x + v.w + this.L.actorH;
+  }
+
+  /**
+   * A customer comes in at their entry (or steps off the bus), walks along the road to their spot in the middle of
+   * the street and reads the boards there until they choose.
+   */
   private walkIn(id: number, entry: Customer['entry']): ActorState {
     const a = this.spawn(id, entry);
     const start = entry === 'bus' ? this.L.busStop : this.resolve(a, { k: 'exit', side: entry }, a);
     a.x = start.x;
     a.y = start.y;
-    a.facing = a.dir;
     a.activity = 'walk';
     if (entry === 'bus') a.plan.push(walkStep({ k: 'lane', x: null }, { hold: true }));
-    a.plan.push(walkStep({ k: 'exit', side: a.dir > 0 ? 'right' : 'left' }, { hold: true }));
+    const bx = this.browseX(a.look);
+    a.plan.push(
+      walkStep({ k: 'lane', x: bx }, { hold: true }),
+      pauseStep(Infinity, 'lookBoard', { gaze: this.nearestShop(a, bx), hold: true }),
+    );
     return a;
   }
 
-  /** The actor for an event about someone the director never saw come in (after a reset): from their entry. */
-  private ensure(id: number): ActorState {
-    return this.cast.get(id) ?? this.walkIn(id, this.customers[id]?.entry ?? 'left');
+  /** Brings in every walker due by `now`, each as far along as they would be (with a cue unless rebuilding). */
+  private comeIn(now: number, cue: boolean): void {
+    while (this.pending.length > 0 && this.pending[0].at <= now) {
+      const { id, at } = this.pending.shift() as { id: number; at: number };
+      if (this.cast.has(id)) continue;
+      const entry = this.customers[id].entry;
+      const a = this.walkIn(id, entry);
+      a.since = at;
+      if (cue) this.cues.push({ kind: 'enter', t: at, customer: id, entry });
+      this.advanceActor(a, now - at, at);
+    }
+  }
+
+  /** After a layout or view change: entry times of the walkers still to come, never earlier than now. */
+  private reschedule(): void {
+    for (const p of this.pending) p.at = Math.max(this.t, this.enterTime(p.id));
+    this.pending.sort((a, b) => a.at - b.at);
+  }
+
+  /** The actor for an event about someone not on the street yet: they come in at their entry now. */
+  private ensure(id: number, entry?: Customer['entry']): ActorState {
+    const known = this.cast.get(id);
+    if (known !== undefined) return known;
+    const i = this.pending.findIndex(p => p.id === id);
+    if (i >= 0) this.pending.splice(i, 1);
+    const e = entry ?? this.customers[id]?.entry ?? 'left';
+    this.cues.push({ kind: 'enter', t: this.t, customer: id, entry: e });
+    return this.walkIn(id, e);
   }
 
   private laneY(a: ActorState, lane: 0 | 1 = a.lane): number { return this.L.lanes[lane] + a.laneOffset; }
@@ -643,35 +740,33 @@ export class Director {
     switch (to.k) {
       case 'slot': return queuePoint(L, slotOf(L, to.shop), to.i);
       case 'aside': return asidePoint(L, slotOf(L, to.shop), to.i);
-      case 'look': {
-        const s = slotOf(L, to.shop);
-        return { x: s.look.x, y: this.laneY(a, s.row === 'top' ? 0 : 1) };
-      }
       case 'lane': return { x: to.x ?? from.x, y: this.laneY(a) };
-      case 'exit': {
-        const v = this.viewRect;
-        return { x: to.side === 'left' ? v.x - L.actorH : v.x + v.w + L.actorH, y: this.laneY(a) };
-      }
+      case 'exit': return { x: this.exitX(to.side), y: this.laneY(a) };
     }
   }
 
-  private nearestShop(a: ActorState): ShopId {
-    let best: ShopSlot = this.L.shops[0];
-    for (const s of this.L.shops) if (Math.abs(s.look.x - a.x) < Math.abs(best.look.x - a.x)) best = s;
-    return best.id;
+  /** The shop of the actor's side of the road whose front is nearest x. */
+  private nearestShop(a: ActorState, x = a.x): ShopId {
+    const row = a.lane === 0 ? 'top' : 'bottom';
+    let best: ShopSlot | null = null;
+    const mid = (s: ShopSlot) => s.rect.x + s.rect.w / 2;
+    for (const s of this.L.shops) {
+      if (s.row === row && (best === null || Math.abs(mid(s) - x) < Math.abs(mid(best) - x))) best = s;
+    }
+    return (best ?? this.L.shops[0]).id;
   }
 
   /**
-   * The speed the actor needs to finish its steps up to the first deadline in time (arriving DUE_MARGIN early),
-   * between walking speed and HURRY_MAX times it; `withOptional` counts the optional pauses as kept.
+   * The speed the actor needs to finish its steps up to the first deadline in time (arriving DUE_MARGIN early); 0
+   * when no step has a deadline.
    */
-  private needed(a: ActorState, now: number, withOptional: boolean): number {
+  private needed(a: ActorState, now: number): number {
     let d = 0;
     let pause = 0;
     let p: Pt = a;
     for (const s of a.plan) {
       if (s.to === null) {
-        if (withOptional || !s.optional) pause += s.ticks;
+        pause += s.ticks;
       } else {
         const q = this.resolve(a, s.to, p);
         d += Math.hypot(q.x - p.x, q.y - p.y);
@@ -683,12 +778,6 @@ export class Director {
       }
     }
     return 0;
-  }
-
-  /** The speed to walk at now: keeping the board reading if that needs no more than SKIP_LOOK_AT, else skipping it. */
-  private speedNeeded(a: ActorState, now: number): number {
-    const keep = this.needed(a, now, true);
-    return keep <= SKIP_LOOK_AT * this.L.walk ? keep : this.needed(a, now, false);
   }
 
   /** More than LAG_TICKS behind: every step up to the last overdue deadline is done at once. */
@@ -720,16 +809,9 @@ export class Director {
       if (!s.started) {
         s.started = true;
         if (s.to?.k === 'lane' && s.to.x === null) s.to = { k: 'lane', x: a.x };
-        if (s.optional && this.needed(a, now, true) > SKIP_LOOK_AT * this.L.walk) {
-          a.plan.shift();
-          continue;
-        }
         this.setActivity(a, s.act, now);
         a.gaze = s.gaze;
-        if (s.gaze !== null) {
-          const bx = slotOf(this.L, s.gaze).board.x;
-          if (Math.abs(bx - a.x) > 1) a.facing = bx > a.x ? 1 : -1;
-        }
+        if (s.to === null) this.turnFor(a, s);
       }
       if (s.to === null) {
         a.speed = 0;
@@ -743,10 +825,10 @@ export class Director {
       const dx = p.x - a.x;
       const dy = p.y - a.y;
       const d = Math.hypot(dx, dy);
-      const base = this.L.walk * (a.leaving ? STROLL : 1);
-      const v = clamp(this.speedNeeded(a, now), base, base * HURRY_MAX);
+      const base = this.L.walk;
+      const v = clamp(this.needed(a, now), base, base * HURRY_MAX);
       a.speed = v;
-      if (Math.abs(dx) > 1e-6) a.facing = dx > 0 ? 1 : -1;
+      if (d > 1e-6) this.turnTo(a, dx, dy);
       if (d <= v * left + 1e-6) {
         a.x = p.x;
         a.y = p.y;
@@ -761,13 +843,31 @@ export class Director {
     if (a.plan.length === 0) this.settle(a, from + dt);
   }
 
-  /** Standing with nothing left to do: in their queue, or idle. */
+  /** Walking along (dx, dy): side-on unless clearly steeper than wide. */
+  private turnTo(a: ActorState, dx: number, dy: number): void {
+    if (Math.abs(dx) > 1e-6) a.facing = dx > 0 ? 1 : -1;
+    a.heading = Math.abs(dy) > STEEP * Math.abs(dx) ? (dy < 0 ? 'up' : 'down') : a.facing > 0 ? 'right' : 'left';
+  }
+
+  /** Standing for a pause: toward the board they read, else toward us. */
+  private turnFor(a: ActorState, s: Step): void {
+    if (s.gaze !== null) {
+      const slot = slotOf(this.L, s.gaze);
+      if (Math.abs(slot.board.x - a.x) > 1) a.facing = slot.board.x > a.x ? 1 : -1;
+      a.heading = slot.row === 'top' ? 'up' : 'down';
+    } else {
+      a.heading = 'down';
+    }
+  }
+
+  /** Standing with nothing left to do: in their queue (the head toward the shop, the rest toward the head), or idle. */
   private settle(a: ActorState, now: number): void {
     if (a.plan.length > 0) return;
     a.speed = 0;
     a.gaze = null;
     if (a.shop !== null) {
-      a.facing = -1;   // queues run +x from the counter: face it
+      a.facing = -1;
+      a.heading = a.slot === 0 ? (slotOf(this.L, a.shop).row === 'top' ? 'up' : 'down') : 'left';
       this.setActivity(a, 'queue', now);
     } else {
       this.setActivity(a, 'idle', now);
@@ -819,20 +919,31 @@ export class Director {
     }
   }
 
-  /** Actors drawn if queues showed this many places. */
-  private visibleWith(ai: number, player: number): number {
-    let hidden = 0;
-    for (const v of this.shopViews.values()) {
-      const shown = v.id === 'player' ? player : ai;
-      for (let i = shown; i < v.queue.length; i++) if (this.cast.has(v.queue[i])) hidden++;
-    }
-    return this.cast.size - hidden;
+  /** Within the view (walkers coming in or going out beyond its ends are not on screen). */
+  private onScreen(a: ActorState): boolean {
+    const v = this.viewRect;
+    const half = this.L.actorH * 0.3;
+    return a.x > v.x - half && a.x < v.x + v.w + half;
   }
 
-  /** Leaving walkers, player-related or not, nearest their way out first. */
+  /** Actors on screen if queues showed this many places. */
+  private visibleWith(ai: number, player: number): number {
+    let n = 0;
+    for (const a of this.cast.values()) if (this.onScreen(a)) n++;
+    for (const v of this.shopViews.values()) {
+      const shown = v.id === 'player' ? player : ai;
+      for (let i = shown; i < v.queue.length; i++) {
+        const a = this.cast.get(v.queue[i]);
+        if (a !== undefined && this.onScreen(a)) n--;
+      }
+    }
+    return n;
+  }
+
+  /** Leaving walkers on screen, player-related or not, nearest their way out first. */
   private leavers(related: boolean): ActorState[] {
     const out: ActorState[] = [];
-    for (const a of this.cast.values()) if (a.leaving && a.playerRelated === related) out.push(a);
+    for (const a of this.cast.values()) if (a.leaving && a.playerRelated === related && this.onScreen(a)) out.push(a);
     const v = this.viewRect;
     const toExit = (a: ActorState) => Math.min(a.x - v.x, v.x + v.w - a.x);
     return out.sort((p, q) => toExit(p) - toExit(q));

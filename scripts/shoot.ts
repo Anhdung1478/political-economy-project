@@ -3,9 +3,11 @@
 // measured frame rate (`window.__sceneFps`), then shuts everything down.
 //
 //   npm run shoot -- --route "/dev/scene?day=3&seed=7" [--size 390x844] [--dpr 2] [--wait 2000]
-//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4]
+//                    [--frames 1] [--every 1000] [--out .shots/name] [--cpu 4] [--ready SELECTOR]
 //
 // The route may leave out its leading slash ("dev/scene?day=3"), which Git Bash would otherwise rewrite into a path.
+// Captures start once `--ready` matches (default on /dev/scene: the street's first frame,
+// `canvas[data-scene][data-ready="1"]`; elsewhere none, the load event only), then `--wait` ms later.
 //
 // Frames go to `<out>.png` (one frame) or `<out>-01.png`, `<out>-02.png`, … under `.shots/` (git-ignored). Chrome comes
 // from CHROME_PATH, default C:\Program Files\Google\Chrome\Application\chrome.exe. `--cpu N` slows the page's CPU N
@@ -22,16 +24,20 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, '.shots');
 const CHROME = process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const USAGE = 'usage: npm run shoot -- --route PATH [--size WxH] [--dpr N] [--wait MS] [--frames N] [--every MS] '
-  + '[--out .shots/NAME] [--cpu N]';
+  + '[--out .shots/NAME] [--cpu N] [--ready SELECTOR]';
+/** What a scene route is ready on: the street's first frame (not the Suspense loader before it). */
+const SCENE_READY = 'canvas[data-scene][data-ready="1"]';
 
 interface Args {
   route: string; width: number; height: number; dpr: number; wait: number; frames: number; every: number;
   out: string; cpu: number;
+  /** A selector to wait for before capturing; '' for none; null until defaulted from the route. */
+  ready: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const a: Args = { route: '', width: 390, height: 844, dpr: 2, wait: 2000, frames: 1, every: 1000,
-    out: path.join(SHOTS, 'shot'), cpu: 1 };
+    out: path.join(SHOTS, 'shot'), cpu: 1, ready: null };
   const num = (flag: string, v: string | undefined, min: number) => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n) || n < min) throw new Error(`${flag} needs a number >= ${min}`);
@@ -58,12 +64,17 @@ function parseArgs(argv: string[]): Args {
     else if (f === '--frames') a.frames = Math.floor(num(f, v, 1));
     else if (f === '--every') a.every = num(f, v, 0);
     else if (f === '--cpu') a.cpu = num(f, v, 1);
+    else if (f === '--ready') {
+      if (v === undefined) throw new Error('--ready needs a CSS selector (or "" for none)');
+      a.ready = v;
+    }
     else if (f === '--out') {
       if (v === undefined) throw new Error('--out needs a path');
       a.out = path.resolve(ROOT, v.replace(/\.png$/i, ''));
     } else throw new Error(`unknown argument ${f}`);
   }
   if (a.route === '') throw new Error('--route is required');
+  if (a.ready === null) a.ready = a.route.startsWith('/dev/scene') ? SCENE_READY : '';
   if (!a.out.startsWith(SHOTS + path.sep)) throw new Error('--out must be under .shots/');
   return a;
 }
@@ -117,10 +128,7 @@ async function main(): Promise<number> {
     const url = `http://127.0.0.1:${port}${args.route}`;
     console.log(`→ ${url}  ${args.width}×${args.height} @${args.dpr}x${args.cpu > 1 ? `  cpu ÷${args.cpu}` : ''}`);
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
-    // A page with the street waits for its first frame.
-    await page.waitForFunction(
-      () => document.querySelector('canvas[data-scene]') === null || document.querySelector('canvas[data-ready="1"]') !== null,
-      { timeout: 60_000 });
+    if (args.ready) await page.waitForSelector(args.ready, { timeout: 60_000 });
     await sleep(args.wait);
     await mkdir(path.dirname(args.out), { recursive: true });
     const fps: number[] = [];

@@ -30,7 +30,9 @@ const accent = (p: Palette, id: ShopId): [string, string] => {
 
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
+  // Older browsers have no roundRect: square corners will do for placeholders.
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
 }
 
 function band(rc: RenderContext, b: Band, fill: string): void {
@@ -296,12 +298,16 @@ function drawCustomer(rc: RenderContext, a: Actor): void {
   ctx.beginPath();
   ctx.arc(x, hy - hr * 0.15, hr * 1.02, Math.PI * 1.05, Math.PI * 1.95);
   ctx.fill();
-  const look = a.activity === 'lookBoard' ? -hr * 0.35 : 0;
-  ctx.fillStyle = p.ink;
-  for (const e of [-1, 1]) {
-    ctx.beginPath();
-    ctx.arc(x + a.facing * hr * 0.35 + e * hr * 0.28, hy + hr * 0.1 + look, hr * 0.12, 0, Math.PI * 2);
-    ctx.fill();
+  // Eyes by heading: none from behind (up), centred facing us (down), to the side when side-on.
+  if (a.heading !== 'up') {
+    const side = a.heading === 'down' ? 0 : a.facing * hr * 0.35;
+    const look = a.activity === 'lookBoard' ? -hr * 0.3 : 0;
+    ctx.fillStyle = p.ink;
+    for (const e of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + side + e * hr * 0.28, hy + hr * 0.1 + look, hr * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // A cup in hand.
@@ -362,7 +368,7 @@ const MAX_BUBBLES = 3;
 
 interface Shown { customer: number; topic: BubbleTopic; until: number; player: boolean }
 
-function drawOverlay(rc: RenderContext): void {
+function drawBubbles(rc: RenderContext): void {
   const shown = (rc.store.get('placeholder.bubbles') as Shown[] | undefined) ?? [];
   const live = shown.filter(b => b.until > rc.now && rc.director.actor(b.customer) !== undefined);
   // The player's first, then the newest; at most three at once.
@@ -388,4 +394,6 @@ function drawOverlay(rc: RenderContext): void {
   }
 }
 
-export const placeholderRenderers: Renderers = { drawStreet, drawShop, drawCustomer, props, drawProp, drawOverlay };
+export const placeholderRenderers: Renderers = {
+  drawStreet, drawShop, drawCustomer, props, drawProp, overlays: { bubbles: drawBubbles },
+};

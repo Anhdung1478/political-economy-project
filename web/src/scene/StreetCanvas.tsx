@@ -5,7 +5,7 @@
 // emits them (`ref.push(events, tick)`); the picture interpolates between ticks, from `simTime` when the parent has a
 // finer clock, else from when each push came. A new `snapshot` (or `ref.reset`) rebuilds the street, e.g. on return
 // to a hidden tab. `ambient`: the street with no rush running, on the wall clock (Task 17 fills it with walkers).
-// If the canvas cannot start, `fallback` shows instead (spec §13; Task 17's list of shops).
+// If the canvas cannot start, or drawing keeps failing, `fallback` shows instead (spec §13; Task 17's list of shops).
 import {
   useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref,
 } from 'react';
@@ -15,7 +15,10 @@ import { fitLayout } from './layout';
 import { Scene } from './Scene';
 
 export interface StreetCanvasHandle {
-  /** One tick's events, in order; `tick` is the tick they belong to (the sim's `t`). */
+  /**
+   * One tick's events, in order; `tick` is the tick they belong to (the sim's `t`). Without `simTime`, pushes are the
+   * street's clock: push every tick, an empty one too (`push([], t)`), or the picture holds one tick past the last.
+   */
   push(events: readonly SimEvent[], tick: number): void;
   /** Rebuilds the street from a rush state. */
   reset(snapshot: RushState): void;
@@ -25,7 +28,10 @@ export interface StreetCanvasProps {
   /** The rush state the street opens with; a new one rebuilds the street. */
   snapshot: RushState | null;
   mode: 'live' | 'ambient';
-  /** The sim time to show, in ticks (fractional between ticks); default: estimated from the pushes. */
+  /**
+   * The sim time to show, in ticks (fractional between ticks). Default: the last pushed tick plus the real time since
+   * that push, up to one tick, so the street advances only as ticks are pushed (empty ones included).
+   */
   simTime?: () => number;
   /** Real time per tick for that estimate (100 ms; less when played faster). */
   tickMs?: number;
@@ -83,7 +89,14 @@ export function StreetCanvas({ snapshot, mode, simTime, tickMs = TICK_MS, reduce
     };
     let sc: Scene;
     try {
-      sc = new Scene(el, d, { time, onFps: f => latest.current.onFps?.(f) });
+      sc = new Scene(el, d, {
+        time,
+        onFps: f => latest.current.onFps?.(f),
+        onFail: e => {
+          console.error('street scene stopped:', e);
+          setFailed(true);
+        },
+      });
     } catch {
       setFailed(true);
       return;
