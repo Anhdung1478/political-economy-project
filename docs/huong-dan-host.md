@@ -7,13 +7,11 @@
 | Host | `/host?key=<HOST_KEY>` | Laptop chiếu của giảng viên |
 | Người chơi | `/play` | Điện thoại cả lớp (quét QR) |
 
-Lấy `HOST_KEY` (theo cách deploy cũ: pm2 trên máy chủ, ssh alias `rakkoon69`):
+Lấy `HOST_KEY` từ file cấu hình pm2 trên máy chủ (ssh alias `rakkoon69`). File này nằm ngoài repo nên vẫn giữ tên từ lần deploy đầu; nếu đổi tên file thì sửa lệnh dưới đây theo:
 
 ```bash
 ssh rakkoon69 'grep HOST_KEY ~/hai-ban-tay.config.cjs'
 ```
-
-Tên file cấu hình trên máy chủ có thể vẫn là tên cũ; kiểm tra lại nếu lệnh không ra kết quả.
 
 ## 1. Trước giờ học (15 phút)
 
