@@ -10,8 +10,8 @@ if (!process.env.HOST_KEY && process.env.NODE_ENV === 'production') {
   console.error('❌ Thiếu HOST_KEY. Chạy lại với HOST_KEY=<mã riêng>.');
   process.exit(1);
 }
-const hostKey = process.env.HOST_KEY ?? 'hai-ban-tay';
-if (!process.env.HOST_KEY) console.warn('⚠️  HOST_KEY chưa được đặt — đang dùng mặc định "hai-ban-tay" (chỉ nên dùng khi chạy thử).');
+const hostKey = process.env.HOST_KEY ?? 'pho-tra-sua';
+if (!process.env.HOST_KEY) console.warn('⚠️  HOST_KEY chưa được đặt — đang dùng mặc định "pho-tra-sua" (chỉ nên dùng khi chạy thử).');
 
 // The session survives a restart (spec §11): loaded from the session file, saved (debounced) after every change, and
 // written at once before an accepted join, vote or day is answered (`persistNow`), so a hard kill loses no answer.

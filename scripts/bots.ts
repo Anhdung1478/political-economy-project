@@ -289,7 +289,7 @@ export async function runBots(n: number, o: Omit<BotOptions, 'name'> & { offset?
 
 async function main() {
   const url = process.env.BOT_URL ?? 'http://localhost:3000';
-  const key = process.env.HOST_KEY ?? 'hai-ban-tay';
+  const key = process.env.HOST_KEY ?? 'pho-tra-sua';
   const [cmd, arg] = process.argv.slice(2);
   const log = (m: string) => console.log(m);
   if (cmd === 'join') {
