@@ -418,6 +418,17 @@ Thêm sau Task 13 theo quyết định của người dùng (2026-11-20): để 
 
 - `npm run bots -- N`: N bot vào buổi, bình chọn, chờ chợ mở, chạy `playRun` trên seed của buổi với lối chơi ngẫu nhiên trong `STRATEGIES`, gửi từng ngày có trễ ngẫu nhiên, gửi bình chọn sau. Đọc `BOT_URL`, `HOST_KEY`. Có lệnh `open`, `awards`, `reset` cho host.
 
+### Task 32: Ghi nhận kết quả ngày bền vững
+
+Thêm theo review Task 27 (2026-11-20): server bị tắt đột ngột trong 500 ms trước lần ghi file sẽ mất những ngày đã báo nhận; điện thoại đã bỏ chúng khỏi hàng đợi nên mọi ngày sau bị `notNext` và kết quả đứng yên, trái với spec mục 11 ("các ván đang chơi tiếp tục bình thường").
+
+**File:** `server/app.ts`, `server/sessionFile.ts` (nếu cần), `server/session.ts`, `shared/protocol.ts`, `web/src/game/reportQueue.ts`, `scripts/bots.ts` (+ test mỗi phần).
+
+1. Server chỉ trả lời `player:day` (và `player:vote`) sau khi trạng thái buổi đã ghi xong xuống file (chờ lần ghi của saver). Lỗi ghi vẫn trả lời, kèm cờ để client biết thử lại.
+2. Lời từ chối `notNext` kèm `expected: Day | null` (ngày server đang chờ).
+3. Hàng đợi trên điện thoại: khi nhận `notNext` với `expected` nhỏ hơn ngày vừa gửi, xếp lại các ngày từ `expected` lấy từ `run.reports` rồi gửi lại theo thứ tự. Bot làm tương tự.
+4. Test: tắt cứng server (không flush) ngay sau một lần báo nhận rồi khởi động lại trên cùng file, ván vẫn gửi đủ 5 ngày.
+
 ---
 
 ## Giai đoạn 5: dọn dẹp và tài liệu
