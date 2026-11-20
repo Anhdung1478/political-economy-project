@@ -17,6 +17,7 @@ import { CardView } from './CardScreen';
 import { choiceLessons, epilogue, exitMoral, shopExits } from './lessons';
 import { CountUp } from './ReportScreen';
 import { repLabel } from './report';
+import { useScrollFade } from './scrollFade';
 import './afternoon.css';
 
 export interface EndScreenProps {
@@ -103,15 +104,41 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
   const sc = score(run);
   const epi = epilogue(run);
   const lessons = choiceLessons(run);
-  const exits = shopExits(run.shops);
+  const exits = shopExits(run);
   const moral = exitMoral(exits);
   const lost = end.outcome === 'lostTrust';
   const needsVote = lost && run.flags.reporter === null;
   const [vote, setVote] = useState<Choice | null>(null);
   const newBest = best != null && sc.total >= best;
+  // Upgrades and card money move cash but are not in any day's profit (§16 row 13).
+  const outside = sc.profit - end.profitByDay.reduce((a, b) => a + b, 0);
+  const fadeA = useScrollFade();
+  const fadeB = useScrollFade();
+  const fadeC = useScrollFade();
+  const fadeAll = useScrollFade();
+
+  const exitsSection = (
+          <section className="rsec end-exits" aria-label="Quán không trụ được">
+            <h3 className="rsec__title"><span aria-hidden="true">🏚️</span> Quán không trụ được</h3>
+            {exits.length === 0
+              ? <p className="rsec__empty">Không quán nào phải sang nhượng.</p>
+              : (
+                <ul className="exits">
+                  {exits.map(e => (
+                    <li key={e.id} className="exit">
+                      <span className="exit__sign" aria-hidden="true">SANG NHƯỢNG</span>
+                      <b>{e.name}</b> <small>đóng cửa tối ngày {e.closedOn}</small>
+                      <span className="exit__why">{e.why}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            {moral !== null && <p className="exits__moral">{moral}</p>}
+          </section>
+  );
 
   return (
-    <div className={cx('end', lost ? 'end--lost' : 'end--won')}>
+    <div className={cx('end', lost ? 'end--lost' : 'end--won')} ref={fadeAll}>
       {!lost && !reduced && <Confetti count={60} />}
       <header className="end__hero panel">
         {lost && <Shutter />}
@@ -132,7 +159,7 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
       </header>
 
       <div className="end__body">
-        <div className="end__col end__col--a">
+        <div className="end__col end__col--a" ref={fadeA}>
           <section className="rsec end-score" aria-label="Điểm">
             <h3 className="rsec__title"><span aria-hidden="true">🏆</span> Điểm</h3>
             <div className="end-score__total">
@@ -145,6 +172,12 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
               <span>Thương hiệu <b>{fmtMoney(sc.brand)}</b> <small>({run.rep} uy tín × {CONFIG.run.brandPerRep}k)</small></span>
             </p>
             <ProfitChart profits={end.profitByDay} delay={lost ? 2.6 : 0.8} />
+            {outside !== 0 && (
+              <p className="end-score__note">
+                Cột là lãi từng ngày. Tổng lãi còn tính {fmtMoneySigned(outside)} tiền nâng cấp và tiền từ thẻ,
+                vì chúng nằm ngoài lãi ngày.
+              </p>
+            )}
             {mode === 'solo' && best != null && !newBest && <p className="end-score__record">Kỷ lục của bạn: <b>{fmtMoney(best)}</b></p>}
           </section>
 
@@ -163,26 +196,9 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
               </ol>
             </section>
           )}
-          {(!lost || exits.length > 0) && <section className="rsec end-exits" aria-label="Quán không trụ được">
-            <h3 className="rsec__title"><span aria-hidden="true">🏚️</span> Quán không trụ được</h3>
-            {exits.length === 0
-              ? <p className="rsec__empty">Không quán nào phải sang nhượng.</p>
-              : (
-                <ul className="exits">
-                  {exits.map(e => (
-                    <li key={e.id} className="exit">
-                      <span className="exit__sign" aria-hidden="true">SANG NHƯỢNG</span>
-                      <b>{e.name}</b> <small>đóng cửa tối ngày {e.closedOn}</small>
-                      <span className="exit__why">{e.why}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            {moral !== null && <p className="exits__moral">{moral}</p>}
-          </section>}
         </div>
 
-        <div className="end__col end__col--b">
+        <div className="end__col end__col--b" ref={fadeB}>
           {lessons.length > 0 && (
             <section className="rsec end-choices" aria-label="Lựa chọn của bạn">
               <h3 className="rsec__title"><span aria-hidden="true">🃏</span> Lựa chọn của bạn và bài học</h3>
@@ -197,10 +213,12 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
               </ul>
             </section>
           )}
+          {lost && exits.length > 0 && exitsSection}
         </div>
 
+        {!lost && <div className="end__col end__col--c" ref={fadeC}>{exitsSection}</div>}
         {needsVote && (
-          <div className="end__col end__col--c">
+          <div className="end__col end__col--c" ref={fadeC}>
             <section className="rsec end-vote" aria-label="Thẻ phóng viên">
               <h3 className="rsec__title"><span aria-hidden="true">🎤</span> Trước khi về, phóng viên hỏi bạn</h3>
               {vote === null

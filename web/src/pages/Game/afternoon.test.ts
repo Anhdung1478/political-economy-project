@@ -5,9 +5,11 @@ import { CONFIG } from '../../../../shared/sim/config';
 import { report as fixtureReport, shopRow } from '../../../../shared/sim/day.fixtures';
 import { ending } from '../../../../shared/sim/run';
 import type { DayReport, RunState } from '../../../../shared/sim/types';
-import { choiceLessons, convergence, exitMoral, lessonText, openClose, shopExits } from './lessons';
 import {
-  cashBefore, customerRows, moneyRows, priceScale, repLabel, repSteps, skimpTrade, streetRows, trailPath,
+  choiceLessons, converged, convergence, exitMoral, lessonText, movesSentence, openClose, priceMoves, shopExits,
+} from './lessons';
+import {
+  cashBefore, customerRows, meterValue, moneyRows, priceScale, repLabel, repSteps, skimpTrade, streetRows, trailPath,
 } from './report';
 
 const flags = (over: Partial<RunState['flags']> = {}): RunState['flags'] => ({
@@ -53,10 +55,69 @@ describe('lesson texts', () => {
   it('day 1 quotes the ranges and a convergence measure that moves', () => {
     const t = lessonText(day1(), { flags: flags() });
     expect(t.hand).toBe('invisible');
-    expect(t.story[0]).toBe('Sáng nay giá trên phố từ 30–34k. Đến cuối trưa còn 29–31k.');
+    expect(t.story[0]).toBe('Sáng nay giá trên phố từ 30k đến 34k. Đến cuối trưa còn từ 29k đến 31k.');
+    expect(t.title).toContain('tự tìm về một mức');
     expect(t.story[1]).toContain('2/3 quán tự đổi giá giữa trưa');
     expect(t.story[1]).toContain('±1,8k lúc mở cửa, còn ±0,7k lúc đóng cửa');
     expect(t.stats.map(s => s.value)).toContain('2/3');
+  });
+
+  it('day 1: the convergence threshold', () => {
+    expect(converged({ openSpread: 1.8, closeSpread: 1.3 })).toBe(true);
+    expect(converged({ openSpread: 1.8, closeSpread: 1.6 })).toBe(false);
+    expect(converged({ openSpread: 2.0, closeSpread: 1.75 })).toBe(false);
+    expect(converged({ openSpread: 1.8, closeSpread: 2.3 })).toBe(false);
+    expect(converged({ openSpread: 0.3, closeSpread: 0 })).toBe(true);
+  });
+
+  it('day 1 when prices spread out: says who moved, no "còn", no "chụm lại", softer title', () => {
+    const r = fixtureReport(1, 30, [
+      shopRow('batu', 34, 12, 12, { openPrice: 30, soldOut: true, trail: [[0, 30], [300, 34]] }),
+      shopRow('giare', 28, 6, 12, { trail: [[0, 28]] }),
+      shopRow('sinhvien', 32, 4, 12, { openPrice: 34, trail: [[0, 34], [300, 32]] }),
+      shopRow('player', 30, 14, 0),
+    ]);
+    const t = lessonText({ ...r, lesson: { id: 'freeMarket', data: { openMin: 28, openMax: 34, closeMin: 28, closeMax: 34 } } },
+      { flags: flags() });
+    expect(t.story[0]).toBe('Sáng nay giá trên phố từ 28k đến 34k. Đến cuối trưa vẫn từ 28k đến 34k.');
+    expect(t.story[1]).toBe('Quán Bà Tư đông khách nên tăng từ 30k lên 34k và Quán Sinh Viên vắng khách nên hạ từ 34k xuống 32k. '
+      + 'Không ai ra lệnh: mỗi quán tự nhìn khách của mình mà chỉnh giá.');
+    expect(t.title).toBe('Không ai ra lệnh, giá tự phản ứng theo khách');
+    expect(t.moral).not.toContain('một mức chung');
+    expect([...t.story, t.moral].join(' ')).not.toContain('chụm lại.');
+    expect(t.moral).toContain('Không ai ra lệnh');
+  });
+
+  it('day 1 with a range that widens says "Đến cuối trưa" without "còn"', () => {
+    const r = fixtureReport(1, 30, [shopRow('batu', 35, 12, 12, { openPrice: 30, trail: [[0, 30], [300, 35]] }), shopRow('player', 30, 14, 0)]);
+    const t = lessonText({ ...r, lesson: { id: 'freeMarket', data: { openMin: 30, openMax: 30, closeMin: 30, closeMax: 35 } } },
+      { flags: flags() });
+    expect(t.story[0]).toBe('Sáng nay giá trên phố đều 30k. Đến cuối trưa từ 30k đến 35k.');
+  });
+
+  it('price moves and the sentence for them', () => {
+    const moves = priceMoves([
+      { id: 'batu', trail: [[0, 30], [300, 31]], soldOut: false },
+      { id: 'giare', trail: [[0, 28]], soldOut: true },
+    ]);
+    expect(moves).toEqual([{ id: 'batu', open: 30, close: 31, soldOut: false }]);
+    expect(movesSentence(moves)).toBe('Quán Bà Tư tăng từ 30k lên 31k. Không ai ra lệnh: mỗi quán tự nhìn khách của mình mà chỉnh giá.');
+  });
+
+  it('day 1 over many real runs: "còn" only when the range narrows, "chụm lại" only past the threshold', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const st of [STRATEGIES.reasonable, STRATEGIES.flat15, STRATEGIES.flat45]) {
+        const run = playRun(seed, st).run;
+        const r = run.reports[0];
+        const t = lessonText(r, run);
+        const d = r.lesson.data;
+        const narrowed = d.closeMax - d.closeMin < d.openMax - d.openMin;
+        expect(t.story[0].includes('còn')).toBe(narrowed);
+        const c = convergence(r.street);
+        expect(t.story[1].includes('chụm lại')).toBe(converged(c) && c.changed > 0);
+        expect(t.title.includes('một mức')).toBe(converged(c));
+      }
+    }
   });
 
   it('day 1 with no price change says so', () => {
@@ -76,7 +137,8 @@ describe('lesson texts', () => {
     const kept = lessonText({ ...base, lesson: { id: 'cartelKept', data: { avgClose1: 30, avgClose2: 36, fine: 150 } } },
       { flags: flags({ cartel: 'agreed' }) });
     expect(kept.hand).toBe('visible');
-    expect(kept.story[0]).toContain('cùng giữ giá cao 36k');
+    expect(kept.story[0]).toContain('cùng giữ giá cao 36k. Quán mới');
+    expect(kept.story[0]).not.toContain('trung bình 36k');
     expect(kept.story[1]).toContain('phạt bạn 150k');
 
     const broke = lessonText({ ...base, lesson: { id: 'cartelBroke', data: { avgClose1: 30, avgClose2: 33, fine: 150 } } },
@@ -90,7 +152,7 @@ describe('lesson texts', () => {
     const lesson = { id: 'ceiling' as const, data: { emptyHanded: 46, eligible: 116, resting: 3 } };
     const t = lessonText({ ...base, lesson }, { flags: flags() });
     expect(t.story[0]).toBe('Hôm nay 116 khách đủ tiền mua một ly, nhưng 46 người (40%) xếp hàng rồi về tay không.');
-    expect(t.story[1]).toContain('3 quán nghỉ bán: bán dưới 20k');
+    expect(t.story[1]).toContain('3 quán nghỉ bán: dưới 20k, lãi mỗi ly sau giá vốn quá mỏng để trả tiền mặt bằng');
     expect(t.story[2]).toContain('Bạn đã từ chối');
     const black = lessonText({ ...base, summary: { ...base.summary, labels: ['blackMarket'] }, lesson }, { flags: flags() });
     expect(black.story[2]).toContain('bán cửa sau');
@@ -164,6 +226,9 @@ describe('report rows', () => {
     const lines = moneyRows({ ...base, upgradeCost: 80, cardCash: -30, delayedCash: 30 });
     expect(lines.filter(x => x.kind === 'out').map(x => [x.key, x.value])).toEqual([['upgrade', -80], ['delayed', 30], ['card', -30]]);
     expect(moneyRows(base).find(x => x.key === 'waste')?.kind).toBe('note');
+    const evaded = fixtureReport(4, 30, [], { tax: 145, cards: [{ id: 'tax', choice: 'B' }, { id: 'inspection', choice: 'A' }] });
+    expect(moneyRows({ ...evaded, cardCash: 105 }).filter(x => x.kind === 'out').map(x => [x.key, x.value]))
+      .toEqual([['refund', 145], ['card', -40]]);
   });
 
   it('customers: served, wrong, walked out, missed for stock', () => {
@@ -259,14 +324,110 @@ describe('end screen lessons', () => {
     expect(choiceLessons(run).map(l => l.key)).toEqual(['cartel']);
   });
 
-  it('explains each shop exit by its losing days', () => {
+  it('explains each shop exit from what happened on its losing days', () => {
     const run = playRun(7, STRATEGIES.reasonable).run;
-    const exits = shopExits(run.shops);
+    const exits = shopExits(run);
     expect(exits.map(e => e.id)).toEqual(ending(run).closedShops);
     const cochap = exits.find(e => e.id === 'cochap');
     expect(cochap?.closedOn).toBe(3);
-    expect(cochap?.why).toMatch(/^Giá vốn 14k\/ly, lỗ ngày 2 và 3: /);
-    expect(exitMoral(exits)).toContain('giá vốn cao');
+    expect(cochap?.why).toMatch(/^Giá vốn 14k\/ly, lỗ 2 ngày liền\. Ngày 2 Chuỗi Tập Đoàn vào phố chia khách: bán \d+\/\d+ ly/);
+    // a resting shop on the ceiling day: the margin after rent is thin, not "cost above the ceiling"
+    expect(cochap?.why).toContain('Ngày 3 nghỉ bán: dưới trần 20k, lãi mỗi ly sau giá vốn quá mỏng');
+    expect(cochap?.why).not.toContain('không đủ bù giá vốn');
+    const moral = (exitMoral(exits) ?? '').toLowerCase();
+    expect(moral).toContain('quán mới vào chia khách');
+    expect(moral).toContain('giá trần');
+    expect(moral).not.toContain('tin đồn');
     expect(exitMoral([])).toBeNull();
+  });
+
+  it('a cartel-day exit never blames the entrant pulling prices down', () => {
+    let cartelExits = 0;
+    for (const seed of [3, 7, 11, 12, 21]) {
+      for (const id of ['reasonable+cartel-keep+shock-B+black-B+tax-A+inspect-B', 'reasonable+cartel-break+shock-B+black-B+tax-A+inspect-B']) {
+        const run = playRun(seed, combo(id)).run;
+        for (const e of shopExits(run)) {
+          expect(e.why).not.toMatch(/kéo giá xuống/);
+          if (e.factors.includes('cartel')) {
+            cartelExits += 1;
+            expect(e.why).toMatch(/cả phố (cùng giữ|hẹn giữ) 36k/);
+            expect(e.why).not.toContain('Chuỗi Tập Đoàn vào phố');
+            expect(exitMoral([e])?.toLowerCase()).toContain('thoả thuận giữ giá');
+            if (id.includes('break')) expect(e.why).toContain('phá giá');
+          }
+        }
+      }
+    }
+    expect(cartelExits).toBeGreaterThan(0);
+  });
+
+  it('Chuỗi GiáRẻ closing on day 5 is told it was named by the inspection, and the moral says so', () => {
+    let seen = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      for (const st of [STRATEGIES.reasonable, STRATEGIES.skimp, combo('reasonable+cartel-keep+shock-B+black-B+tax-A+inspect-B')]) {
+        const run = playRun(seed, st).run;
+        const giare = shopExits(run).find(e => e.id === 'giare' && e.closedOn === 5);
+        if (giare === undefined) continue;
+        seen += 1;
+        expect(giare.why).toContain('kiểm định nêu tên');
+        expect(giare.factors).toContain('named');
+        expect(exitMoral(shopExits(run))).toContain('thông tin thật');
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('every exit over many runs has a reason per losing day and a moral from its own factors', () => {
+    const strategies = [STRATEGIES.reasonable, STRATEGIES.flat15, STRATEGIES.premium,
+      combo('reasonable+cartel-keep+shock-A+black-A+tax-B+inspect-A'),
+      combo('reasonable+cartel-break+shock-B+black-B+tax-A+inspect-B'),
+      combo('reasonable+cartel-refuse+shock-B+black-B+tax-A+inspect-B')];
+    for (let seed = 1; seed <= 10; seed++) {
+      for (const st of strategies) {
+        const run = playRun(seed, st).run;
+        const exits = shopExits(run);
+        for (const e of exits) {
+          expect(e.why).toMatch(/^Giá vốn \d+k\/ly, lỗ 2 ngày liền\. Ngày \d/);
+          expect(e.why).not.toMatch(/NaN|undefined/);
+          expect(e.factors.length).toBeGreaterThan(0);
+        }
+        const moral = exitMoral(exits)?.toLowerCase();
+        if (exits.length === 0) continue;
+        const factors = new Set(exits.flatMap(e => e.factors));
+        expect(moral?.includes('thuế') ?? false).toBe(factors.has('tax'));
+        expect(moral?.includes('giá trần') ?? false).toBe(factors.has('ceiling'));
+        expect(moral?.includes('quán mới vào') ?? false).toBe(factors.has('entrant'));
+      }
+    }
+  });
+});
+
+describe('empty days (a report with nothing to list)', () => {
+  it('no rep items: no steps, and the meter stays on last night for any step count', () => {
+    const r: DayReport = { ...fixtureReport(5, 30, [], { rep: 71, cups: 0 }), repBefore: 71, repItems: [] };
+    const steps = repSteps(r);
+    expect(steps).toEqual([]);
+    for (const n of [0, 1, 2, 5]) expect(meterValue(steps, n, r.repBefore)).toBe(71);
+    expect(skimpTrade(r)).toBeNull();
+  });
+
+  it('meterValue clamps the step count', () => {
+    const r: DayReport = { ...fixtureReport(1, 30, [], { rep: 53 }), repBefore: 50,
+      repItems: [{ reason: 'clean', delta: 3, when: 'evening' }] };
+    const steps = repSteps(r);
+    expect(meterValue(steps, 0, 50)).toBe(50);
+    expect(meterValue(steps, 1, 50)).toBe(53);
+    expect(meterValue(steps, 9, 50)).toBe(53);
+  });
+
+  it('a real day with 0 cups and no rep items builds every row without throwing', () => {
+    const run = playRun(7, STRATEGIES.flat45).run;
+    const d5 = run.reports[4];
+    expect(d5.repItems).toEqual([]);
+    expect(d5.summary.cups).toBe(0);
+    expect(() => [moneyRows(d5), customerRows(d5), repSteps(d5), streetRows(d5, run.shops), lessonText(d5, run),
+      choiceLessons(run), shopExits(run), exitMoral(shopExits(run))]).not.toThrow();
+    expect(exitMoral(shopExits(run))).toBeNull();
+    expect(priceScale(streetRows(d5, run.shops)).lo).toBeLessThan(priceScale(streetRows(d5, run.shops)).hi);
   });
 });

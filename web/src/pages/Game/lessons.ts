@@ -3,7 +3,7 @@
 // screen. The lesson of each day follows spec §3's lesson column; the variants follow the player's choices.
 import { CONFIG, type SimConfig } from '../../../../shared/sim/config';
 import type {
-  AiShopId, AiShopState, Day, DayReport, K, RunState, ShopDayResult, ThemeId,
+  AiShopId, Day, DayReport, K, RunState, ShopDayResult, ShopId,
 } from '../../../../shared/sim/types';
 import { fmtMoney, fmtNumber } from '../../game/format';
 import { SHOP_NAMES } from './copy';
@@ -77,10 +77,46 @@ export function convergence(street: readonly Pick<ShopDayResult, 'trail'>[]): Co
   };
 }
 
+/** The spread must shrink by at least this much (k) and this share to read as "chụm lại". */
+export const CONVERGE_MIN_K = 0.3;
+export const CONVERGE_MIN_SHARE = 0.15;
+
+/** True when the street's prices really drew together (not a rounding wobble). */
+export const converged = (c: Pick<Convergence, 'openSpread' | 'closeSpread'>): boolean =>
+  c.openSpread - c.closeSpread >= CONVERGE_MIN_K - 1e-9 && c.closeSpread <= c.openSpread * (1 - CONVERGE_MIN_SHARE);
+
+export interface PriceMove { id: ShopId; open: K; close: K; soldOut: boolean }
+
+/** The shops that moved their price during the rush, from their trails. */
+export function priceMoves(street: readonly Pick<ShopDayResult, 'id' | 'trail' | 'soldOut'>[]): PriceMove[] {
+  return street.flatMap(s => {
+    const oc = openClose(s);
+    return oc === null || oc.open === oc.close ? [] : [{ id: s.id, ...oc, soldOut: s.soldOut }];
+  });
+}
+
+/** What the movers did, plainly: who raised (busy) and who cut (empty), nobody ordering it. */
+export function movesSentence(moves: readonly PriceMove[]): string {
+  const up = moves.filter(m => m.close > m.open);
+  const down = moves.filter(m => m.close < m.open);
+  const say = (m: PriceMove) => {
+    const name = SHOP_NAMES[m.id];
+    if (m.close > m.open) {
+      return `${name} ${m.soldOut ? 'đông khách nên ' : ''}tăng từ ${fmtNumber(m.open)}k lên ${fmtNumber(m.close)}k`;
+    }
+    return `${name} ${m.soldOut ? '' : 'vắng khách nên '}hạ từ ${fmtNumber(m.open)}k xuống ${fmtNumber(m.close)}k`;
+  };
+  const parts = [...up.slice(0, 2), ...down.slice(0, 2)].map(say);
+  const list = parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} và ${parts[parts.length - 1]}`;
+  return `${list}. Không ai ra lệnh: mỗi quán tự nhìn khách của mình mà chỉnh giá.`;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const k = (n: number) => fmtMoney(n);
 const range = (lo: number, hi: number) => (lo === hi ? `${fmtNumber(lo)}k` : `${fmtNumber(lo)}–${fmtNumber(hi)}k`);
+/** "từ 28k đến 34k", or "đều 30k". */
+const rangeWords = (lo: number, hi: number) => (lo === hi ? `đều ${fmtNumber(lo)}k` : `từ ${fmtNumber(lo)}k đến ${fmtNumber(hi)}k`);
 const pct = (part: number, whole: number) => (whole <= 0 ? 0 : Math.round((part / whole) * 100));
 const num = (data: Record<string, number>, key: string) => data[key] ?? 0;
 const inspectionSecond = (cfg: SimConfig) => Math.round(cfg.rumor.inspectionTick * cfg.rush.tickMs / 1000);
@@ -102,29 +138,37 @@ export function lessonText(report: DayReport, run: Pick<RunState, 'flags'>, cfg:
   switch (id) {
     case 'freeMarket': {
       const c = convergence(report.street);
-      const tighter = c.closeSpread < c.openSpread;
-      const story = [
-        `Sáng nay giá trên phố từ ${range(num(data, 'openMin'), num(data, 'openMax'))}. `
-          + `Đến cuối trưa còn ${range(num(data, 'closeMin'), num(data, 'closeMax'))}.`,
-        c.changed === 0
-          ? 'Trưa nay chưa quán nào đổi giá: mai các quán sẽ nhìn bảng giá của nhau mà chỉnh.'
-          : tighter
-            ? `${c.changed}/${c.shops} quán tự đổi giá giữa trưa. Giá mỗi quán cách mức trung bình `
-              + `±${fmtNumber(c.openSpread)}k lúc mở cửa, còn ±${fmtNumber(c.closeSpread)}k lúc đóng cửa: giá đang chụm lại.`
-            : `${c.changed}/${c.shops} quán tự đổi giá giữa trưa, độ lệch so với giá trung bình `
-              + `±${fmtNumber(c.openSpread)}k → ±${fmtNumber(c.closeSpread)}k. Chưa chụm hẳn, nhưng ai cũng đang dò giá của nhau.`,
-      ];
+      const oMin = num(data, 'openMin');
+      const oMax = num(data, 'openMax');
+      const cMin = num(data, 'closeMin');
+      const cMax = num(data, 'closeMax');
+      const tighter = converged(c);
+      const narrowed = cMax - cMin < oMax - oMin;
+      const first = `Sáng nay giá trên phố ${rangeWords(oMin, oMax)}. `
+        + (narrowed ? `Đến cuối trưa còn ${rangeWords(cMin, cMax)}.`
+          : cMin === oMin && cMax === oMax ? `Đến cuối trưa vẫn ${rangeWords(cMin, cMax)}.`
+            : `Đến cuối trưa ${rangeWords(cMin, cMax)}.`);
+      let second: string;
+      if (c.changed === 0) second = 'Trưa nay chưa quán nào đổi giá: mai các quán sẽ nhìn bảng giá của nhau mà chỉnh.';
+      else if (tighter) {
+        second = `${c.changed}/${c.shops} quán tự đổi giá giữa trưa. Giá mỗi quán cách mức trung bình `
+          + `±${fmtNumber(c.openSpread)}k lúc mở cửa, còn ±${fmtNumber(c.closeSpread)}k lúc đóng cửa: giá đang chụm lại.`;
+      } else second = movesSentence(priceMoves(report.street));
       return {
-        hand: 'invisible', kicker: INVISIBLE, title: 'Không ai ra lệnh, giá vẫn tự tìm về một mức',
+        hand: 'invisible', kicker: INVISIBLE,
+        title: tighter ? 'Không ai ra lệnh, giá vẫn tự tìm về một mức' : 'Không ai ra lệnh, giá tự phản ứng theo khách',
         stats: [
-          { label: 'Giá lúc mở', value: range(num(data, 'openMin'), num(data, 'openMax')) },
-          { label: 'Giá lúc đóng', value: range(num(data, 'closeMin'), num(data, 'closeMax')), tone: 'info' },
+          { label: 'Giá lúc mở', value: range(oMin, oMax) },
+          { label: 'Giá lúc đóng', value: range(cMin, cMax), tone: 'info' },
           { label: 'Quán đổi giá', value: `${c.changed}/${c.shops}` },
           { label: 'Độ lệch giá', value: `±${fmtNumber(c.openSpread)}k → ±${fmtNumber(c.closeSpread)}k`, tone: tighter ? 'good' : undefined },
         ],
-        story,
-        moral: 'Mỗi quán chỉ lo cho mình: đắt quá thì ế, rẻ quá thì lỗ. Nhìn nhau chỉnh giá, '
-          + 'cả phố tự kéo về một mức chung. Đó là bàn tay vô hình của thị trường.',
+        story: [first, second],
+        moral: tighter
+          ? 'Mỗi quán chỉ lo cho mình: đắt quá thì ế, rẻ quá thì lỗ. Nhìn nhau chỉnh giá, '
+            + 'cả phố tự kéo về một mức chung. Đó là bàn tay vô hình của thị trường.'
+          : 'Không ai ra lệnh, vậy mà giá vẫn phản ứng theo khách: quán đông thì dám tăng, quán vắng thì phải giảm. '
+            + 'Một buổi trưa chưa đủ để giá chụm lại, nhưng tín hiệu giá đã chạy. Đó là bàn tay vô hình của thị trường.',
       };
     }
     case 'entryRefused': {
@@ -160,8 +204,9 @@ export function lessonText(report: DayReport, run: Pick<RunState, 'flags'>, cfg:
           { label: 'Tiền phạt', value: k(fine), tone: 'bad' },
         ],
         story: [
-          `Hôm qua giá đóng cửa trung bình ${k(a1)}. Hôm nay cả phố cùng giữ giá cao ${k(cfg.cards.cartel.price)}, `
-            + `trung bình ${k(a2)}. Quán mới vào mà giá không giảm: khách hết đường chọn.`,
+          `Hôm qua giá đóng cửa trung bình ${k(a1)}. Hôm nay cả phố cùng giữ giá cao ${k(cfg.cards.cartel.price)}`
+            + (a2 === cfg.cards.cartel.price ? '. ' : ` (trung bình ${k(a2)}). `)
+            + 'Quán mới vào mà giá không giảm: khách hết đường chọn.',
           `Đây không phải cạnh tranh mà là thông đồng: các quán hẹn nhau cùng giữ giá cao. `
             + `Cục Cạnh tranh phạt bạn ${k(fine)}.`,
         ],
@@ -206,7 +251,7 @@ export function lessonText(report: DayReport, run: Pick<RunState, 'flags'>, cfg:
         story: [
           `Hôm nay ${eligible} khách đủ tiền mua một ly, nhưng ${empty} người (${pct(empty, eligible)}%) xếp hàng rồi về tay không.`,
           resting > 0
-            ? `${resting} quán nghỉ bán: bán dưới ${k(ceiling)} không đủ bù giá vốn. Giá rẻ hơn, mà trà lại ít đi.`
+            ? `${resting} quán nghỉ bán: dưới ${k(ceiling)}, lãi mỗi ly sau giá vốn quá mỏng để trả tiền mặt bằng. Giá rẻ hơn, mà trà lại ít đi.`
             : `Quán nào cũng bán ở trần ${k(ceiling)} và hết hàng sớm: giá rẻ hơn, mà trà vẫn không đủ.`,
           black
             ? 'Có người dúi thêm tiền để mua vượt trần, và quán bạn đã bán cửa sau: chợ đen sinh ra như thế.'
@@ -342,41 +387,100 @@ export interface ShopExit {
   id: AiShopId;
   name: string;
   closedOn: Day;
-  /** Why, in one sentence, from its losing days. */
+  /** Why, from what happened on its losing days. */
   why: string;
+  /** What squeezed it, for the moral. */
+  factors: ExitFactor[];
 }
 
-const DAY_SQUEEZE: Record<ThemeId, string> = {
-  opening: 'ngày khai trương bán ế',
-  newShop: 'Chuỗi Tập Đoàn vào phố kéo giá xuống',
-  priceCeiling: 'giá trần không đủ bù giá vốn',
-  tax: 'thuế mỗi ly ăn vào lãi',
-  rumor: 'tin đồn làm khách sợ',
-};
+export type ExitFactor = 'slow' | 'entrant' | 'cartel' | 'ceiling' | 'tax' | 'rumor' | 'named';
+
+/** Day 5: an AI shop the inspection names (it skimps and is not certified), by the config. */
+const namedByInspection = (id: AiShopId, cfg: SimConfig) =>
+  !cfg.aiShops[id].selfCertified && cfg.aiShops[id].rumorSkimpDays >= cfg.rumor.failSkimpDays;
+
+const capital = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 
 /**
- * The AI shops that did not survive (§8 "quán nào không trụ được"), in street order, each with the losing days that
- * closed it. Explains the day-4 exit cluster: the entrant, the ceiling and the tax all squeeze the high-cost shops.
+ * The AI shops that did not survive (§8 "quán nào không trụ được"), in street order. Each reason comes from what
+ * happened on its losing days: that day's rules (entrant, cartel, ceiling, tax, rumor and the inspection naming it),
+ * its price, its cups against its stock, and its loss.
  */
-export function shopExits(shops: readonly AiShopState[], cfg: SimConfig = CONFIG): ShopExit[] {
-  return shops.filter(s => s.status === 'closed' && s.closedOn !== null).map(s => {
+export function shopExits(run: Pick<RunState, 'shops' | 'reports'>, cfg: SimConfig = CONFIG): ShopExit[] {
+  return run.shops.filter(s => s.status === 'closed' && s.closedOn !== null).map(s => {
     const closedOn = s.closedOn as Day;
     const losing = s.history.filter(h => h.day <= closedOn && h.day > closedOn - cfg.aiPricing.exitLossDays && h.profit < 0);
-    const reasons = [...new Set(losing.map(h => (h.rested ? `ngày ${h.day} ${DAY_SQUEEZE[cfg.days[h.day].theme]} nên phải nghỉ bán, mà vẫn trả tiền mặt bằng` : DAY_SQUEEZE[cfg.days[h.day].theme])))];
     const cost = cfg.aiShops[s.id].cost;
-    const days = losing.map(h => h.day).join(' và ');
+    const factors = new Set<ExitFactor>();
+    const reasons = losing.map(h => {
+      const rep = run.reports.find(r => r.summary.day === h.day);
+      const row = rep?.street.find(x => x.id === s.id);
+      const cap = row?.capacity ?? 0;
+      const sales = `bán ${h.sold}/${cap} ly${h.closePrice === null ? '' : ` giá ${k(h.closePrice)}`}`;
+      const sched = cfg.days[h.day];
+      const lessonId = rep?.lesson.id;
+      const loss = `lỗ ${k(-h.profit)}`;
+      if (h.rested) {
+        factors.add('ceiling');
+        return `ngày ${h.day} nghỉ bán: dưới trần ${k(sched.ceiling ?? 0)}, lãi mỗi ly sau giá vốn quá mỏng, `
+          + `mà vẫn mất ${k(cfg.aiPricing.rent)} tiền mặt bằng`;
+      }
+      if (lessonId === 'cartelKept' || lessonId === 'cartelBroke') {
+        factors.add('cartel');
+        return lessonId === 'cartelBroke'
+          ? `ngày ${h.day} cả phố hẹn giữ ${k(cfg.cards.cartel.price)} nhưng quán bạn phá giá hốt khách, nó chỉ ${sales}, ${loss}`
+          : `ngày ${h.day} cả phố cùng giữ ${k(cfg.cards.cartel.price)}, khách chia đều cho các quán, nó chỉ ${sales}, ${loss}`;
+      }
+      switch (sched.theme) {
+        case 'newShop':
+          factors.add('entrant');
+          return `ngày ${h.day} Chuỗi Tập Đoàn vào phố chia khách: ${sales}, ${loss}`;
+        case 'priceCeiling':
+          factors.add('ceiling');
+          return `ngày ${h.day} trần ${k(sched.ceiling ?? 0)}: ${sales}, lãi mỗi ly sau giá vốn quá mỏng để trả tiền mặt bằng, ${loss}`;
+        case 'tax':
+          factors.add('tax');
+          return `ngày ${h.day} thuế ${k(sched.taxPerCup)}/ly ăn vào lãi: ${sales}, ${loss}`;
+        case 'rumor':
+          if (namedByInspection(s.id, cfg)) {
+            factors.add('named');
+            return `ngày ${h.day} kiểm định nêu tên quán vì ăn bớt; khách quay lại phố nhưng tránh nó: ${sales}, ${loss}`;
+          }
+          factors.add('rumor');
+          return `ngày ${h.day} tin đồn làm khách sợ: ${sales}, ${loss}`;
+        default:
+          factors.add('slow');
+          return `ngày ${h.day} ế khách: ${sales}, ${loss}`;
+      }
+    });
     return {
-      id: s.id, name: SHOP_NAMES[s.id], closedOn,
-      why: `Giá vốn ${k(cost)}/ly, lỗ ngày ${days}: ${reasons.join('; ')}.`,
+      id: s.id, name: SHOP_NAMES[s.id], closedOn, factors: [...factors],
+      why: `Giá vốn ${k(cost)}/ly, lỗ ${losing.length} ngày liền. ${reasons.map(capital).join('. ')}.`,
     };
   });
 }
 
-/** The line under the exit list: why so many shops close around day 4. */
+const FACTOR_WORDS: Record<ExitFactor, string> = {
+  slow: 'ế khách ngày khai trương', entrant: 'quán mới vào chia khách', cartel: 'thoả thuận giữ giá chia đều khách',
+  ceiling: 'giá trần', tax: 'thuế', rumor: 'tin đồn', named: 'kiểm định công bố quán ăn bớt',
+};
+const FACTOR_ORDER: readonly ExitFactor[] = ['slow', 'entrant', 'cartel', 'ceiling', 'tax', 'rumor', 'named'];
+
+/** The line under the exit list, built from what actually closed the shops in this run. */
 export function exitMoral(exits: readonly ShopExit[]): string | null {
   if (exits.length === 0) return null;
-  return 'Quán mới, giá trần rồi thuế dồn dập trong ba ngày: quán nào giá vốn cao, lãi mỏng thì không trụ nổi. '
-    + 'Thị trường đào thải người bán kém hiệu quả, còn chính sách thì làm việc đào thải ấy nhanh hơn.';
+  const all = new Set(exits.flatMap(e => e.factors));
+  const words = FACTOR_ORDER.filter(f => all.has(f) && f !== 'named').map(f => FACTOR_WORDS[f]);
+  const lines: string[] = [];
+  if (words.length > 0) {
+    const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} rồi ${words[words.length - 1]}`;
+    lines.push(`${capital(list)}: quán nào lãi mỗi ly mỏng thì lỗ trước, lỗ hai ngày liền là phải sang nhượng.`);
+  }
+  if (all.has('named')) {
+    lines.push('Quán bị kiểm định nêu tên không thua vì giá: thông tin thật được công bố thì khách bỏ người ăn gian.');
+  }
+  lines.push('Thị trường đào thải quán lỗ kéo dài; chính sách và thông tin làm việc ấy nhanh hay chậm hơn.');
+  return lines.join(' ');
 }
 
 /**

@@ -320,12 +320,27 @@
 .exits__moral { margin: 8px 0 0; font-size: 13.5px; line-height: 1.45; padding: 7px 10px; border-radius: 10px; background: var(--caramel-soft); color: var(--caramel-deep); font-weight: 600; }
 .end-vote .cards__table { width: 100%; max-height: none; }
 .end-vote .cards__dealt { width: 100%; }
-.end-vote .ccard__stage { flex: none; height: 120px; }
+.end-vote .ccard__stage { flex: none; height: 96px; }
+.end-vote .ccard__top { padding: 5px 12px; }
+.end-vote .ccard__body { padding: 8px 12px 10px; }
+.end-vote .ccard__name { font-size: 17px; }
 .end-vote .ccard__swipe { display: none; }
-.end-vote .ccard__lines p { font-size: 14px; }
+.end-vote .ccard__lines p { font-size: 13.5px; padding: 6px 10px; }
 .end-vote .cards__choices { width: 100%; margin-top: 10px; grid-template-columns: 1fr; }
 .end-vote .affects--none { display: none; }
-.end-vote .choice { min-height: 52px; }
+.end-vote .choice { min-height: 48px; padding: 8px 12px; }
+.end-score__note { margin: 6px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--ink-faint); }
+
+/* scroll affordance (useScrollFade): fading edges and a sticky hint while content is hidden */
+[data-fade='bottom'] { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 46px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 46px), transparent); }
+[data-fade='top'] { -webkit-mask-image: linear-gradient(0deg, #000 calc(100% - 30px), transparent); mask-image: linear-gradient(0deg, #000 calc(100% - 30px), transparent); }
+[data-fade='both'] { -webkit-mask-image: linear-gradient(180deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); mask-image: linear-gradient(180deg, transparent, #000 30px, #000 calc(100% - 46px), transparent); }
+.report__col[data-fade='bottom']::after, .report__col[data-fade='both']::after,
+.end__col[data-fade='bottom']::after, .end__col[data-fade='both']::after {
+  content: 'Cuộn xem tiếp ↓'; position: sticky; bottom: 0; justify-self: center; z-index: 2;
+  padding: 3px 12px; border-radius: var(--r-pill); background: var(--ink); color: var(--paper);
+  font-size: 12px; font-weight: 700; pointer-events: none;
+}
 .end-vote__done { margin: 0; font-weight: 700; color: var(--matcha-deep); }
 .end__wait { margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; font-weight: 700; padding: 8px 0; }
 
@@ -348,6 +363,11 @@
   .end--lost .end__hero-in { margin-top: 0; margin-right: 130px; padding: 6px 10px; }
   .shutter__sign { font-size: 12px; padding: 3px 8px; }
   .end__col--c { grid-column: 1 / -1; }
+  .end { display: block; overflow-y: auto; overscroll-behavior: contain; top: calc(var(--top) + var(--hud-h) + 6px); padding-top: 0; }
+  .pbars { max-width: 300px; }
+  .end__body { overflow: visible; padding-bottom: 8px; }
+  .end__foot { position: sticky; bottom: 0; z-index: 3; }
+  .end[data-fade] { -webkit-mask-image: none; mask-image: none; }
 }
 
 /* ================= Computer: a centred frame ================= */
@@ -388,9 +408,10 @@
   .report__foot .btn, .end__foot .btn { width: auto; min-width: 300px; }
   .end__body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); padding: 0; overflow: hidden; }
   .end__col { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 10px; scrollbar-width: thin; }
-  .end__body:has(.end__col--c) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.9fr); }
-  .end__hero { padding: 16px 24px; }
-  .end__title { font-size: 46px; }
+  .end__body:has(.end__col--c) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); }
+  .end__line { font-size: 14px; }
+  .end__hero { padding: 14px 24px; }
+  .end__title { font-size: 42px; }
   .end--lost .end__hero { min-height: 170px; }
 }
 @media (min-width: 1100px) and (min-height: 620px) and (max-height: 760px) {

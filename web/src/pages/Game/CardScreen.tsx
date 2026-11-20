@@ -240,6 +240,8 @@ export function CardView({ card, index, total, day, onChoose, inline }: CardView
   }, [onChoose, reduced, x]);
 
   useEffect(() => {
+    // An inline card (the end screen's vote) answers only to its own buttons: a stray arrow key must not vote.
+    if (inline) return undefined;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); choose('A'); }
@@ -247,7 +249,7 @@ export function CardView({ card, index, total, day, onChoose, inline }: CardView
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [choose]);
+  }, [choose, inline]);
 
   const onDragEnd = (_: unknown, info: PanInfo) => {
     const off = info.offset.x;

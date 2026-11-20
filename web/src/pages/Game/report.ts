@@ -36,7 +36,11 @@ export function moneyRows(r: DayReport, cfg: SimConfig = CONFIG): MoneyRow[] {
   }
   if (r.upgradeCost > 0) rows.push({ key: 'upgrade', label: 'Nâng cấp sáng nay', value: -r.upgradeCost, kind: 'out' });
   if (r.delayedCash !== 0) rows.push({ key: 'delayed', label: 'Tiền thẻ hôm trước', value: r.delayedCash, kind: 'out' });
-  if (r.cardCash !== 0) rows.push({ key: 'card', label: 'Tiền thẻ chiều nay', value: r.cardCash, kind: 'out' });
+  // The tax-evade refund is card money, shown on its own line so the lesson's "lấy lại Xk" can be found here.
+  const refund = s.cards.some(c => c.id === 'tax' && c.choice === 'B') ? s.tax : 0;
+  if (refund !== 0) rows.push({ key: 'refund', label: 'Hoàn thuế (khai gian)', value: refund, kind: 'out' });
+  const card = r.cardCash - refund;
+  if (card !== 0) rows.push({ key: 'card', label: 'Tiền thẻ chiều nay', value: card, kind: 'out' });
   return rows;
 }
 
@@ -105,6 +109,12 @@ export function repSteps(r: DayReport, cfg: SimConfig = CONFIG): RepStep[] {
   });
   if (steps.length > 0) steps[steps.length - 1].after = r.summary.rep;
   return steps;
+}
+
+/** The meter's value after `shown` steps (safe for any count, also with no steps at all). */
+export function meterValue(steps: readonly RepStep[], shown: number, before: number): number {
+  const n = Math.min(Math.max(0, shown), steps.length);
+  return n === 0 ? before : steps[n - 1].after;
 }
 
 /**

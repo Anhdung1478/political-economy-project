@@ -13,9 +13,10 @@ import { InvisibleHand, VisibleHand } from '../../ui/Hands';
 import { SHOP_ICONS, TEA_NAMES, themeTitle } from './copy';
 import { lessonText, type LessonText } from './lessons';
 import {
-  STREET_TAG_TEXT, cashBefore, customerRows, moneyRows, priceScale, repSteps, rowMoney, skimpTrade, streetRows,
+  STREET_TAG_TEXT, cashBefore, customerRows, meterValue, moneyRows, priceScale, repSteps, rowMoney, skimpTrade, streetRows,
   trailPath, type StreetRow,
 } from './report';
+import { useScrollFade } from './scrollFade';
 import './afternoon.css';
 
 type Dispatch = (i: Intent) => void;
@@ -143,7 +144,7 @@ function RepSection({ r, delay }: { r: DayReport; delay: number }) {
   const reduced = useReducedMotion() ?? false;
   const [shown, setShown] = useState(reduced ? steps.length : 0);
   useEffect(() => {
-    if (reduced) { setShown(steps.length); return; }
+    if (reduced || steps.length === 0) { setShown(steps.length); return undefined; }
     let n = 0;
     let t = window.setTimeout(function tick() {
       n += 1;
@@ -152,9 +153,8 @@ function RepSection({ r, delay }: { r: DayReport; delay: number }) {
     }, (delay + 0.5) * 1000);
     return () => window.clearTimeout(t);
   }, [steps, delay, reduced]);
-  const value = shown === 0 ? r.repBefore : steps[shown - 1].after;
+  const value = meterValue(steps, shown, r.repBefore);
   const trade = skimpTrade(r);
-  const last = steps[shown - 1];
   return (
     <Section title="Uy tín" icon="⭐" delay={delay} className="rsec--rep">
       <div className="repmeter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={r.summary.rep}
@@ -168,7 +168,7 @@ function RepSection({ r, delay }: { r: DayReport; delay: number }) {
           <span>{r.repBefore}</span>
           <span aria-hidden="true">→</span>
           <motion.b key={value} initial={reduced ? false : { scale: 1.35 }} animate={{ scale: 1 }}
-            className={cx(last && (last.delta < 0 ? 'fx--bad' : 'fx--good'))}>{value}</motion.b>
+            className={cx(value < r.repBefore ? 'fx--bad' : value > r.repBefore ? 'fx--good' : undefined)}>{value}</motion.b>
         </span>
       </div>
       {steps.length === 0
@@ -187,7 +187,7 @@ function RepSection({ r, delay }: { r: DayReport; delay: number }) {
         )}
       {trade !== null && (
         <p className="skimp-note">
-          <b>Trà {TEA_NAMES.skimp.toLowerCase()}:</b> đỡ được {fmtMoney(trade.saved)} tiền trà, đổi lại {trade.rep} uy tín,
+          <b>Trà {TEA_NAMES.skimp.toLowerCase()}:</b> đỡ được {fmtMoney(trade.saved)} tiền trà, đổi lại −{Math.abs(trade.rep)} uy tín,
           tức mất khoảng {fmtMoney(-trade.brand)} giá trị thương hiệu cuối ván.
         </p>
       )}
@@ -311,6 +311,9 @@ export function ReportScreen({ run, dispatch, rank }: ReportScreenProps) {
   const lessonRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [lessonSeen, setLessonSeen] = useState(false);
+  const fadeA = useScrollFade();
+  const fadeB = useScrollFade();
+  const fadeC = useScrollFade();
   useEffect(() => {
     const el = lessonRef.current;
     if (el === null || typeof IntersectionObserver === 'undefined') { setLessonSeen(true); return; }
@@ -355,15 +358,15 @@ export function ReportScreen({ run, dispatch, rank }: ReportScreenProps) {
         {s.lost && <p className="report__lost" role="alert">Uy tín về 0: khách không còn tin quán nữa.</p>}
       </header>
       <div className="report__body" ref={bodyRef}>
-        <div className="report__col report__col--a">
+        <div className="report__col report__col--a" ref={fadeA}>
           <MoneySection r={r} delay={0.15} />
           <CustomerSection r={r} delay={0.3} />
         </div>
-        <div className="report__col report__col--b">
+        <div className="report__col report__col--b" ref={fadeB}>
           <RepSection r={r} delay={0.45} />
           <StreetSection r={r} run={run} delay={0.6} />
         </div>
-        <div className="report__col report__col--c" ref={lessonRef}>
+        <div className="report__col report__col--c" ref={el => { lessonRef.current = el; fadeC(el); }}>
           <LessonCard lesson={lesson} day={s.day} delay={0.8} />
         </div>
       </div>
