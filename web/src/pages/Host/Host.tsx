@@ -1,13 +1,15 @@
-// /host, temporary page (Task 24): the host key flow and the three session controls. Task 26 replaces the body with
-// the projector view and the private board.
+// /host (spec §11 "Màn hình host"): the host key flow, then two views switched with a toggle: the projector view for
+// the class (ProjectorView) and the private live board (BoardView, only after auth, from `host:board`).
 import { useCallback, useState, type FormEvent } from 'react';
 import type { SessionPhase } from '../../../../shared/protocol';
 import { connect, isNetTimeout, useOnConnect, useSession } from '../../net/socket';
 import { Button } from '../../ui/Button';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
+import { cx } from '../../ui/cx';
 import { Input } from '../../ui/Input';
-import { JoinQR } from '../../ui/JoinQR';
-import { Modal } from '../../ui/Modal';
+import { BoardView } from './BoardView';
+import { HostControls } from './HostControls';
+import { ProjectorView } from './ProjectorView';
 import './host.css';
 
 // Remembered on this device (not just this tab), so reopening /host needs no typing.
@@ -16,6 +18,17 @@ const keySet = (k: string) => { try { localStorage.setItem(HOST_KEY_STORE, k); }
 const keyGet = () => { try { return localStorage.getItem(HOST_KEY_STORE); } catch { return null; } };
 const keyForget = () => { try { localStorage.removeItem(HOST_KEY_STORE); } catch { /* private mode */ } };
 
+type View = 'projector' | 'board';
+// The last view, for this tab; `?view=board` picks one on load (handy for screenshots).
+const VIEW_STORE = 'pts.hostView';
+function initialView(): View {
+  const q = new URLSearchParams(location.search).get('view');
+  let saved: string | null = null;
+  try { saved = sessionStorage.getItem(VIEW_STORE); } catch { /* private mode */ }
+  const v = q ?? saved;
+  return v === 'board' ? 'board' : 'projector';
+}
+
 const PHASE_TEXT: Record<SessionPhase, string> = { lobby: 'Phòng chờ', open: 'Chợ đang mở', awards: 'Đã trao giải' };
 
 export default function Host() {
@@ -23,7 +36,11 @@ export default function Host() {
   const [key, setKey] = useState(() => (new URLSearchParams(location.search).get('key') ?? keyGet() ?? '').trim());
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [problem, setProblem] = useState<'wrong' | 'network' | null>(null);
-  const [confirm, setConfirm] = useState(false);
+  const [view, setViewState] = useState<View>(initialView);
+  const setView = (v: View) => {
+    setViewState(v);
+    try { sessionStorage.setItem(VIEW_STORE, v); } catch { /* private mode */ }
+  };
 
   const auth = useCallback(() => {
     if (!key) { setProblem(null); setAuthed(false); return; }
@@ -53,24 +70,34 @@ export default function Host() {
   if (!state || authed === null) return <div className="boot"><span /><span /><span /></div>;
 
   const client = connect();
-  const { counts } = state;
+  const controls = <HostControls phase={state.phase} onOpen={() => client.open()} onAwards={() => client.awards()}
+    onReset={() => client.reset()} />;
+  const toggle = (
+    <div className="vtoggle" role="tablist" aria-label="Chế độ xem">
+      <button type="button" role="tab" aria-selected={view === 'projector'} className={cx(view === 'projector' && 'is-on')}
+        onClick={() => setView('projector')}>📽️ Màn chiếu</button>
+      <button type="button" role="tab" aria-selected={view === 'board'} className={cx(view === 'board' && 'is-on')}
+        onClick={() => setView('board')}>📋 Bảng theo dõi</button>
+    </div>
+  );
+
   return (
-    <div className="keyform card">
+    <div className="host" data-host-ready="1">
       <ConnectionBadge connected={connected} />
-      <h1>Phố Trà Sữa · {state.code}</h1>
-      <p>{PHASE_TEXT[state.phase]} · {counts.joined} đã vào · {counts.playing} đang chơi · {counts.finished} đã xong
-        {board ? ` · bảng: ${board.members.length} dòng` : ''}</p>
-      {state.phase === 'lobby' && <JoinQR size={200} />}
-      <Button size="lg" onClick={() => client.open()} disabled={state.phase !== 'lobby'}>Mở chợ</Button>
-      <Button size="lg" variant="caramel" onClick={() => client.awards()} disabled={state.phase !== 'open'}>Trao giải</Button>
-      <Button variant="ghost" onClick={() => setConfirm(true)} icon="↺">Reset</Button>
-      <Modal open={confirm} title="Bắt đầu buổi mới?" onClose={() => setConfirm(false)}
-        actions={<>
-          <Button variant="secondary" onClick={() => setConfirm(false)}>Thôi</Button>
-          <Button variant="danger" onClick={() => { client.reset(); setConfirm(false); }}>Reset</Button>
-        </>}>
-        <p>Seed và mã buổi mới; kết quả và bình chọn bị xoá. Người đang kết nối được giữ tên, không cần quét lại.</p>
-      </Modal>
+      {view === 'projector' ? <>
+        <ProjectorView state={state} />
+        <div className="hdock">{toggle}{controls}</div>
+      </> : <>
+        <header className="hbar">
+          <span className="hbar__brand">Phố <em>Trà Sữa</em></span>
+          <span className="hbar__code">Mã <b>{state.code}</b></span>
+          <span className={`chip hbar__phase hbar__phase--${state.phase}`}>{PHASE_TEXT[state.phase]}</span>
+          <span className="hbar__spacer" />
+          {toggle}
+          {controls}
+        </header>
+        {board ? <BoardView board={board} /> : <div className="boot"><span /><span /><span /></div>}
+      </>}
     </div>
   );
 }
