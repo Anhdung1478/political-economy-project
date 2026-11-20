@@ -20,7 +20,9 @@ describe('solo helpers', () => {
     const store = memoryStore({ [KEYS.best]: '1234' });
     save(store, KEYS.solo, startRun(7, 'r1'));
     expect(titleInfo(store)).toEqual({ resumeDay: 1, best: 1234 });
+    store.set(`${KEYS.solo}.title`, 'r1:1');
     clearSavedRun(store);
+    expect(store.get(`${KEYS.solo}.title`)).toBeNull();
     expect(titleInfo(store).resumeDay).toBeNull();
   });
   it('a finished run is not resumable', () => {

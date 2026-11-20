@@ -10,3 +10,11 @@
 .solo__actions { display: grid; gap: 10px; }
 .solo__best { margin: 16px 0 0; color: var(--ink-soft); font-size: 0.9rem; }
 .solo__best b { color: var(--caramel-deep); }
+@media (max-height: 460px) {
+  .solo { padding: 8px; }
+  .solo__card { padding: 14px 20px 14px; max-height: 100%; overflow: auto; }
+  .solo__name { font-size: 1.9rem; }
+  .solo__pitch { margin: 6px 0 12px; font-size: 0.9rem; }
+  .solo__actions { grid-auto-flow: column; grid-auto-columns: 1fr; }
+  .solo__best { margin-top: 10px; }
+}
