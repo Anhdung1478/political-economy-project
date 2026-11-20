@@ -218,7 +218,10 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
 
         <section className="morning__plan panel scrolly" aria-label="Kế hoạch sáng nay">
           <fieldset className="field-block blk-price" disabled={leaving}>
-            <legend className="block__title">Giá ly M <small>không topping</small></legend>
+            <legend className="block__title">
+              Giá ly M <small>không topping</small>
+              {brief.rules.ceiling !== null && <span className="tag tag--bad price__cap">Trần {fmtMoney(brief.rules.ceiling)}</span>}
+            </legend>
             <div className="price" ref={priceRef}>
               <Stepper label="Giá ly M (nghìn đồng)" value={local.price} min={range.min} max={range.max}
                 step={(v, s) => clampPrice(v + s * range.step, brief.rules.ceiling)} format={fmtMoney}
@@ -229,12 +232,11 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                 style={{ '--fill': `${((Math.min(range.max, local.price) - range.min) / (range.max - range.min)) * 100}%` } as CSSProperties}
                 onChange={e => edit({ price: Number(e.target.value) })} />
               <p className="price__meta">
-                {brief.rules.ceiling !== null && <span className="tag tag--bad">Trần {fmtMoney(brief.rules.ceiling)}</span>}
                 {average !== null && <span>Hôm qua cả phố (gồm quán bạn) trung bình <b>{fmtMoney(average)}</b></span>}
                 <span>S −{fmtMoney(-CONFIG.pricing.sizeSurcharge.S)}, L +{fmtMoney(CONFIG.pricing.sizeSurcharge.L)}, mỗi topping +{fmtMoney(CONFIG.pricing.toppingSurcharge)}</span>
               </p>
             </div>
-            <Issues list={issuesAt('price')} ceiling={brief.rules.ceiling} />
+            <Issues list={issuesAt('price')} ceiling={brief.rules.ceiling} className="issue--inline" />
           </fieldset>
 
           <fieldset className="field-block blk-stock" disabled={leaving}>
@@ -264,7 +266,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             {brief.toppingCost !== CONFIG.supplies.toppingCost && (
               <p className="hint hint--warn">Topping "giá sốc" chỉ {fmtMoney(brief.toppingCost)}/phần… nguồn gốc thì đừng hỏi.</p>
             )}
-            <Issues list={[...issuesAt('tea'), ...issuesAt('toppings')]} ceiling={brief.rules.ceiling} />
+            <Issues list={[...issuesAt('tea'), ...issuesAt('toppings')]} ceiling={brief.rules.ceiling} className="issue--inline" />
           </fieldset>
 
           <fieldset className="field-block blk-tea" disabled={leaving}>
@@ -301,13 +303,14 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                     onClick={() => edit({ upgrade: on ? null : u })}>
                     <span className="upgrade__icon" aria-hidden="true">{UPGRADE_ICONS[u]}</span>
                     <b>{UPGRADE_NAMES[u]}</b>
-                    <small>{upgradeLine(u)}</small>
+                    <small className="upgrade__long">{upgradeLine(u)}</small>
+                    <small className="upgrade__short">{upgradeShort(u)}</small>
                     <span className="upgrade__price">{owned ? 'Đã có' : fmtMoney(CONFIG.upgrades[u].cost)}</span>
                   </button>
                 );
               })}
             </div>
-            <Issues list={issuesAt('upgrade')} ceiling={brief.rules.ceiling} />
+            <Issues list={issuesAt('upgrade')} ceiling={brief.rules.ceiling} className="issue--inline" />
           </fieldset>
         </section>
       </div>
@@ -321,16 +324,21 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             </motion.button>
           )}
         </AnimatePresence>
-        <p className="capacity"><span aria-hidden="true">⚡</span> Sức pha hôm nay: khoảng <b>{capacity} ly</b></p>
-        <Issues list={issuesAt('cost')} ceiling={brief.rules.ceiling} />
-        {atFloor && (
-          <p className="issue" role="status">
-            Tiền đã chạm đáy mua chịu ({fmtMoney(floor)}): chỉ mở cửa được với kệ trống.{' '}
-            <button type="button" className="linkish" disabled={leaving}
-              onClick={() => edit({ teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 }, upgrade: null })}>Dọn kệ</button>
-          </p>
-        )}
-        {openError && <p className="issue" role="alert">Xe hàng quay đầu: chưa mở được cửa. Kiểm tra lại kế hoạch rồi bấm Mở cửa lần nữa.</p>}
+        <div className="foot-info">
+          <p className="capacity"><span aria-hidden="true">⚡</span> Sức pha hôm nay: khoảng <b>{capacity} ly</b></p>
+          <div className="foot-issues">
+            <Issues list={issuesAt('cost')} ceiling={brief.rules.ceiling} />
+            <Issues list={issues.filter(i => ISSUE_FIELD[i] !== 'cost')} ceiling={brief.rules.ceiling} className="issue--desk" />
+            {atFloor && (
+              <p className="issue" role="status">
+                Tiền đã chạm đáy mua chịu ({fmtMoney(floor)}): chỉ mở cửa được với kệ trống.{' '}
+                <button type="button" className="linkish" disabled={leaving}
+                  onClick={() => edit({ teaMl: 0, toppings: { pearl: 0, jelly: 0, pudding: 0 }, upgrade: null })}>Dọn kệ</button>
+              </p>
+            )}
+            {openError && <p className="issue" role="alert">Xe hàng quay đầu: chưa mở được cửa. Kiểm tra lại kế hoạch rồi bấm Mở cửa lần nữa.</p>}
+          </div>
+        </div>
         <div className="money">
           <div className="money__row">
             <span>Nhập hàng</span>
@@ -344,7 +352,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             <b className={cost.cashAfter < 0 ? 'fx--bad' : ''}>{fmtMoney(cost.cashAfter)}</b>
           </div>
           {cost.cashAfter < 0 && issues.every(i => i !== 'credit') && (
-            <div className="money__parts">Đang mua chịu, hạn mức tới {fmtMoney(floor)}.</div>
+            <div className="money__parts money__credit">Đang mua chịu, hạn mức tới {fmtMoney(floor)}.</div>
           )}
         </div>
         <Button variant="primary" size="xl" block className="open-btn" disabled={issues.length > 0 || leaving}
@@ -361,11 +369,20 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
   );
 }
 
-function Issues({ list, ceiling }: { list: readonly PlanIssue[]; ceiling: number | null }) {
+/** A short effect line for compact upgrade tiles (numbers from the config). */
+function upgradeShort(u: UpgradeId): string {
+  switch (u) {
+    case 'staff': return `Phụ pha ${CONFIG.craft.staffTicks / 10}s/ly`;
+    case 'machine': return 'Rót trà ×2 nhanh';
+    case 'banner': return `+${CONFIG.upgrades.banner.rep} uy tín`;
+  }
+}
+
+function Issues({ list, ceiling, className }: { list: readonly PlanIssue[]; ceiling: number | null; className?: string }) {
   return (
     <AnimatePresence initial={false}>
       {list.map(i => (
-        <motion.p key={i} className="issue" role="alert"
+        <motion.p key={i} className={cx('issue', className)} role="alert"
           initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
           <span aria-hidden="true">⚠️</span> {issueText(i, ceiling)}
         </motion.p>
