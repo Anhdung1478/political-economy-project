@@ -256,6 +256,29 @@ Mọi task review bởi Fable 5.2. Model và effort của implementer:
 - Ưu tiên giữ các con số người chơi nhìn thấy trong spec; ghi mọi thay đổi (cũ → mới, lý do) vào báo cáo và cập nhật bảng tương ứng trong spec.
 - Rủi ro đã biết: ăn bớt ngày cuối có thể vẫn lời; giá ngày 2 có thể không tụt đủ 3k; cartel có ba ràng buộc cùng lúc; ngày giá trần làm nhiều quán AI lỗ.
 
+### Task 30: Quán cũ phản ứng khi có quán mới (đổi luật)
+
+Thêm sau Task 13 theo quyết định của người dùng (2026-11-20): để đạt B5, Task 13 phải đặt giá ngày đầu rất cao, làm ngày thường có tỉ lệ khách về tay không ngang ngày giá trần. Người dùng chọn đổi luật thay vì nới điều kiện.
+
+**File:** spec (mục 4 "6 quán AI", mục 14, mục 16), `shared/sim/config.ts` (tham số mới), `shared/sim/shops.ts` (+test), `scripts/balance-checks.ts` (+test), `scripts/balance.ts`; sửa các chú thích còn ghi số cũ (`shops.ts:149`, `day.ts:369`, `autoplay.ts:343`).
+
+1. **Luật mới (spec mục 4, sau bảng 6 quán AI):** "**Phản ứng khi có quán mới.** Sáng ngày một quán AI khai trương, mọi quán AI đang mở trừ Ông Cố Chấp đặt giá không cao hơn giá khai trương của quán mới cộng 2k, sau khi áp luật riêng của mình. Khách bị chia: quán nào giữ giá cao sẽ mất khách sang quán mới." Khoảng 2k và danh sách quán không phản ứng nằm trong config. Người chơi không bị ép.
+2. `morningPrices` áp luật này rồi mới kẹp giá. Test: ngày 2 không cartel, mỗi quán cũ (trừ Cố Chấp) có giá ≤ giá Tập Đoàn + 2k; ngày có cartel không áp (giá cartel 36k thắng); các ngày khác không đổi.
+3. **Hai điều kiện cân bằng mới (spec mục 14, danh sách "Giả lập báo lỗi khi"):**
+   - B13: "Trên lối chơi hợp lý, tỉ lệ khách về tay không ngày giá trần thấp hơn 2 lần trung bình của ngày 1 và ngày 2."
+   - B14: "Việc Chuỗi Tập Đoàn mở cửa làm giá đóng cửa trung bình của phố ngày 2 giảm dưới 2k so với chạy đối chứng không có quán mới." Chạy đối chứng: cùng seed, lối chơi hợp lý, config với Tập Đoàn không bao giờ mở (`firstDay` quá ngày 5); so theo cặp seed.
+4. Mục 16 thêm một dòng ghi quyết định này.
+5. Không chỉnh các con số khác (Task 31 làm). `npm run balance` có thể trượt; ghi kết quả vào báo cáo.
+
+### Task 31: Chỉnh số lại sau khi đổi luật
+
+**File:** như Task 13.
+
+- Như Task 13: chỉ đổi giá trị trong `config.ts` (cùng bảng spec và test ghim số) cho tới khi `npm run balance` thoát 0 với mọi điều kiện, gồm B13 và B14.
+- Đưa giá ngày đầu của quán AI về gần mức ban đầu của spec (khoảng 22–34k) thay vì 36–40k.
+- Biên an toàn: với `--seeds 100` trên ba dải seed khác nhau (ví dụ từ 1, 1000, 5000), không điều kiện nào nằm trong 5% sát ngưỡng; riêng B8c nên dưới 130.
+- Băng rôn không được thành điểm miễn phí: giá trị thương hiệu của +10 uy tín phải thấp hơn giá băng rôn.
+
 **Xong giai đoạn 1 khi:** `npm test`, `npm run typecheck`, `npm run balance` đều qua.
 
 ---
