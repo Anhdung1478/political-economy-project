@@ -19,7 +19,7 @@ import type { Intent } from '../../game/runStore';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import {
-  SHOP_ICONS, TEA_ICONS, TEA_NAMES, TOPPING_NAMES, UPGRADE_ICONS, UPGRADE_NAMES, dayTitle, upgradeLine,
+  TEA_ICONS, TEA_NAMES, TOPPING_NAMES, UPGRADE_ICONS, UPGRADE_NAMES, dayTitle, upgradeLine,
 } from './copy';
 import { Stepper } from './controls';
 import { DeliveryVan, Shelf } from './MorningArt';
@@ -192,18 +192,17 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
             <span>Bản tin phường</span>
             <span className="news__mast-day">Sáng ngày {brief.day}</span>
           </header>
-          <h2 id="news-title" className="news__headline"><span aria-hidden="true">{title.emoji}</span> {title.title}</h2>
+          <h2 id="news-title" className="news__headline">{title.title}</h2>
           <ul className="news__rules">
             {ruleLines(brief).map(l => <li key={l}>{l}</li>)}
           </ul>
-          {note !== null && <p className="news__entry" role="note"><span aria-hidden="true">📣</span> {note}</p>}
+          {note !== null && <p className="news__entry" role="note">{note}</p>}
           {brief.news.length > 0 && (
             <ul className="news__mail" aria-label="Chuyện hôm trước">
               {brief.news.map((n, i) => {
                 const line = newsLine(n);
                 return (
                   <li key={i}>
-                    <span aria-hidden="true">{line.icon}</span>
                     <span>
                       {line.text}{' '}
                       {line.effects.map(e => (
@@ -230,7 +229,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
                   <tbody>
                     {rows.map(r => (
                       <tr key={r.id} className={cx(r.you && 'is-you', r.dim && 'is-dim')}>
-                        <th scope="row"><span aria-hidden="true">{SHOP_ICONS[r.id]}</span> {r.name}</th>
+                        <th scope="row">{r.name}</th>
                         <td className="num">{r.price}</td>
                         <td className="num">{r.sold}</td>
                         <td>{r.note && <span className={cx('tag', `tag--${r.note.tone}`)}>{r.note.text}</span>}</td>
@@ -279,7 +278,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
               ))}
             </div>
             <Shelf plan={local} />
-            <p className="hint"><span aria-hidden="true">💡</span> {hintLine(brief)}</p>
+            <p className="hint">{hintLine(brief)}</p>
             <div className="stock-wrap"><div className="stock">
               <Stepper label="Trà (ml)" value={local.teaMl} step={(v, s) => stepTea(v, s)} format={v => fmtNumber(v)}
                 valueText={v => `${fmtNumber(v)} ml`} onChange={teaMl => edit({ teaMl })} invalid={issuesAt('tea').length > 0}>
@@ -354,7 +353,7 @@ export function MorningScreen({ run, planDraft, dispatch, entrants, focusPrice }
           )}
         </AnimatePresence>
         <div className="foot-info">
-          <p className="capacity"><span aria-hidden="true">⚡</span> Sức pha hôm nay: khoảng <b>{capacity} ly</b></p>
+          <p className="capacity">Sức pha hôm nay: khoảng <b>{capacity} ly</b></p>
           <div className="foot-issues">
             <Issues list={issuesAt('cost')} ceiling={brief.rules.ceiling} upgrade={upgradePicked} />
             {issues.includes('credit') && !atFloor && (

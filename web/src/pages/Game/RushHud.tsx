@@ -9,11 +9,12 @@ import { fmtCountdown, fmtMoney, secondsLeft } from '../../game/format';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Modal } from '../../ui/Modal';
-import { hudMoney, TOPPING_NAMES } from './copy';
+import { hudMoney, repTip, TOPPING_NAMES } from './copy';
 import { Stepper } from './controls';
 import { SizeIcon, ToppingIcon } from './CounterCustomer';
 import { priceRange } from './morning';
 import { fmtMl, priceImpact, priceLines, stockView, TOPPINGS } from './rush';
+import { StatTip } from './StatTip';
 
 /** A number that runs up (or down) to its value, `delay` ms after it changes (so the coins land first). */
 export function CountUp({ value, format, delay = 0, onBump }: {
@@ -104,7 +105,7 @@ function RushHudView(p: RushHudProps) {
           <span aria-hidden="true" className="rhud__coin" />
           <b ref={p.cashRef}><CountUp value={p.cash} format={hudMoney} delay={560} onBump={() => setBump(b => b + 1)} /></b>
         </span>
-        <span className="rhud__stat" aria-label={`Uy tín ${p.rep}`}><span aria-hidden="true">⭐</span><b>{p.rep}</b></span>
+        <StatTip className="rhud__stat" label={`Uy tín ${p.rep}`} tip={repTip()}><span aria-hidden="true">⭐</span><b>{p.rep}</b></StatTip>
         <span className="rhud__stat rhud__cups" aria-label={`Đã bán ${p.cups} ly`}><SizeIcon size="M" px={18} /><b>{p.cups}</b><small>ly</small></span>
         <span className="rhud__spacer" />
         <button type="button" className={cx('rhud__price', p.priceChanged && 'is-used')} onClick={p.onPrice}

@@ -16,7 +16,7 @@ import { resumeOrStart, useRun } from '../../game/useRun';
 import type { TimeOfDay } from '../../scene/lighting';
 import { StreetCanvas, type StreetCanvasHandle } from '../../scene/StreetCanvas';
 import { cx } from '../../ui/cx';
-import { PHASE_LABELS, hudMoney } from './copy';
+import { PHASE_LABELS, cashTip, hudMoney, repTip } from './copy';
 import { DayTitle } from './DayTitle';
 import { MorningScreen } from './MorningScreen';
 import { ruleLines } from './morning';
@@ -24,6 +24,7 @@ import { CardScreen } from './CardScreen';
 import { EndScreen } from './EndScreen';
 import { ReportScreen } from './ReportScreen';
 import { RushScreen } from './RushScreen';
+import { StatTip } from './StatTip';
 import { afternoonStreet, morningStreet } from './street';
 import './game.css';
 
@@ -247,10 +248,12 @@ export default function Game(props: GameProps) {
             <span className="hud__phase">{PHASE_LABELS[phase]}</span>
           </div>
           <div className="hud__stats">
-            <span className="hud__stat" aria-label={`Tiền ${hudMoney(cash)}`}>
+            <StatTip className="hud__stat" label={`Tiền ${hudMoney(cash)}`} tip={cashTip()}>
               <span aria-hidden="true">💰</span> <b className={cash < 0 ? 'fx--bad' : ''}>{hudMoney(cash)}</b>
-            </span>
-            <span className="hud__stat" aria-label={`Uy tín ${rep}`}><span aria-hidden="true">⭐</span> <b>{rep}</b></span>
+            </StatTip>
+            <StatTip className="hud__stat" label={`Uy tín ${rep}`} tip={repTip()}>
+              <span aria-hidden="true">⭐</span> <b>{rep}</b>
+            </StatTip>
             {props.mode === 'class' && props.rank != null && (
               <span className="hud__stat" aria-label={`Hạng ${props.rank}`}><span aria-hidden="true">🏆</span> <b>#{props.rank}</b></span>
             )}

@@ -68,6 +68,19 @@ html.game-lock #root { min-height: 0; }
 .hud__phase { color: var(--tea); }
 .hud__stat b { font-family: var(--font-display); font-size: 16px; font-variant-numeric: tabular-nums; }
 .hud__stat .fx--bad { color: #ff9aa2; }
+
+/* A top-bar number that explains itself on hover, focus or tap (StatTip). */
+.stat-tip { cursor: help; border-radius: var(--r-pill); }
+.stat-tip:focus-visible { outline: 2px solid var(--caramel); outline-offset: 2px; }
+.stat-tip__pop {
+  position: fixed; z-index: 100; pointer-events: none;
+  padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--ink); color: var(--paper); box-shadow: var(--shadow-lg);
+  font-size: 13px; font-weight: 500; line-height: 1.45; white-space: normal; text-align: left;
+  animation: stat-tip-in 0.14s var(--ease-out);
+}
+@keyframes stat-tip-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .stat-tip__pop { animation: none; } }
 @media (max-width: 430px) {
   .hud { gap: 6px; }
   .hud__phase { display: none; }
@@ -204,7 +217,6 @@ html.game-lock #root { min-height: 0; }
 }
 .news__mast span:last-child { color: var(--caramel-deep); }
 .news__headline { font-size: clamp(24px, 6.4vw, 32px); }
-.news__headline span { margin-right: 2px; }
 .news__rules { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
 .news__rules li { position: relative; padding-left: 16px; }
 .news__rules li::before { content: ''; position: absolute; left: 3px; top: 0.55em; width: 6px; height: 6px; border-radius: 50%; background: var(--caramel); }
@@ -216,7 +228,6 @@ html.game-lock #root { min-height: 0; }
 }
 .news__mail { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .news__mail li {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px;
   padding: 8px 10px; border-radius: var(--r-sm); background: var(--milk); font-size: 14px; line-height: 1.35;
 }
 .news__first { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--milk); font-size: 14px; color: var(--ink-soft); }

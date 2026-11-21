@@ -16,10 +16,6 @@ export const SHOP_NAMES: Record<ShopId, string> = {
   tapdoan: 'Chuỗi Tập Đoàn',
 };
 
-export const SHOP_ICONS: Record<ShopId, string> = {
-  player: '⭐', batu: '👵', giare: '💸', cochap: '🐢', luotsong: '📈', sinhvien: '🎲', tapdoan: '🏢',
-};
-
 export const TOPPING_NAMES: Record<ToppingId, string> = { pearl: 'Trân châu', jelly: 'Thạch', pudding: 'Pudding' };
 
 export const TEA_NAMES: Record<TeaGrade, string> = { skimp: 'Ăn bớt', standard: 'Chuẩn', premium: 'Cao cấp' };
@@ -71,3 +67,15 @@ export const PHASE_LABELS = {
 
 /** Money for the narrow top bar: from 1.000k up, rounded to whole k ("1.327k", not "1.326,5k"). */
 export const hudMoney = (k: number): string => (Math.abs(k) >= 1000 ? `${fmtNumber(Math.round(k), 0)}k` : fmtMoney(k));
+
+/** What the rep number in the top bar means, shown on hover, focus or tap (numbers from the config). */
+export function repTip(cfg: SimConfig = CONFIG): string {
+  return `Uy tín (${cfg.run.minRep}–${cfg.run.maxRep}): khách tin quán bạn tới đâu. Uy tín càng cao, khách càng chọn quán bạn, `
+    + 'kể cả khi giá nhỉnh hơn quán bên cạnh. Trà ăn bớt, giao sai món, để khách chờ bỏ về hay tăng giá chặt chém đều làm mất uy tín. '
+    + `Cuối ván mỗi điểm uy tín đáng ${fmtMoney(cfg.run.brandPerRep)} tiền thương hiệu; về ${cfg.run.minRep} là quán phải đóng cửa.`;
+}
+
+/** What the cash number in the top bar means. */
+export function cashTip(cfg: SimConfig = CONFIG): string {
+  return `Tiền trong két. Nhập hàng được mua chịu tới ${fmtMoney(cfg.run.creditFloor)}; số âm nghĩa là đang nợ nhà cung cấp.`;
+}

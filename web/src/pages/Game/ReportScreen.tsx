@@ -10,7 +10,7 @@ import type { Intent } from '../../game/runStore';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { InvisibleHand, VisibleHand } from '../../ui/Hands';
-import { SHOP_ICONS, TEA_NAMES, themeTitle } from './copy';
+import { TEA_NAMES, themeTitle } from './copy';
 import { lessonText, type LessonText } from './lessons';
 import {
   STREET_TAG_TEXT, cashBefore, customerRows, meterValue, moneyRows, priceScale, repSteps, rowMoney, skimpTrade, streetRows,
@@ -246,7 +246,7 @@ function StreetSection({ r, run, delay }: { r: DayReport; run: RunState; delay: 
         {rows.map(row => (
           <li key={row.id} className={cx('srow', row.id === 'player' && 'srow--player', row.trail.length === 0 && 'srow--off')}>
             <span className="srow__dot" style={{ background: SHOP_COLORS[row.id] }} aria-hidden="true" />
-            <span className="srow__name"><span aria-hidden="true">{SHOP_ICONS[row.id]}</span> {row.name}</span>
+            <span className="srow__name">{row.name}</span>
             <span className="srow__price">
               {row.open === null ? '—' : row.open === row.close ? fmtMoney(row.open) : `${fmtMoney(row.open)} → ${fmtMoney(row.close ?? row.open)}`}
             </span>

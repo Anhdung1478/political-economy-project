@@ -105,7 +105,7 @@ export function ruleLines(brief: MorningBrief, cfg: SimConfig = CONFIG): string[
   return lines;
 }
 
-export interface NewsLine { icon: string; text: string; effects: string[] }
+export interface NewsLine { text: string; effects: string[] }
 
 /** A delayed card effect landing this morning, as a sentence and its effects ("+30k", "+3 uy tín"). */
 export function newsLine(p: PendingEffect): NewsLine {
@@ -125,8 +125,7 @@ export function newsLine(p: PendingEffect): NewsLine {
       default: return 'Chuyện hôm trước còn dư âm sáng nay.';
     }
   })();
-  const icon = p.source === 'blackMarket' || p.source === 'cartelBreak' ? '🗞️' : '📬';
-  return { icon, text, effects };
+  return { text, effects };
 }
 
 export type Tone = 'good' | 'bad' | 'warn' | 'info' | 'muted';
