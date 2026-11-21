@@ -17,7 +17,7 @@ ssh rakkoon69 'grep HOST_KEY ~/hai-ban-tay.config.cjs'
 
 1. Mở `/play` trên điện thoại bằng **4G** (không dùng Wi-Fi trường) để chắc web vào được từ ngoài.
 2. Trên laptop chiếu, mở `/host?key=<HOST_KEY>`. Mã tự biến khỏi thanh địa chỉ sau khi vào.
-3. Nếu còn dữ liệu ván thử, bấm **Reset** rồi xác nhận. Buổi mới có mã mới.
+3. **Bắt buộc: bấm Reset rồi xác nhận, ngay cả khi trông như chưa ai vào.** `/play` chỉ cần nhập tên, không cần mã buổi, và ai bấm "Nhiều người" ở trang chơi một mình (`/`) đều vào được buổi đang mở. Reset xoá người lạ khỏi phòng chờ và bảng theo dõi, xoá ván thử, và cho buổi mã mới. Làm sát giờ học (sau khi đã thử xong), rồi mới chiếu QR.
 4. Màn host có hai chế độ ở góc trên: **Màn chiếu** (cho cả lớp xem) và **Bảng theo dõi** (riêng cho host).
 
 ## 2. Mời cả lớp
@@ -43,6 +43,10 @@ Khi phần lớn đã chơi xong, bấm **Trao giải** và xác nhận. Giải 
 ## 6. Reset
 
 Bấm **Reset** để làm buổi mới: seed và mã buổi mới, kết quả, bình chọn và giải bị xoá. Người đang kết nối giữ tên, không cần quét lại.
+
+## Bảng xếp hạng chơi một mình
+
+Trang `/` có bảng xếp hạng riêng cho người chơi một mình, tách khỏi buổi lớp. Nút **Xoá bảng xếp hạng một mình** (cạnh Reset, có hộp xác nhận) xoá hết điểm trên bảng đó cho mọi người. Reset buổi lớp không đụng đến bảng này. Bảng lưu ở `SOLO_BOARD_FILE` (mặc định `.data/solo-board.json`).
 
 ## Lưu trạng thái
 

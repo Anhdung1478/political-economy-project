@@ -30,6 +30,31 @@ describe('parseSoloSubmit', () => {
   });
 });
 
+describe('name hygiene', () => {
+  it('normalises to NFC, so composed and decomposed forms are the same name', () => {
+    const decomposed = 'Du\u0303ng';
+    expect(decomposed).not.toBe('D\u0169ng');
+    expect(soloDisplay(decomposed)).toBe('D\u0169ng');
+    expect(soloKey(decomposed)).toBe(soloKey('D\u0169ng'));
+  });
+  it('strips zero-width, bidi and control characters and refuses what is left empty', () => {
+    expect(soloDisplay('A\u200Bn\u202E\u0007\n')).toBe('An');
+    expect(soloKey('A\u200Bn')).toBe(soloKey('An'));
+    for (const name of ['\u200B\u200D', '\u0000\u0001', ' \u200B ']) {
+      expect(parseSoloSubmit({ name, score: 1, runId: 'r' })).toBeNull();
+    }
+    expect(parseSoloSubmit({ name: 'x\u200By', score: 1, runId: 'r' })?.name).toBe('xy');
+  });
+  it('counts the length after cleaning', () => {
+    expect(parseSoloSubmit({ name: `${'a'.repeat(LIMITS.nickname)}\u200B`, score: 1, runId: 'r' })).not.toBeNull();
+  });
+  it('limits scores to a sane range', () => {
+    expect(parseSoloSubmit({ name: 'a', score: 20001, runId: 'r' })).toBeNull();
+    expect(parseSoloSubmit({ name: 'a', score: -10001, runId: 'r' })).toBeNull();
+    expect(parseSoloSubmit({ name: 'a', score: 2700, runId: 'r' })).not.toBeNull();
+  });
+});
+
 describe('name keys', () => {
   it('trims, collapses spaces and ignores case', () => {
     expect(soloKey('  Dũng   ĐẸP ')).toBe(soloKey('dũng đẹp'));

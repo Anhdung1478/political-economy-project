@@ -26,7 +26,7 @@ Ngoài phạm vi: người chơi ảnh hưởng lẫn nhau, chống gian lận, 
 
 | Đường dẫn | Chế độ | Mô tả |
 |---|---|---|
-| `/` và `/solo` | Solo | Chơi ngay, seed ngẫu nhiên mỗi ván, không kết nối server. Lưu kỷ lục cá nhân trên máy. |
+| `/` và `/solo` | Solo | Nhập tên một lần, rồi chơi, seed ngẫu nhiên mỗi ván. Ván lưu và chơi được khi không có mạng; kỷ lục cá nhân trên máy; điểm cuối ván gửi lên bảng xếp hạng chơi một mình (mục 11b) khi có mạng. |
 | `/play` | Lớp học | Nhập tên, bình chọn, chờ host mở chợ, chơi bằng seed của buổi, kết quả gửi về host. |
 | `/host` | Host | Cần `HOST_KEY`. Gồm màn chiếu (QR, giải) và bảng theo dõi riêng tư. |
 
@@ -344,7 +344,7 @@ Ngày 1–3 mỗi ngày rút 1 thẻ từ bộ 6 thẻ theo seed, không lặp.
 - Nếu thua vì uy tín về 0: đoạn kết "Mất hết lòng tin" thay cho đoạn hồi phục, kèm danh sách những việc đã làm mất uy tín.
 - Điểm: tổng lãi, giá trị thương hiệu, biểu đồ lãi theo ngày.
 - Tóm tắt lựa chọn của bạn và bài học tương ứng (cartel, topping lạ, chợ đen, thuế, kiểm định).
-- Solo: kỷ lục cá nhân, nút chơi lại.
+- Solo: kỷ lục cá nhân, hạng của ván này trên bảng xếp hạng một mình cùng bảng top (mục 11b), nút chơi lại.
 - Lớp học: hạng của bạn, chờ trao giải.
 
 ## 9. Hình ảnh và chuyển động
@@ -473,7 +473,7 @@ Ranh giới giữa các phần:
 - `web/src/scene` chỉ biết sự kiện và trạng thái để vẽ. Nó không gọi ngược vào mô phỏng.
 - `web/src/game/useRun` là nơi duy nhất nối mô phỏng với đồng hồ, bộ nhớ máy và mạng.
 - Các màn trong `pages/Game` nhận trạng thái và phát hành động. Chúng dùng chung cho solo và lớp học.
-- Solo không import `net/socket.ts`, nên không mở kết nối nào tới server.
+- Trang solo không import `net/socket.ts` tĩnh: ván chơi không cần mạng. Bảng xếp hạng nạp mã socket theo yêu cầu (`import()` trong `useSoloBoard`); không nạp được thì hiện "Chưa kết nối được bảng xếp hạng" và ván vẫn chơi bình thường.
 - Server không chạy mô phỏng.
 
 Việc cần chỉnh trong cấu hình dự án:
@@ -546,6 +546,20 @@ Người chơi không lưu được `localStorage` mà tải lại trang sẽ v�
 | 🎯 Bàn Tay Vàng | Tỉ lệ giao sai thấp nhất, tối thiểu 30 ly | Bán nhiều ly hơn |
 
 Giải tính trên những ngày đã gửi về tại lúc host bấm Trao giải.
+
+## 11b. Chuyển chế độ và bảng xếp hạng chơi một mình
+
+**Công tắc chế độ.** Thẻ tiêu đề ở `/` và thẻ vào ở `/play` có công tắc "Một mình | Nhiều người": hai liên kết (`/` và `/play`), chế độ hiện tại có `aria-current`, rộng vừa màn 360px. Dòng gợi ý bên dưới nói chế độ hiện tại. Vì `/play` chỉ cần tên (không cần mã buổi), ai bấm "Nhiều người" đều vào được buổi đang mở; host phải Reset trước giờ học.
+
+**Tên.** Lần đầu bấm Chơi, thẻ tiêu đề hỏi "Tên của bạn" (không cần mạng), lưu ở `pts.solo.name`, hiện "Chơi với tên X · Đổi tên". Tên được chuẩn hoá: Unicode NFC, bỏ ký tự điều khiển và ký tự định dạng vô hình (`\p{Cc}`, `\p{Cf}`), gộp khoảng trắng, tối đa `LIMITS.nickname`; so sánh không phân biệt hoa thường. Màn kết vẫn hỏi tên nếu ván cũ chưa có.
+
+**Bảng.** Mỗi tên giữ điểm cao nhất, hiện 50 đầu, cập nhật trực tiếp cho mọi người đang xem. Thẻ tiêu đề: top 10 và "Xem tất cả" (50), dòng của mình được tô. Màn kết solo: hạng của ván và bảng. Điểm do máy gửi lên và server tin, như chế độ lớp; khoảng nhận `[-10000, 20000]` (điểm thật cỡ 2.700).
+
+**Giao thức.** `solo:watch` (ack có bảng, vào phòng `solo`), `solo:unwatch`, `solo:submit {name, score, runId}` (ack `{rank, best, improved, onBoard}`; lỗi `badRequest`, `rateLimited`, `runIdUsed`; `durable:false` khi chưa lưu được), server gửi `solo:board`, host gửi `host:soloReset`. Mỗi `runId` chỉ tính một lần; gửi lại cho đúng kết quả lần đầu, gửi dưới tên khác bị từ chối.
+
+**Hàng đợi.** Điểm cuối ván vào hàng đợi trên máy (`pts.solo.pending`) và trong bộ nhớ (kể cả khi bộ nhớ trình duyệt bị chặn), gửi ngay khi có kết nối, thử lại sau 5 s, 10 s … tối đa 1 phút; rời hàng đợi khi server đã lưu hoặc từ chối hẳn. Hỏi `solo:watch` lại với thời gian chờ nếu ack mất. Không còn việc nào và không ai xem bảng thì đóng socket.
+
+**Server.** `server/soloBoard.ts`: giữ tối đa 2000 tên tốt nhất (tên mới điểm thấp hơn tên cuối khi bảng đầy chỉ được trả hạng, không lưu), danh sách xếp sẵn nên hạng là tìm nhị phân. Giới hạn: 10 lượt/phút mỗi socket, 60 mỗi địa chỉ IP (lấy từ `X-Forwarded-For` chỉ khi `TRUST_PROXY=1`), 600 tất cả. Lưu `SOLO_BOARD_FILE` (mặc định `.data/solo-board.json`) ghi nguyên tử, gộp tối đa mỗi giây một lần; ack chỉ trả sau lần ghi có thay đổi đó; file hỏng đổi tên `.corrupt`. Host xoá bảng bằng nút "Xoá bảng xếp hạng một mình" (hộp xác nhận trong trang).
 
 ## 12. Dọn dẹp
 

@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { SOLO_BOARD_SIZE } from '../shared/protocol';
-import { createSavedSoloBoard, loadSoloBoard, SoloBoard } from './soloBoard';
+import { createSavedSoloBoard, loadSoloBoard, SoloBoard as RealBoard, type SoloSubmitOutcome } from './soloBoard';
+
+/** A board whose `submit` answers are known not to be refusals (the refusal test uses `RealBoard`). */
+class SoloBoard extends RealBoard {
+  override submit(name: string, score: number, runId: string, now?: number): SoloSubmitOutcome {
+    return super.submit(name, score, runId, now) as SoloSubmitOutcome;
+  }
+}
 
 const tmp = mkdtempSync(path.join(tmpdir(), 'pts-solo-'));
 afterAll(() => { rmSync(tmp, { recursive: true, force: true }); });
@@ -11,11 +18,11 @@ afterAll(() => { rmSync(tmp, { recursive: true, force: true }); });
 describe('SoloBoard', () => {
   it('keeps only the best score of a name and ranks it', () => {
     const b = new SoloBoard();
-    expect(b.submit('An', 100, 'r1', 1)).toEqual({ rank: 1, best: 100, improved: true });
-    expect(b.submit('Binh', 150, 'r2', 2)).toEqual({ rank: 1, best: 150, improved: true });
+    expect(b.submit('An', 100, 'r1', 1)).toMatchObject({ rank: 1, best: 100, improved: true, onBoard: true });
+    expect(b.submit('Binh', 150, 'r2', 2)).toMatchObject({ rank: 1, best: 150, improved: true, onBoard: true });
     // A worse run of An changes nothing and still reports An's best and rank.
-    expect(b.submit('An', 40, 'r3', 3)).toEqual({ rank: 2, best: 100, improved: false });
-    expect(b.submit('An', 200, 'r4', 4)).toEqual({ rank: 1, best: 200, improved: true });
+    expect(b.submit('An', 40, 'r3', 3)).toMatchObject({ rank: 2, best: 100, improved: false, onBoard: true });
+    expect(b.submit('An', 200, 'r4', 4)).toMatchObject({ rank: 1, best: 200, improved: true, onBoard: true });
     const v = b.view();
     expect(v.total).toBe(2);
     expect(v.entries.map(e => [e.name, e.score])).toEqual([['An', 200], ['Binh', 150]]);
@@ -34,9 +41,10 @@ describe('SoloBoard', () => {
     let saves = 0;
     const b = new SoloBoard(() => { saves++; });
     b.submit('An', 100, 'same', 1);
-    expect(b.submit('An', 100, 'same', 2)).toEqual({ rank: 1, best: 100, improved: false });
+    // The resend reads like the first answer (a record stays a record), not "no change".
+    expect(b.submit('An', 100, 'same', 2)).toMatchObject({ rank: 1, best: 100, improved: true, onBoard: true });
     // Even a higher score under a seen runId is ignored.
-    expect(b.submit('An', 999, 'same', 3).improved).toBe(false);
+    expect(b.submit('An', 999, 'same', 3).changed).toBe(false);
     expect(b.view().entries[0]!.score).toBe(100);
     expect(saves).toBe(1);
   });
@@ -58,7 +66,7 @@ describe('SoloBoard', () => {
     b.submit('An', 100, 'old', 1);
     b.reset();
     expect(b.view()).toEqual({ entries: [], total: 0 });
-    expect(b.submit('An', 100, 'old', 2).improved).toBe(false);
+    expect(b.submit('An', 100, 'old', 2).improved).toBe(true);
     expect(b.view().total).toBe(0);
   });
 
@@ -68,11 +76,42 @@ describe('SoloBoard', () => {
     b.submit('Binh', 90, 'r2', 2);
     const c = new SoloBoard(undefined, JSON.parse(JSON.stringify(b)));
     expect(c.view()).toEqual(b.view());
-    expect(c.submit('An', 100, 'r1', 3).improved).toBe(false);
+    expect(c.submit('An', 100, 'r1', 3)).toMatchObject({ improved: true, rank: 1 });
+  });
+
+  it('refuses a runId already counted for another name', () => {
+    const b = new RealBoard();
+    b.submit('An', 100, 'r1', 1);
+    expect(b.submit('Binh', 500, 'r1', 2)).toEqual({ refused: 'runIdUsed' });
+    expect(b.view().total).toBe(1);
+  });
+
+  it('keeps at most maxEntries names: a lower score gets its rank but is not stored', () => {
+    const b = new RealBoard(undefined, undefined, 3);
+    for (const [n, sc] of [['a', 10], ['b', 20], ['c', 30]] as const) b.submit(n, sc, n, 1);
+    expect(b.submit('low', 5, 'low', 2)).toMatchObject({ rank: 4, best: 5, improved: false, onBoard: false });
+    expect(b.view().total).toBe(3);
+    // A better score pushes the lowest out.
+    expect(b.submit('high', 25, 'high', 3)).toMatchObject({ rank: 2, improved: true, onBoard: true });
+    expect(b.view().entries.map(e => e.name)).toEqual(['c', 'high', 'b']);
+    // Many junk names never grow it.
+    for (let i = 0; i < 500; i++) b.submit(`junk${i}`, i % 7, `j${i}`, 10);
+    expect(b.view().total).toBe(3);
   });
 });
 
 describe('the solo board file', () => {
+  it('batches saves: submissions in one window share one write', async () => {
+    const file = path.join(tmp, 'batch', 'solo.json');
+    const s = createSavedSoloBoard(file, () => {}, 10, 30);
+    s.board.submit('An', 1, 'r1', 1);
+    const a = s.commit();
+    s.board.submit('Binh', 2, 'r2', 2);
+    expect(s.commit()).toBe(a);
+    expect(await a).toBe(true);
+    expect(loadSoloBoard(file).view().total).toBe(2);
+  });
+
   it('saves atomically and loads the same board back', async () => {
     const file = path.join(tmp, 'a', 'solo-board.json');
     const s = createSavedSoloBoard(file, () => {}, 10);

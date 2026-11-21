@@ -23,7 +23,9 @@ export function SoloEndBoard({ run }: { run: RunState }) {
   const result = results[runId];
   let note: string;
   if (name === null) note = 'Nhập tên để điểm của bạn lên bảng xếp hạng.';
-  else if (result?.kind === 'saved') {
+  else if (result?.kind === 'saved' && !result.onBoard) {
+    note = `Hạng #${result.rank}, chưa đủ điểm để vào bảng (bảng giữ những tên cao nhất).`;
+  } else if (result?.kind === 'saved') {
     note = result.improved
       ? `Hạng #${result.rank} trên bảng với ${fmtMoney(result.best)}${result.rank === 1 ? '. Số một!' : '.'}`
       : `Hạng #${result.rank}. Điểm cao nhất của ${name} trên bảng vẫn là ${fmtMoney(result.best)}.`;

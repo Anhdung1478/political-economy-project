@@ -285,6 +285,8 @@ async function main(): Promise<number> {
         sessionStorage.setItem('shoot.seeded', '1');
         const run = (JSON.parse(rec) as { run: { runId: string; day: number } }).run;
         localStorage.setItem(key, rec);
+        // the solo title asks for a name before it lets a run start
+        localStorage.setItem('pts.solo.name', 'Shoot');
         localStorage.setItem(`${key}.title`, `${run.runId}:${run.day}`);
       }, SOLO_KEY, save);
     }

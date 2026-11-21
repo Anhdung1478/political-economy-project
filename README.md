@@ -6,9 +6,9 @@ Game quản lý quán trà sữa trong 5 ngày, minh hoạ câu hỏi "bàn tay 
 
 | Đường dẫn | Ai dùng | Việc |
 |---|---|---|
-| `/` và `/solo` | Một người, trên điện thoại hoặc máy tính | Chơi một mình; ván lưu trong trình duyệt |
+| `/` và `/solo` | Một người, trên điện thoại hoặc máy tính | Chơi một mình (nhập tên một lần); ván lưu trong trình duyệt, chơi được khi mất mạng; điểm cuối ván lên bảng xếp hạng một mình (mỗi tên giữ điểm cao nhất, top 50, cập nhật trực tiếp). Công tắc "Một mình / Nhiều người" chuyển sang `/play` |
 | `/play` | Điện thoại của cả lớp | Vào buổi lớp: nhập tên, bình chọn, chờ host mở chợ, chơi, xem giải |
-| `/host?key=<HOST_KEY>` | Laptop của giảng viên | Bảng điều khiển riêng: màn chiếu, bảng theo dõi, nút Mở chợ, Trao giải, Reset |
+| `/host?key=<HOST_KEY>` | Laptop của giảng viên | Bảng điều khiển riêng: màn chiếu, bảng theo dõi, nút Mở chợ, Trao giải, Reset, Xoá bảng xếp hạng một mình |
 
 Hướng dẫn chạy một buổi lớp: [`docs/huong-dan-host.md`](docs/huong-dan-host.md).
 
@@ -53,6 +53,7 @@ Sau reverse proxy (nginx) phải bật WebSocket (`proxy_set_header Upgrade $htt
 | `PUBLIC_URL` | origin của trang | Địa chỉ in trong mã QR; đặt khi chạy sau proxy |
 | `SESSION_FILE` | `.data/session.json` | File lưu buổi lớp (ghi định kỳ và trước khi xác nhận mỗi lượt vào, bình chọn, ngày chơi) |
 | `SOLO_BOARD_FILE` | `.data/solo-board.json` | File lưu bảng xếp hạng chơi một mình (mỗi tên giữ điểm cao nhất, ghi nguyên tử như file buổi lớp) |
+| `TRUST_PROXY` | (tắt) | Đặt `1` khi chạy sau đúng một reverse proxy: giới hạn gửi điểm theo từng địa chỉ IP lấy từ `X-Forwarded-For`. Không đặt thì mọi người sau proxy dùng chung một giới hạn IP (60 lượt/phút) |
 | `STATIC_DIR` | `dist/web` cạnh `server.js` | Thư mục web đã build |
 
 Buổi lớp được nạp lại từ `SESSION_FILE` khi server khởi động. File nằm trong hệ thống file của container, nên **sống qua lần khởi động lại tiến trình nhưng mất khi deploy lại container**, trừ khi mount volume vào thư mục của file. File hỏng được đổi tên thành `<file>.corrupt` và server mở buổi mới.

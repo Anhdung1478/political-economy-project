@@ -6,7 +6,7 @@ import { ranked } from './SoloBoardView';
 import { dequeue, enqueue, flushPending, loadName, loadPending, saveName, SOLO_KEYS } from './soloQueue';
 
 const item = (runId: string, score = 10) => ({ name: 'An', score, runId });
-const saved: SubmitOutcome = { kind: 'saved', rank: 1, best: 10, improved: true };
+const saved: SubmitOutcome = { kind: 'saved', rank: 1, best: 10, improved: true, onBoard: true };
 
 describe('solo name', () => {
   it('stores a tidied name and refuses an empty or too long one', () => {

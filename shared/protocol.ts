@@ -7,19 +7,29 @@ export const LIMITS = { nickname: 20, maxPlayers: 200, joinId: 64 } as const;
 
 /** The solo leaderboard: one best score per name; the board shows this many. */
 export const SOLO_BOARD_SIZE = 50;
-/** Solo scores are trusted from the device, like class mode's; this only keeps absurd numbers out. */
-export const SOLO_SCORE_MAX = 1e7;
+/**
+ * Solo scores are trusted from the device, like class mode's; these only keep absurd numbers out. A score is the
+ * profit (cash minus the starting cash) plus the brand value (at most 100 rep × the per-rep value); honest runs are
+ * a few thousand k at most (about 2.700 in the balance runs), a very bad one loses a few thousand.
+ */
+export const SOLO_SCORE_MAX = 20000;
+export const SOLO_SCORE_MIN = -10000;
 export interface SoloEntry { name: string; score: number; at: number }
 /** The top of the solo board, best first, and how many names it holds in all. */
 export interface SoloBoard { entries: SoloEntry[]; total: number }
 export interface SoloSubmit { name: string; score: number; runId: string }
-/** `rank`: 1 + the names with a better best (ties share a rank); `best`: this name's best; `improved`: it moved. */
-export type SoloSubmitAck = Ack<{ rank: number; best: number; improved: boolean; durable?: false }>;
+/** `rank`: 1 + the names with a better best (ties share a rank); `best`: this name's best; `improved`: this run set
+ * the name's record; `onBoard`: the name is on the board (false when the board is full of better scores). */
+export type SoloSubmitAck = Ack<{ rank: number; best: number; improved: boolean; onBoard: boolean; durable?: false }>;
 
-/** A name as the board keys it: trimmed, spaces collapsed, case-insensitive. */
-export const soloKey = (name: string): string => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi');
-/** A name as shown: trimmed, spaces collapsed. */
-export const soloDisplay = (name: string): string => name.trim().replace(/\s+/g, ' ');
+/**
+ * A name as shown: Unicode NFC, control and invisible format characters (zero-width spaces, bidi marks, newlines)
+ * removed, trimmed, spaces collapsed. Empty when nothing visible is left.
+ */
+export const soloDisplay = (name: string): string =>
+  name.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, '').trim().replace(/\s+/g, ' ');
+/** A name as the board keys it: the displayed name, case-insensitive. */
+export const soloKey = (name: string): string => soloDisplay(name).toLocaleLowerCase('vi');
 
 export type SessionPhase = 'lobby' | 'open' | 'awards';
 export type VoteChoice = 'invisible' | 'visible';
@@ -251,6 +261,6 @@ export function parseSoloSubmit(x: unknown): SoloSubmit | null {
     const name = soloDisplay(o.name);
     if (name.length === 0 || name.length > LIMITS.nickname) throw new Bad();
     if (o.runId.length === 0 || o.runId.length > LIMITS.joinId) throw new Bad();
-    return { name, score: num(o.score, -SOLO_SCORE_MAX, SOLO_SCORE_MAX), runId: o.runId };
+    return { name, score: num(o.score, SOLO_SCORE_MIN, SOLO_SCORE_MAX), runId: o.runId };
   });
 }

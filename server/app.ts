@@ -12,6 +12,7 @@ import {
   type Ack, type ClientToServer, parseJoinId, parseSoloSubmit, type ReportAck, type ServerToClient, type SoloSubmitAck,
 } from '../shared/protocol';
 import { Session } from './session';
+import { RateLimiter } from './rateLimit';
 import { SoloBoard } from './soloBoard';
 
 interface SocketData {
@@ -39,9 +40,16 @@ export interface AppOptions {
   soloBoard?: SoloBoard;
   /** Writes the solo board file now (like `persistNow`); a solo submission is answered once it resolves. */
   soloPersistNow?: () => Promise<boolean>;
-  /** Solo submissions one socket may send per `soloRateWindowMs` (default 10 per minute). */
+  /** Solo submissions per `soloRateWindowMs` (default a minute): per socket 10, per IP address 60, in all 600. */
   soloRateLimit?: number;
+  soloIpLimit?: number;
+  soloGlobalLimit?: number;
   soloRateWindowMs?: number;
+  /**
+   * Behind one reverse proxy: take the client address from the last `X-Forwarded-For` entry (the one the proxy
+   * added) instead of the proxy's own. Off by default, since a client could forge the header without a proxy.
+   */
+  trustProxy?: boolean;
 }
 
 /** Bursts of changes (200 phones sending a day at once) go out as one `state`. */
@@ -67,8 +75,18 @@ export function createApp(opts: AppOptions) {
   const boardThrottle = opts.boardThrottleMs ?? BOARD_THROTTLE_MS;
   const persistTimeout = opts.persistTimeoutMs ?? PERSIST_TIMEOUT_MS;
   const solo = opts.soloBoard ?? new SoloBoard();
-  const soloLimit = opts.soloRateLimit ?? 10;
   const soloWindow = opts.soloRateWindowMs ?? 60_000;
+  const perSocket = new RateLimiter(opts.soloRateLimit ?? 10, soloWindow);
+  const perIp = new RateLimiter(opts.soloIpLimit ?? 60, soloWindow);
+  const everyone = new RateLimiter(opts.soloGlobalLimit ?? 600, soloWindow, 1);
+  const addressOf = (socket: { handshake: { address: string; headers: Record<string, string | string[] | undefined> } }) => {
+    if (opts.trustProxy) {
+      const xff = socket.handshake.headers['x-forwarded-for'];
+      const last = (Array.isArray(xff) ? xff.join(',') : xff)?.split(',').pop()?.trim();
+      if (last) return last;
+    }
+    return socket.handshake.address;
+  };
   /** A save function that never rejects and gives up after `persistTimeout` (a hung disk must not hold every answer). */
   const guarded = (raw: () => Promise<boolean>, what: string) => () => new Promise<boolean>(res => {
     const t = setTimeout(() => {
@@ -226,17 +244,19 @@ export function createApp(opts: AppOptions) {
       reply({ ok: true, board: solo.view() } as Ack<object>);
     }));
     socket.on('solo:unwatch', () => { void socket.leave(SOLO_WATCHERS); });
-    let soloSent: number[] = [];
+    const soloAddress = addressOf(socket);
     socket.on('solo:submit', (p, ack) => handle(ack, reply => {
-      const now = Date.now();
-      soloSent = soloSent.filter(t => now - t < soloWindow);
-      if (soloSent.length >= soloLimit) { reply({ ok: false, error: 'rateLimited' }); return; }
-      soloSent.push(now);
+      if (!perSocket.allow(socket.id) || !perIp.allow(soloAddress) || !everyone.allow('all')) {
+        reply({ ok: false, error: 'rateLimited' });
+        return;
+      }
       const s = parseSoloSubmit(p);
       if (!s) { reply({ ok: false, error: 'badRequest' }); return; }
       const r = solo.submit(s.name, s.score, s.runId);
-      if (r.improved) soloChanged();
-      const ok = { ok: true, ...r } as const;
+      if ('refused' in r) { reply({ ok: false, error: 'runIdUsed' }); return; }
+      const { changed, ...answer } = r;
+      if (changed) soloChanged();
+      const ok = { ok: true, ...answer } as const;
       const unsaved: SoloSubmitAck = { ...ok, durable: false };
       void soloPersistNow().then(saved => reply(saved ? ok : unsaved));
     }));

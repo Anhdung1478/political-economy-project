@@ -39,15 +39,28 @@ export function dequeue(store: KeyValueStore, runId: string): void {
   savePending(store, loadPending(store).filter(p => p.runId !== runId));
 }
 
-/** Sends every queued run in order; a run leaves the queue when saved or refused for good. */
+/** Every run waiting: those in storage and those held in memory (blocked storage keeps nothing). */
+export function allPending(store: KeyValueStore, mem: SoloSubmit[]): SoloSubmit[] {
+  const stored = loadPending(store);
+  return [...stored, ...mem.filter(m => !stored.some(s => s.runId === m.runId))];
+}
+
+/**
+ * Sends every waiting run in order; a run leaves the queue (storage and `mem`) when saved or refused for good.
+ * `mem` is mutated: it is what still gets sent when storage cannot hold the queue.
+ */
 export async function flushPending(
-  store: KeyValueStore, send: (p: SoloSubmit) => Promise<SubmitOutcome>,
+  store: KeyValueStore, send: (p: SoloSubmit) => Promise<SubmitOutcome>, mem: SoloSubmit[] = [],
 ): Promise<{ runId: string; outcome: SubmitOutcome }[]> {
   const done: { runId: string; outcome: SubmitOutcome }[] = [];
-  for (const item of loadPending(store)) {
+  for (const item of allPending(store, mem)) {
     let outcome: SubmitOutcome;
     try { outcome = await send(item); } catch { outcome = { kind: 'retry' }; }
-    if (outcome.kind !== 'retry') dequeue(store, item.runId);
+    if (outcome.kind !== 'retry') {
+      dequeue(store, item.runId);
+      const i = mem.findIndex(m => m.runId === item.runId);
+      if (i >= 0) mem.splice(i, 1);
+    }
     done.push({ runId: item.runId, outcome });
     // Offline: the rest would only time out the same way.
     if (outcome.kind === 'retry') break;

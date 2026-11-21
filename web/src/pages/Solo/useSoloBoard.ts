@@ -4,18 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SoloBoard, SoloSubmit } from '../../../../shared/protocol';
 import { storage } from '../../game/storage';
 import type { SubmitOutcome } from '../../net/soloBoard';
-import { enqueue, flushPending } from './soloQueue';
+import { createSoloSync, type SoloSync } from './soloSync';
 
 type Net = typeof import('../../net/soloBoard');
 let netLoad: Promise<Net | null> | null = null;
 const loadNet = (): Promise<Net | null> => (netLoad ??= import('../../net/soloBoard').catch(() => { netLoad = null; return null; }));
 
-/** One flush at a time across the page. */
-let flushing: Promise<{ runId: string; outcome: SubmitOutcome }[]> | null = null;
-function flush(net: Net) {
-  flushing ??= flushPending(storage, net.submitSolo).finally(() => { flushing = null; });
-  return flushing;
-}
 
 export type BoardStatus = 'loading' | 'live' | 'offline';
 const GIVE_UP_MS = 4000;
@@ -36,15 +30,9 @@ export function useSoloBoard(): SoloBoardState {
   const [broken, setBroken] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
   const [results, setResults] = useState<Record<string, SubmitOutcome>>({});
-  const net = useRef<Net | null>(null);
-
-  const run = useCallback(() => {
-    const n = net.current;
-    if (!n) return;
-    void flush(n).then(done => {
-      if (done.length > 0) setResults(r => ({ ...r, ...Object.fromEntries(done.map(d => [d.runId, d.outcome])) }));
-    });
-  }, []);
+  const sync = useRef<SoloSync | null>(null);
+  /** Runs finished before the socket code arrived. */
+  const early = useRef<SoloSubmit[]>([]);
 
   useEffect(() => {
     let off = () => {};
@@ -52,14 +40,25 @@ export function useSoloBoard(): SoloBoardState {
     void loadNet().then(n => {
       if (dead) return;
       if (!n) { setBroken(true); return; }
-      net.current = n;
-      off = n.watchBoard(v => { setView(v); if (v.connected) run(); });
+      const s = createSoloSync({
+        store: storage,
+        send: n.submitSolo,
+        onResults: done => setResults(r => ({ ...r, ...Object.fromEntries(done.map(d => [d.runId, d.outcome])) })),
+        onIdle: () => n.closeIfIdle(),
+      });
+      sync.current = s;
+      n.setKeepAlive(s.hasPending);
+      for (const item of early.current.splice(0)) s.submit(item);
+      off = n.watchBoard(v => { setView(v); if (v.connected) s.run(); });
     });
     const t = setTimeout(() => setGaveUp(true), GIVE_UP_MS);
-    return () => { dead = true; off(); clearTimeout(t); };
-  }, [run]);
+    return () => { dead = true; off(); sync.current?.stop(); sync.current = null; clearTimeout(t); };
+  }, []);
 
-  const submit = useCallback((item: SoloSubmit) => { enqueue(storage, item); run(); }, [run]);
+  const submit = useCallback((item: SoloSubmit) => {
+    // Before the socket code is loaded the run waits here (and in storage); with it, the sync sends and retries.
+    if (sync.current) sync.current.submit(item); else early.current.push(item);
+  }, []);
 
   const status: BoardStatus = view.board !== null ? 'live' : broken || (gaveUp && !view.connected) ? 'offline' : 'loading';
   return { board: view.board, status, stale: view.board !== null && !view.connected, results, submit };
