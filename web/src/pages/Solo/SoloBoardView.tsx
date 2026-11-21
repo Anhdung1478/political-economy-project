@@ -70,8 +70,10 @@ export function SoloBoardList({ board, status, stale, me, title = 'Bảng xếp 
 }
 
 /** Asks for the name (end screen, no name yet) or edits it (title card). */
-export function NameForm({ initial, submitLabel, onSaved, autoFocus }: {
-  initial: string; submitLabel: string; onSaved: (name: string) => void; autoFocus?: boolean;
+export function NameForm({ initial, submitLabel, onSaved, autoFocus, label = 'Tên trên bảng xếp hạng', stacked }: {
+  initial: string; submitLabel: string; onSaved: (name: string) => void; autoFocus?: boolean; label?: string;
+  /** The button under the field, full width (the name step before a run). */
+  stacked?: boolean;
 }) {
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -82,16 +84,16 @@ export function NameForm({ initial, submitLabel, onSaved, autoFocus }: {
     onSaved(saved);
   };
   return (
-    <form className="sboard__name-form" onSubmit={submit} noValidate>
-      <Input label="Tên trên bảng xếp hạng" value={name} maxLength={LIMITS.nickname} autoComplete="nickname" enterKeyHint="done"
+    <form className={cx('sboard__name-form', stacked && 'sboard__name-form--stacked')} onSubmit={submit} noValidate>
+      <Input label={label} value={name} maxLength={LIMITS.nickname} autoComplete="nickname" enterKeyHint="done"
         autoFocus={autoFocus} placeholder="VD: Dũng đẹp trai" error={error}
         onChange={e => { setName(e.target.value); setError(null); }} />
-      <Button type="submit" variant="caramel" size="md">{submitLabel}</Button>
+      <Button type="submit" variant={stacked ? 'primary' : 'caramel'} size={stacked ? 'xl' : 'md'} block={stacked}>{submitLabel}</Button>
     </form>
   );
 }
 
-/** "Tên trên bảng: X · Đổi tên" on the title card. */
+/** "Chơi với tên X · Đổi tên" on the title card (the name is always set by then). */
 export function NameLine({ name, onChange }: { name: string | null; onChange: (name: string) => void }) {
   const [editing, setEditing] = useState(false);
   if (editing) {
@@ -99,7 +101,7 @@ export function NameLine({ name, onChange }: { name: string | null; onChange: (n
   }
   return (
     <p className="sboard__name-line">
-      {name === null ? <span>Chưa có tên trên bảng.</span> : <span>Tên trên bảng: <b>{name}</b></span>}
+      {name === null ? <span>Chưa có tên trên bảng.</span> : <span>Chơi với tên <b>{name}</b> ·</span>}
       <button type="button" className="sboard__more" onClick={() => setEditing(true)}>{name === null ? 'Đặt tên' : 'Đổi tên'}</button>
     </p>
   );

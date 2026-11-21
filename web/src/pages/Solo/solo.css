@@ -22,3 +22,6 @@
 .solo__card .mswitch { margin-bottom: 16px; }
 .solo__board { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line-strong); display: grid; gap: 8px; }
 @media (max-width: 400px) { .solo__card { padding: 20px 14px 18px; } }
+.solo__who { margin-top: 12px; display: flex; justify-content: center; }
+.solo__actions .sboard__name-form { display: grid; gap: 12px; }
+.solo__actions .field { text-align: left; }
