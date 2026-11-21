@@ -207,7 +207,8 @@ describe('plainS (R37)', () => {
     expect(inputs.filter(i => i.k === 'size').every(i => i.k === 'size' && i.size === 'S')).toBe(true);
     const t = state.player.tally;
     expect(t.cups).toBeGreaterThan(10);
-    expect(t.wrong).toBe(t.cups - t.staffCups);   // every order has a topping
+    expect(t.wrong).toBeGreaterThan(0);             // most orders want a topping or another size
+    expect(t.wrong).toBeLessThan(t.cups - t.staffCups);   // a plain S order is made right
   });
 });
 

@@ -120,7 +120,7 @@ function toppingsPerOrder(cfg: SimConfig): Record<ToppingId, number> {
       draw(left.filter(x => x !== t), picks - 1, q);
     }
   };
-  c.toppingCountPercent.forEach((percent, i) => draw(c.toppingOrder, i + 1, percent / 100));
+  c.toppingCountPercent.forEach((percent, i) => draw(c.toppingOrder, i, percent / 100));
   return out;
 }
 

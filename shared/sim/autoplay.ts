@@ -111,9 +111,8 @@ function stockCovers(cup: Cup | null, t: Target, stock: Stock, cfg: SimConfig): 
   return true;
 }
 
-/** The stock can make some order: tea for an S cup and at least one topping (every order has one). */
-const anyOrder = (stock: Stock, cfg: SimConfig) =>
-  stock.teaMl >= cfg.supplies.sizeMl.S && cfg.customers.toppingOrder.some(t => stock.toppings[t] >= 1);
+/** The stock can make some order: tea for an S cup (a plain cup is an order too). */
+const anyOrder = (stock: Stock, cfg: SimConfig) => stock.teaMl >= cfg.supplies.sizeMl.S;
 
 /** The next input toward the target, in step order; null when the cup is the target. */
 function nextInput(p: Projected | null, t: Target): CraftInput | null {

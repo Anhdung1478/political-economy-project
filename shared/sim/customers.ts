@@ -25,11 +25,11 @@ function drawSize(r: number, budget: K, cfg: SimConfig): Size {
 function drawToppings(rng: Rng, cfg: SimConfig): ToppingId[] {
   const c = cfg.customers;
   const roll = rng() * 100;
-  let count = c.toppingCountPercent.length;
+  let count = c.toppingCountPercent.length - 1;
   for (let i = 0, acc = 0; i < c.toppingCountPercent.length; i++) {
     acc += c.toppingCountPercent[i];
     if (roll < acc) {
-      count = i + 1;
+      count = i;
       break;
     }
   }

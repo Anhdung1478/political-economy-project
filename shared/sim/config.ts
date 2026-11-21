@@ -120,8 +120,8 @@ export const CONFIG = {
     skepticMax: 1000,
     /** pM = mediumShare; pL = largeBase + largeBudgetTilt·(budget − mid)/(budgetMax − budgetMin); pS = 1 − pM − pL. */
     size: { mediumShare: 0.5, largeBase: 0.25, largeBudgetTilt: 0.3 },
-    /** Chance (percent) of 1, 2, 3 toppings. */
-    toppingCountPercent: [50, 35, 15],
+    /** Chance (percent) of 0, 1, 2, 3 toppings: the index is the topping count; a plain cup is a fine order. */
+    toppingCountPercent: [25, 40, 25, 10],
     /** Draw weights, without repetition. */
     toppingWeights: { pearl: 2, jelly: 1, pudding: 1 } as Record<ToppingId, number>,
     /** Canonical order toppings are stored in. */

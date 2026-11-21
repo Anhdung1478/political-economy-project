@@ -32,7 +32,7 @@ const averageCupAnimation = (cfg: SimConfig, teaTicks: Record<Size, number>) => 
     L: c.size.largeBase,
   };
   const tea = SIZES.reduce((sum, s) => sum + sizeShare[s] * teaTicks[s], 0);
-  const toppings = c.toppingCountPercent.reduce((sum, p, i) => sum + (p / 100) * (i + 1), 0);
+  const toppings = c.toppingCountPercent.reduce((sum, p, i) => sum + (p / 100) * i, 0);
   return cfg.craft.sizeTicks + cfg.craft.iceTicks + tea + toppings * cfg.craft.toppingTicks + cfg.craft.deliverTicks;
 };
 
@@ -78,10 +78,10 @@ describe('CONFIG street capacity (spec section 4)', () => {
 });
 
 describe('CONFIG craft timings (spec section 6)', () => {
-  it('an average cup animates for about 42 ticks', () => {
+  it('an average cup animates for about 39 ticks (a quarter of the orders take no topping)', () => {
     const avg = averageCupAnimation(CONFIG, CONFIG.craft.teaTicks);
-    expect(avg).toBeGreaterThan(41);
-    expect(avg).toBeLessThan(43);
+    expect(avg).toBeGreaterThan(38);
+    expect(avg).toBeLessThan(40.5);
   });
 
   it('the machine pours tea in exactly half the ticks, as whole ticks', () => {

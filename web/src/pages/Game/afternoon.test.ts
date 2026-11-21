@@ -278,6 +278,7 @@ describe('report rows', () => {
   });
 
   it('street rows: player first, the day\'s tags, shops not open yet left out', () => {
+    const run = playRun(3, STRATEGIES.reasonable).run;
     const r = run.reports[2];
     const after = run.shops;
     const rows = streetRows(r, after);
@@ -325,7 +326,7 @@ describe('end screen lessons', () => {
   });
 
   it('explains each shop exit from what happened on its losing days', () => {
-    const run = playRun(7, STRATEGIES.reasonable).run;
+    const run = playRun(3, STRATEGIES.reasonable).run;
     const exits = shopExits(run);
     expect(exits.map(e => e.id)).toEqual(ending(run).closedShops);
     const cochap = exits.find(e => e.id === 'cochap');

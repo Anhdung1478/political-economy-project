@@ -112,14 +112,16 @@ describe('orders', () => {
     expect(share(poor, c => c.order.size === 'S')).toBeGreaterThan(share(rich, c => c.order.size === 'S') + 0.1);
   });
 
-  it('topping counts are about 1: 50%, 2: 35%, 3: 15%', () => {
+  it('topping counts are about 0: 25%, 1: 40%, 2: 25%, 3: 10%', () => {
     const p = (n: number) => share(all, c => c.order.toppings.length === n);
-    expect(p(1)).toBeGreaterThan(0.46);
-    expect(p(1)).toBeLessThan(0.54);
-    expect(p(2)).toBeGreaterThan(0.31);
-    expect(p(2)).toBeLessThan(0.39);
-    expect(p(3)).toBeGreaterThan(0.12);
-    expect(p(3)).toBeLessThan(0.18);
+    expect(p(0)).toBeGreaterThan(0.21);
+    expect(p(0)).toBeLessThan(0.29);
+    expect(p(1)).toBeGreaterThan(0.36);
+    expect(p(1)).toBeLessThan(0.44);
+    expect(p(2)).toBeGreaterThan(0.21);
+    expect(p(2)).toBeLessThan(0.29);
+    expect(p(3)).toBeGreaterThan(0.07);
+    expect(p(3)).toBeLessThan(0.13);
   });
 
   it('toppings are distinct and stored pearl → jelly → pudding', () => {
@@ -229,7 +231,7 @@ describe('generateAdCustomers (delivery-app card)', () => {
       expect(Number.isInteger(c.arriveTick)).toBe(true);
       expect(c.arriveTick).toBeGreaterThanOrEqual(0);
       expect(c.arriveTick).toBeLessThan(750);
-      expect(c.order.toppings.length).toBeGreaterThanOrEqual(1);
+      expect(c.order.toppings.length).toBeLessThanOrEqual(3);
     }
     expect(Math.min(...many.map(c => c.budget))).toBeLessThan(45);
     expect(Math.max(...many.map(c => c.budget))).toBeGreaterThan(55);

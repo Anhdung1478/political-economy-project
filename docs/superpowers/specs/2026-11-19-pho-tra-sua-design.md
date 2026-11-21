@@ -155,7 +155,7 @@ Báo cáo tối liệt kê từng khoản.
   - ngưỡng tin tưởng: 0–50, trải đều
   - độ đa nghi: 0–1
   - size: S 25%, M 50%, L 25%, túi tiền cao nghiêng về L
-  - topping: 1–3 loại khác nhau (50% / 35% / 15%), mỗi loại 1 phần, trân châu được gọi nhiều nhất
+  - topping: 0–3 loại khác nhau (không topping 25% / 1 loại 40% / 2 loại 25% / 3 loại 10%), mỗi loại 1 phần, trân châu được gọi nhiều nhất
   - thời điểm đến: trong 75 giây đầu của trưa
 - Khi đến, khách chấm điểm từng quán đang mở, còn phục vụ được đơn của mình và có uy tín từ ngưỡng tin tưởng trở lên:
 
