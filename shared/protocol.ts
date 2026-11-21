@@ -5,6 +5,22 @@ import type {
 
 export const LIMITS = { nickname: 20, maxPlayers: 200, joinId: 64 } as const;
 
+/** The solo leaderboard: one best score per name; the board shows this many. */
+export const SOLO_BOARD_SIZE = 50;
+/** Solo scores are trusted from the device, like class mode's; this only keeps absurd numbers out. */
+export const SOLO_SCORE_MAX = 1e7;
+export interface SoloEntry { name: string; score: number; at: number }
+/** The top of the solo board, best first, and how many names it holds in all. */
+export interface SoloBoard { entries: SoloEntry[]; total: number }
+export interface SoloSubmit { name: string; score: number; runId: string }
+/** `rank`: 1 + the names with a better best (ties share a rank); `best`: this name's best; `improved`: it moved. */
+export type SoloSubmitAck = Ack<{ rank: number; best: number; improved: boolean; durable?: false }>;
+
+/** A name as the board keys it: trimmed, spaces collapsed, case-insensitive. */
+export const soloKey = (name: string): string => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi');
+/** A name as shown: trimmed, spaces collapsed. */
+export const soloDisplay = (name: string): string => name.trim().replace(/\s+/g, ' ');
+
 export type SessionPhase = 'lobby' | 'open' | 'awards';
 export type VoteChoice = 'invisible' | 'visible';
 /** §16 row 15: the vote before playing and the vote after, both sent through the phone's result queue. */
@@ -127,11 +143,20 @@ export interface ClientToServer {
   'host:open': () => void;
   'host:awards': () => void;
   'host:reset': () => void;
+  /** Starts watching the solo board; the ack carries it, then `solo:board` follows every change. */
+  'solo:watch': (p: object, ack: (r: Ack<{ board: SoloBoard }>) => void) => void;
+  'solo:unwatch': () => void;
+  /** A finished solo run. `runId` makes a resend harmless. `durable: false`: not saved yet, send again later. */
+  'solo:submit': (p: SoloSubmit, ack: (r: SoloSubmitAck) => void) => void;
+  /** Host only: empties the solo board. */
+  'host:soloReset': (p: object, ack: (r: Ack) => void) => void;
 }
 export interface ServerToClient {
   state: (s: SessionSnapshot) => void;
   /** Only to sockets authenticated with HOST_KEY. */
   'host:board': (b: HostBoard) => void;
+  /** To the sockets watching the solo board. */
+  'solo:board': (b: SoloBoard) => void;
 }
 
 export const CHOICE_LABELS: readonly ChoiceLabel[] = ['skimp', 'cartelKept', 'cartelBroke', 'shockTopping',
@@ -215,5 +240,17 @@ export function parseProgress(x: unknown): Progress | null {
   return safe(() => {
     const o = obj(x);
     return { day: day(o.day), phase: oneOf(o.phase, PHASES) };
+  });
+}
+
+/** A solo submission: a name (1..LIMITS.nickname chars after trimming), a finite score, a short runId; else null. */
+export function parseSoloSubmit(x: unknown): SoloSubmit | null {
+  return safe(() => {
+    const o = obj(x);
+    if (typeof o.name !== 'string' || typeof o.runId !== 'string') throw new Bad();
+    const name = soloDisplay(o.name);
+    if (name.length === 0 || name.length > LIMITS.nickname) throw new Bad();
+    if (o.runId.length === 0 || o.runId.length > LIMITS.joinId) throw new Bad();
+    return { name, score: num(o.score, -SOLO_SCORE_MAX, SOLO_SCORE_MAX), runId: o.runId };
   });
 }

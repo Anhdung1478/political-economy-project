@@ -1,12 +1,18 @@
-// / and /solo (spec §2, §9): the title over the morning street, then the game. No server: the run lives on this
-// device. It must never import `net/socket` (spec §10).
+// / and /solo (spec §2, §9): the title over the morning street, then the game. The run lives on this device and the
+// game plays offline. The leaderboard talks to the server, but its socket code is loaded on demand (`useSoloBoard`),
+// so this page never imports `net/socket` statically (spec §10).
 import { useState } from 'react';
 import { fmtMoney } from '../../game/format';
 import { storage } from '../../game/storage';
 import { StreetCanvas } from '../../scene/StreetCanvas';
 import { Button } from '../../ui/Button';
+import { ModeSwitch } from '../../ui/ModeSwitch';
 import { Modal } from '../../ui/Modal';
 import Game from '../Game/Game';
+import { NameLine, SoloBoardList } from './SoloBoardView';
+import { SoloEndBoard } from './SoloEndBoard';
+import { loadName } from './soloQueue';
+import { useSoloBoard } from './useSoloBoard';
 import { clearSavedRun, newRunId, randomSeed, titleInfo } from './soloRun';
 import './solo.css';
 
@@ -16,6 +22,18 @@ const fresh = (): Play => {
   const seed = randomSeed();
   return { seed, runId: newRunId(Date.now(), seed) };
 };
+
+/** The board on the title card; its own component, so a board update never re-renders the game. */
+function TitleBoard() {
+  const [name, setName] = useState(() => loadName(storage));
+  const { board, status, stale } = useSoloBoard();
+  return (
+    <div className="solo__board">
+      <SoloBoardList board={board} status={status} stale={stale} me={name} />
+      <NameLine name={name} onChange={setName} />
+    </div>
+  );
+}
 
 export default function Solo() {
   const [info] = useState(() => titleInfo(storage));
@@ -30,7 +48,8 @@ export default function Solo() {
   };
 
   if (play !== null) {
-    return <Game key={play.runId} mode="solo" seed={play.seed} runId={play.runId} onNewRun={startNew} />;
+    return <Game key={play.runId} mode="solo" seed={play.seed} runId={play.runId} onNewRun={startNew}
+      endExtra={run => <SoloEndBoard run={run} />} />;
   }
 
   const saved = info.resumeDay !== null;
@@ -43,6 +62,7 @@ export default function Solo() {
         <StreetCanvas snapshot={null} mode="ambient" timeOfDay="morning" seed={titleSeed} />
       </div>
       <section className="solo__card">
+        <ModeSwitch mode="solo" />
         <h1 className="solo__name">Phố Trà Sữa</h1>
         <p className="solo__pitch">Năm ngày, một quán, và cả con phố đang giành khách với bạn.</p>
         <div className="solo__actions">
@@ -56,6 +76,7 @@ export default function Solo() {
           )}
         </div>
         {info.best !== null && <p className="solo__best">Kỷ lục của bạn: <b>{fmtMoney(info.best)}</b></p>}
+        <TitleBoard />
       </section>
       <Modal open={asking} title={`Bỏ ván đang chơi ở ngày ${info.resumeDay}?`} onClose={() => setAsking(false)}
         actions={

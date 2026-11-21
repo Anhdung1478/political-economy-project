@@ -4,7 +4,7 @@
 // done. Solo: the personal best and "Chơi lại". Class: the rank and "chờ trao giải" (props), and the reporter card for
 // a player who lost early, so everyone gets to vote (§7).
 import { motion, useReducedMotion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CARDS } from '../../../../shared/sim/cards';
 import { CONFIG } from '../../../../shared/sim/config';
 import { ending, score } from '../../../../shared/sim/run';
@@ -26,6 +26,8 @@ export interface EndScreenProps {
   /** Solo: the best total on this device before this run was recorded; null when this run is the first. */
   best?: number | null;
   onNewRun?: () => void;
+  /** Solo: a section after the score (the leaderboard). */
+  extra?: ReactNode;
   /** Class mode: the player's rank on the board. */
   rank?: number | null;
   /** Class mode: the awards have not been given yet. */
@@ -114,7 +116,7 @@ function useOnline(): boolean {
   return on;
 }
 
-export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onReporterVote, unsent = 0 }: EndScreenProps) {
+export function EndScreen({ run, mode, best, extra, onNewRun, rank, awaitingAwards, onReporterVote, unsent = 0 }: EndScreenProps) {
   const online = useOnline();
   const reduced = useReducedMotion() ?? false;
   const end = useMemo(() => ending(run), [run]);
@@ -198,6 +200,8 @@ export function EndScreen({ run, mode, best, onNewRun, rank, awaitingAwards, onR
             )}
             {mode === 'solo' && best != null && !newBest && <p className="end-score__record">Kỷ lục của bạn: <b>{fmtMoney(best)}</b></p>}
           </section>
+
+          {extra}
 
           {lost && (
             <section className="rsec end-losses" aria-label="Những việc đã làm mất lòng tin">

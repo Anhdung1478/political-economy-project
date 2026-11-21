@@ -3,6 +3,7 @@ import { type Ack, LIMITS } from '../../../../shared/protocol';
 import { Button } from '../../ui/Button';
 import { InvisibleHand, VisibleHand } from '../../ui/Hands';
 import { Input } from '../../ui/Input';
+import { ModeSwitch } from '../../ui/ModeSwitch';
 
 interface Props {
   /** The name remembered from an earlier visit (the host reset the session, or the phone lost its token). */
@@ -31,6 +32,7 @@ export function JoinScreen({ initialName = '', onSubmit }: Props) {
 
   return (
     <form className="join card" onSubmit={submit} noValidate>
+      <ModeSwitch mode="multi" />
       <div className="join__hands" aria-hidden="true">
         <InvisibleHand size={84} float />
         <VisibleHand size={84} float />

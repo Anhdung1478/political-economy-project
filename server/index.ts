@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app';
 import { Session } from './session';
+import { createSavedSoloBoard, soloBoardFilePath } from './soloBoard';
 import { createSaver, loadSession, sessionFilePath } from './sessionFile';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -23,9 +24,14 @@ const session = loaded ?? new Session({ persist });
 if (!loaded) persist(session); // keep the new session code stable across a restart
 console.log(loaded ? `📂 Đã nạp buổi ${session.snapshot().code} từ ${file}` : `🆕 Buổi mới ${session.snapshot().code} (lưu ở ${file})`);
 
+const soloFile = soloBoardFilePath();
+const soloSaved = createSavedSoloBoard(soloFile);
+
 const { http } = createApp({
   hostKey,
   session,
+  soloBoard: soloSaved.board,
+  soloPersistNow: soloSaved.flush,
   staticDir: process.env.STATIC_DIR ?? path.resolve(here, 'web'),
   publicUrl: process.env.PUBLIC_URL || undefined,
   persistNow: () => saver.flush(),
@@ -43,7 +49,7 @@ const shutdown = () => {
   if (stopping) process.exit(1);
   stopping = true;
   setTimeout(() => process.exit(1), 5000).unref();
-  void saver.flush().then(() => process.exit(0));
+  void Promise.all([saver.flush(), soloSaved.flush()]).then(() => process.exit(0));
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

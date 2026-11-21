@@ -88,7 +88,8 @@ export default function Host() {
   };
   const controls = <HostControls phase={state.phase} connected={connected}
     noDays={board !== null && board.overview.labels.n === 0}
-    onOpen={send(() => client.open())} onAwards={send(() => client.awards())} onReset={send(() => client.reset())} />;
+    onOpen={send(() => client.open())} onAwards={send(() => client.awards())} onReset={send(() => client.reset())}
+    onSoloReset={() => (connected && client.socket.connected ? client.soloReset().then(r => r.ok) : Promise.resolve(false))} />;
   const toggle = (
     <div className="vtoggle" role="tablist" aria-label="Chế độ xem">
       <button type="button" role="tab" aria-selected={view === 'projector'} className={cx(view === 'projector' && 'is-on')}

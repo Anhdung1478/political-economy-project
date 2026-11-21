@@ -8,8 +8,11 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { Server } from 'socket.io';
-import { type Ack, type ClientToServer, parseJoinId, type ReportAck, type ServerToClient } from '../shared/protocol';
+import {
+  type Ack, type ClientToServer, parseJoinId, parseSoloSubmit, type ReportAck, type ServerToClient, type SoloSubmitAck,
+} from '../shared/protocol';
 import { Session } from './session';
+import { SoloBoard } from './soloBoard';
 
 interface SocketData {
   playerId?: string;
@@ -32,6 +35,13 @@ export interface AppOptions {
   persistNow?: () => Promise<boolean>;
   /** A `persistNow` slower than this answers as not saved (`durable: false`) and is logged. Default 5 s. */
   persistTimeoutMs?: number;
+  /** The solo leaderboard; an empty one in memory otherwise. */
+  soloBoard?: SoloBoard;
+  /** Writes the solo board file now (like `persistNow`); a solo submission is answered once it resolves. */
+  soloPersistNow?: () => Promise<boolean>;
+  /** Solo submissions one socket may send per `soloRateWindowMs` (default 10 per minute). */
+  soloRateLimit?: number;
+  soloRateWindowMs?: number;
 }
 
 /** Bursts of changes (200 phones sending a day at once) go out as one `state`. */
@@ -39,6 +49,8 @@ const STATE_COALESCE_MS = 100;
 const BOARD_THROTTLE_MS = 1000;
 const PERSIST_TIMEOUT_MS = 5000;
 const HOSTS = 'hosts';
+const SOLO_WATCHERS = 'solo';
+const SOLO_BROADCAST_MS = 200;
 /** Wrong host keys one socket may send before it is disconnected. */
 const HOST_TRIES = 5;
 
@@ -54,16 +66,20 @@ export function createApp(opts: AppOptions) {
   const session = opts.session ?? new Session();
   const boardThrottle = opts.boardThrottleMs ?? BOARD_THROTTLE_MS;
   const persistTimeout = opts.persistTimeoutMs ?? PERSIST_TIMEOUT_MS;
-  const rawPersist = opts.persistNow ?? (() => Promise.resolve(true));
-  /** `persistNow` that never rejects and gives up after `persistTimeout` (a hung disk must not hold every answer). */
-  const persistNow = () => new Promise<boolean>(res => {
+  const solo = opts.soloBoard ?? new SoloBoard();
+  const soloLimit = opts.soloRateLimit ?? 10;
+  const soloWindow = opts.soloRateWindowMs ?? 60_000;
+  /** A save function that never rejects and gives up after `persistTimeout` (a hung disk must not hold every answer). */
+  const guarded = (raw: () => Promise<boolean>, what: string) => () => new Promise<boolean>(res => {
     const t = setTimeout(() => {
-      console.error(`[session] the session file took over ${persistTimeout} ms to save; answering as not saved`);
+      console.error(`[${what}] the file took over ${persistTimeout} ms to save; answering as not saved`);
       res(false);
     }, persistTimeout);
     const done = (saved: boolean) => { clearTimeout(t); res(saved); };
-    try { rawPersist().then(done, () => done(false)); } catch { done(false); }
+    try { raw().then(done, () => done(false)); } catch { done(false); }
   });
+  const persistNow = guarded(opts.persistNow ?? (() => Promise.resolve(true)), 'session');
+  const soloPersistNow = guarded(opts.soloPersistNow ?? (() => Promise.resolve(true)), 'solo');
   /**
    * Answers an accepted request once the session file holds it. A failed save still answers (the change is in
    * memory and cannot be taken back) but with `durable: false`, so the phone keeps the report and sends it again;
@@ -98,6 +114,11 @@ export function createApp(opts: AppOptions) {
   const changed = () => {
     stateTimer ??= setTimeout(() => { stateTimer = null; io.emit('state', session.snapshot()); }, STATE_COALESCE_MS);
     boardTimer ??= setTimeout(sendBoard, Math.max(STATE_COALESCE_MS, lastBoard + boardThrottle - Date.now()));
+  };
+
+  let soloTimer: NodeJS.Timeout | null = null;
+  const soloChanged = () => {
+    soloTimer ??= setTimeout(() => { soloTimer = null; io.to(SOLO_WATCHERS).emit('solo:board', solo.view()); }, SOLO_BROADCAST_MS);
   };
 
   /** Open sockets per player, so a player with two tabs stays connected until the last one closes. */
@@ -199,6 +220,33 @@ export function createApp(opts: AppOptions) {
     socket.on('host:awards', hostOnly(() => session.awards()));
     socket.on('host:reset', hostOnly(() => session.reset()));
 
+    // The solo leaderboard (open to everyone; only the reset is host-only).
+    socket.on('solo:watch', (_p, ack) => handle(ack, reply => {
+      void socket.join(SOLO_WATCHERS);
+      reply({ ok: true, board: solo.view() } as Ack<object>);
+    }));
+    socket.on('solo:unwatch', () => { void socket.leave(SOLO_WATCHERS); });
+    let soloSent: number[] = [];
+    socket.on('solo:submit', (p, ack) => handle(ack, reply => {
+      const now = Date.now();
+      soloSent = soloSent.filter(t => now - t < soloWindow);
+      if (soloSent.length >= soloLimit) { reply({ ok: false, error: 'rateLimited' }); return; }
+      soloSent.push(now);
+      const s = parseSoloSubmit(p);
+      if (!s) { reply({ ok: false, error: 'badRequest' }); return; }
+      const r = solo.submit(s.name, s.score, s.runId);
+      if (r.improved) soloChanged();
+      const ok = { ok: true, ...r } as const;
+      const unsaved: SoloSubmitAck = { ...ok, durable: false };
+      void soloPersistNow().then(saved => reply(saved ? ok : unsaved));
+    }));
+    socket.on('host:soloReset', (_p, ack) => handle(ack, reply => {
+      if (!socket.data.isHost) { reply({ ok: false, error: 'Chưa xác thực host' }); return; }
+      solo.reset();
+      soloChanged();
+      void soloPersistNow().then(saved => reply(saved ? { ok: true } : { ok: false, error: 'Chưa lưu được file' }));
+    }));
+
     socket.on('disconnect', () => {
       const id = socket.data.playerId;
       if (id !== undefined) detach(id);
@@ -208,6 +256,7 @@ export function createApp(opts: AppOptions) {
   const close = () => new Promise<void>(res => {
     if (stateTimer) clearTimeout(stateTimer);
     if (boardTimer) clearTimeout(boardTimer);
+    if (soloTimer) clearTimeout(soloTimer);
     io.close(() => res());
   });
   return { app, http, io, session, close };

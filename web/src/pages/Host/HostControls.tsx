@@ -16,13 +16,15 @@ interface Props {
   onOpen: () => boolean;
   onAwards: () => boolean;
   onReset: () => boolean;
+  /** Empties the solo leaderboard; resolves whether the server did it (false when offline or refused). */
+  onSoloReset: () => Promise<boolean>;
 }
 
 const OFFLINE = 'Mất kết nối';
 const FEEDBACK_MS = 2500;
 
-export function HostControls({ phase, connected, noDays, onOpen, onAwards, onReset }: Props) {
-  const [ask, setAsk] = useState<'awards' | 'reset' | null>(null);
+export function HostControls({ phase, connected, noDays, onOpen, onAwards, onReset, onSoloReset }: Props) {
+  const [ask, setAsk] = useState<'awards' | 'reset' | 'solo' | null>(null);
   const [feedback, setFeedback] = useState<'sent' | 'failed' | null>(null);
   useEffect(() => {
     if (!feedback) return;
@@ -32,6 +34,7 @@ export function HostControls({ phase, connected, noDays, onOpen, onAwards, onRes
   const close = () => setAsk(null);
   const run = (send: () => boolean) => { setFeedback(send() ? 'sent' : 'failed'); close(); };
   const off = !connected;
+  const runSolo = () => { close(); void onSoloReset().then(ok => setFeedback(ok ? 'sent' : 'failed')); };
 
   return (
     <div className="hctl">
@@ -40,6 +43,8 @@ export function HostControls({ phase, connected, noDays, onOpen, onAwards, onRes
       <Button variant="caramel" icon="🏆" onClick={() => setAsk('awards')} disabled={off || phase !== 'open'}
         title={off ? OFFLINE : phase === 'open' ? 'Chốt giải theo kết quả hiện tại' : phase === 'lobby' ? 'Mở chợ trước đã' : 'Đã trao giải'}>Trao giải</Button>
       <Button variant="ghost" icon="↺" onClick={() => setAsk('reset')} disabled={off} title={off ? OFFLINE : 'Bắt đầu buổi mới'}>Reset</Button>
+      <Button variant="ghost" icon="🧹" onClick={() => setAsk('solo')} disabled={off} title={off ? OFFLINE : 'Xoá hết điểm trên bảng chơi một mình'}>
+        Xoá bảng xếp hạng một mình</Button>
       <span className={`hctl__fb hctl__fb--${feedback ?? 'none'}`} role="status" aria-live="polite">
         {feedback === 'sent' ? '✓ Đã gửi' : feedback === 'failed' ? 'Chưa gửi được' : ''}
       </span>
@@ -63,6 +68,14 @@ export function HostControls({ phase, connected, noDays, onOpen, onAwards, onRes
             <Button variant="danger" onClick={() => run(onReset)} disabled={off} title={off ? OFFLINE : undefined}>Reset</Button>
           </>}>
           <p>Seed và mã buổi mới; kết quả, bình chọn và giải bị xoá. Người đang kết nối được giữ tên, không cần quét lại.</p>
+          {off && <p className="hctl__warn">Mất kết nối, chờ nối lại rồi bấm.</p>}
+        </Modal>
+        <Modal open={ask === 'solo'} title="Xoá bảng xếp hạng một mình?" onClose={close}
+          actions={<>
+            <Button variant="secondary" onClick={close}>Thôi</Button>
+            <Button variant="danger" onClick={runSolo} disabled={off} title={off ? OFFLINE : undefined}>Xoá bảng</Button>
+          </>}>
+          <p>Mọi điểm trên bảng xếp hạng chơi một mình bị xoá cho tất cả mọi người, không lấy lại được. Bảng của buổi lớp không bị ảnh hưởng.</p>
           {off && <p className="hctl__warn">Mất kết nối, chờ nối lại rồi bấm.</p>}
         </Modal>
       </>, document.body)}

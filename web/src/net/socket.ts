@@ -3,7 +3,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
-  Ack, ClientToServer, DayAck, HostBoard, Progress, ReportAck, ServerToClient, SessionSnapshot, Vote,
+  Ack, ClientToServer, DayAck, HostBoard, Progress, ReportAck, ServerToClient, SessionSnapshot, SoloBoard, SoloSubmit,
+  SoloSubmitAck, Vote,
 } from '../../../shared/protocol';
 import type { DaySummary } from '../../../shared/sim/types';
 
@@ -35,6 +36,11 @@ export interface SessionClient {
   open(): void;
   awards(): void;
   reset(): void;
+  /** The solo leaderboard: watch (the ack carries the board), submit a finished run, host-only reset. */
+  soloWatch(): Promise<Ack<{ board: SoloBoard }>>;
+  soloUnwatch(): void;
+  soloSubmit(p: SoloSubmit): Promise<SoloSubmitAck>;
+  soloReset(): Promise<Ack>;
   /** Runs `cb` now if connected and after every (re)connect; returns the unsubscribe. */
   onConnect(cb: () => void): () => void;
   /**
@@ -92,6 +98,10 @@ export function createClient(socket: ClassSocket, ackTimeoutMs = ACK_TIMEOUT_MS)
     open: () => { socket.emit('host:open'); },
     awards: () => { socket.emit('host:awards'); },
     reset: () => { socket.emit('host:reset'); },
+    soloWatch: () => call('solo:watch', {}),
+    soloUnwatch: () => { if (socket.connected) socket.emit('solo:unwatch'); },
+    soloSubmit: p => call('solo:submit', p),
+    soloReset: () => call('host:soloReset', {}),
     onConnect(cb) {
       if (socket.connected) cb();
       socket.on('connect', cb);

@@ -45,6 +45,8 @@ export interface GameProps {
   /** The day title: plays each morning (`auto`), stays up (`hold`, for screenshots), or is skipped on the first
    *  morning (`skip`). */
   titleMode?: 'auto' | 'hold' | 'skip';
+  /** Solo: a section for the end screen (the leaderboard), made from the finished run. */
+  endExtra?: (run: RunState) => ReactNode;
   /** Solo: start a new run from the end screen. */
   onNewRun?: () => void;
   /** Class mode: the awards are still to come (the end screen says "chờ trao giải"). */
@@ -224,7 +226,7 @@ export default function Game(props: GameProps) {
   } else if (phase === 'end') {
     screen = (
       <motion.div key={`end-${run.runId}`} className="game__screen" {...screenMotion}>
-        <EndScreen run={run} mode={props.mode} onNewRun={newRun} rank={props.rank}
+        <EndScreen run={run} mode={props.mode} onNewRun={newRun} rank={props.rank} extra={props.endExtra?.(run)}
           best={persist.bestKey ? bestBefore(storage, persist.bestKey, run.runId) : null}
           awaitingAwards={props.awaitingAwards} onReporterVote={props.onReporterVote} unsent={props.unsent} />
       </motion.div>

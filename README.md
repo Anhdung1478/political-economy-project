@@ -40,6 +40,8 @@ docker run -d -p 3000:3000 -v pho-tra-sua-data:/app/.data -e HOST_KEY=mat-khau-h
 
 `-v pho-tra-sua-data:/app/.data` giữ file buổi lớp (`SESSION_FILE`, mặc định `.data/session.json` trong `/app`) qua lần deploy lại container.
 
+Bảng xếp hạng chơi một mình nằm cùng thư mục `.data` (`SOLO_BOARD_FILE`), nên volume ở trên giữ luôn cả bảng này. Điểm do trình duyệt gửi lên và server tin như chế độ lớp; host xoá bảng bằng nút "Xoá bảng xếp hạng một mình" trên trang `/host`. File hỏng được đổi tên thành `<file>.corrupt` và bảng bắt đầu lại từ trống.
+
 Sau reverse proxy (nginx) phải bật WebSocket (`proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). `GET /healthz` trả `ok`.
 
 ## Biến môi trường
@@ -50,6 +52,7 @@ Sau reverse proxy (nginx) phải bật WebSocket (`proxy_set_header Upgrade $htt
 | `HOST_KEY` | `pho-tra-sua` | Mã vào `/host`. Khi `NODE_ENV=production` mà thiếu biến này, server không chạy |
 | `PUBLIC_URL` | origin của trang | Địa chỉ in trong mã QR; đặt khi chạy sau proxy |
 | `SESSION_FILE` | `.data/session.json` | File lưu buổi lớp (ghi định kỳ và trước khi xác nhận mỗi lượt vào, bình chọn, ngày chơi) |
+| `SOLO_BOARD_FILE` | `.data/solo-board.json` | File lưu bảng xếp hạng chơi một mình (mỗi tên giữ điểm cao nhất, ghi nguyên tử như file buổi lớp) |
 | `STATIC_DIR` | `dist/web` cạnh `server.js` | Thư mục web đã build |
 
 Buổi lớp được nạp lại từ `SESSION_FILE` khi server khởi động. File nằm trong hệ thống file của container, nên **sống qua lần khởi động lại tiến trình nhưng mất khi deploy lại container**, trừ khi mount volume vào thư mục của file. File hỏng được đổi tên thành `<file>.corrupt` và server mở buổi mới.
