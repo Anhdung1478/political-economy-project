@@ -272,6 +272,19 @@ export class Session {
     };
   }
 
+  /**
+   * Every vote cast so far, each moment counted on its own (the board's `votes` counts only players with both).
+   * Anonymous totals only, for the slide deck's live result (`GET /api/votes`).
+   */
+  voteTally(): { code: string; before: Record<VoteChoice, number>; after: Record<VoteChoice, number> } {
+    const t = { code: this.code, before: { invisible: 0, visible: 0 }, after: { invisible: 0, visible: 0 } };
+    for (const p of this.players.values()) {
+      if (p.votes.before !== null) t.before[p.votes.before]++;
+      if (p.votes.after !== null) t.after[p.votes.after]++;
+    }
+    return t;
+  }
+
   board(): HostBoard {
     const players = [...this.players.values()];
     const withDays = players.filter(p => p.days.length > 0);

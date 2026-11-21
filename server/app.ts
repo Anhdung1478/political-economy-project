@@ -76,6 +76,10 @@ export function createApp(opts: AppOptions) {
 
   app.use(compression());
   app.get('/healthz', (_req, res) => { res.type('text').send('ok'); });
+  // Anonymous vote totals for the slide deck, which is opened from a file or another host: any origin may read them.
+  app.get('/api/votes', (_req, res) => {
+    res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }).json(session.voteTally());
+  });
   app.get('/api/config', (_req, res) => { res.json({ publicUrl: opts.publicUrl ?? null }); });
   if (opts.staticDir && existsSync(opts.staticDir)) {
     const dir = path.resolve(opts.staticDir);

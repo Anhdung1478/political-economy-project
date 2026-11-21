@@ -101,6 +101,27 @@ describe('http', () => {
   });
 });
 
+describe('vote totals', () => {
+  it('serves every before and after vote as anonymous totals any origin may read', async () => {
+    await start();
+    const h = await host();
+    const a = await player('An');
+    const b = await player('Bình');
+    const code = (await h.until(s => s.counts.joined === 2)).code;
+    expect((await a.emit('player:vote', { code, choice: 'invisible', when: 'before' })).ok).toBe(true);
+    expect((await b.emit('player:vote', { code, choice: 'visible', when: 'before' })).ok).toBe(true);
+    h.s.emit('host:open');
+    await h.until(s => s.phase === 'open');
+    expect((await a.emit('player:vote', { code, choice: 'visible', when: 'after' })).ok).toBe(true);
+    const r = await fetch(`${url}/api/votes`);
+    expect(r.headers.get('access-control-allow-origin')).toBe('*');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect(await r.json()).toEqual({
+      code, before: { invisible: 1, visible: 1 }, after: { invisible: 0, visible: 1 },
+    });
+  });
+});
+
 describe('class session over sockets', () => {
   it('joins, resumes, votes with the session code, opens and takes days in order with ranks', async () => {
     await start();
