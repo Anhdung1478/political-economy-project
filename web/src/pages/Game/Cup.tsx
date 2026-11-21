@@ -1,11 +1,13 @@
 // The cup on the counter (spec §9 "Bảng pha chế"): it drops onto the counter with a bounce, ice falls cube by cube,
-// tea pours in a stream with the level rising and sloshing in the colour of the day's tea grade, toppings drop and
-// bounce at the bottom, and a lid and a straw go on when the cup is done. Drawn on a canvas in the units of a
+// tea pours in a stream with the level rising and sloshing in the colour of the day's tea grade (a cup with no ice
+// stops lower, at its smaller tea, and wears a struck-through ice badge), toppings drop and bounce at the bottom, and a
+// lid and a straw go on when the cup is done. Drawn on a canvas in the units of a
 // 160 × 200 view box, with the shapes, colours and motion of the SVG cup it replaces (final review I1: moving SVG
 // shapes every frame cost a style, layout and paint pass of the page each time). One requestAnimationFrame loop
 // draws it from the sim clock, so it pauses with the clock and stays in step with the engine's step timing (R14). The
 // empty counter's dashed outline stays a still SVG.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { CONFIG } from '../../../../shared/sim/config';
 import type { CraftState, Size, TeaGrade, ToppingId } from '../../../../shared/sim/types';
 import { stepProgress } from './rush';
 
@@ -141,12 +143,14 @@ interface Frame {
   pieceOp: number[];
   lid: number;
   lidOn: boolean;
+  /** Tea poured with no ice: the "không đá" badge. */
+  dry: boolean;
 }
 
 const newFrame = (): Frame => ({
   bodyY: 0, bodySy: 1, level: 0, surf: 0, amp: 0, ph: 0, pitcher: 0, tilt: 0, stream: false, wob: 0,
   iceX: [0, 0, 0, 0, 0], iceY: [0, 0, 0, 0, 0], iceR: [0, 0, 0, 0, 0], iceOp: [0, 0, 0, 0, 0], pieceY: [], pieceOp: [],
-  lid: 0, lidOn: false,
+  lid: 0, lidOn: false, dry: false,
 });
 
 type Ctx = CanvasRenderingContext2D;
@@ -217,6 +221,37 @@ function stripesAt(ctx: Ctx, k: number): CanvasPattern | null {
   const p = ctx.createPattern(tile, 'repeat');
   p?.setTransform(new DOMMatrix().rotate(40).scale(12 / n));
   return p;
+}
+
+/** "Không đá" on the cup: the order bubble's ice cube in a red "no" sign (CounterCustomer `NoIceIcon`, ×1.2). */
+function drawNoIceBadge(c: Ctx, x: number, y: number): void {
+  c.save();
+  c.translate(x, y);
+  c.scale(1.2, 1.2);
+  circle(c, 0, 0, 8.4);
+  c.fillStyle = '#fffcf7';
+  c.fill();
+  c.strokeStyle = '#de4f5a';
+  c.lineWidth = 2.2;
+  c.stroke();
+  c.save();
+  c.rotate(-10 * DEG);
+  roundRect(c, -4.4, -4.4, 8.8, 8.8, 2.4);
+  c.fillStyle = '#e8f6ff';
+  c.fill();
+  c.strokeStyle = '#6fa8c9';
+  c.lineWidth = 1.4;
+  c.stroke();
+  c.restore();
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(-5.8, 5.8);
+  c.lineTo(5.8, -5.8);
+  c.strokeStyle = '#de4f5a';
+  c.lineWidth = 2.2;
+  c.stroke();
+  c.lineCap = 'butt';
+  c.restore();
 }
 
 /** Draws the cup as the SVG did, back to front, in view-box units. */
@@ -369,6 +404,7 @@ function drawCup(P: Paint, f: Frame, g: Geom, size: Size, pieces: readonly Piece
   c.textAlign = 'center';
   c.textBaseline = 'alphabetic';
   c.fillText(size, CX, sy + 4.5);
+  if (f.dry) drawNoIceBadge(c, CX + 19, sy - 12);
 
   // the lid and the straw
   if (f.lidOn) {
@@ -527,10 +563,12 @@ function CupView({ craft, machine, tea, time, reduced, ready, sloshRef }: CupPro
         f.bodySy = k > 0.55 ? 1 - Math.sin(((k - 0.55) / 0.45) * Math.PI) * 0.07 : 1;
       }
 
-      // Tea level.
+      // Tea level: up to the fill mark over ice, lower with no ice (less tea, §6).
       const hasTea = c.cup.teaMl > 0;
       const pouring = stp === 'tea';
-      f.level = !hasTea ? 0 : pouring ? clamp01((p - 0.06) / 0.9) : 1;
+      const full = hasTea ? Math.min(1, c.cup.teaMl / CONFIG.supplies.sizeMl[c.cup.size]) : 1;
+      f.level = !hasTea ? 0 : (pouring ? clamp01((p - 0.06) / 0.9) : 1) * full;
+      f.dry = hasTea && !c.cup.iced;
       f.surf = FLOOR - 6 - f.level * geo.fillH;
       if (pouring) m.slosh = Math.max(m.slosh, 3.2);
       if (m.wasPouring && !pouring) m.slosh = Math.max(m.slosh, 4.5);

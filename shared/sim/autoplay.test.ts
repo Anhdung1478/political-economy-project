@@ -9,7 +9,7 @@ import { customerCount } from './customers';
 import { dayRules, morningBrief, openDay, quickFill, validatePlan } from './day';
 import { hashSeed } from './rng';
 import { advance, canServe, cloneRush, step } from './rush';
-import { cust, deepFreeze, order, playerShop, runTo, stock, street } from './rush.fixtures';
+import { cust, deepFreeze, dryOrder, order, playerShop, runTo, stock, street } from './rush.fixtures';
 import { chooseCard, endRush, newRun, nextDay } from './run';
 import type {
   Action, BriefShopRow, CardId, Customer, DayReport, MorningPlan, RunState, RushState, ShopDayResult, SimEvent,
@@ -117,9 +117,32 @@ describe('botStep: one tick of the bot (R37)', () => {
   it('closes early once the stock cannot make any order, with closeWhenEmpty', () => {
     const s = counter(order('M', 'pearl'), { size: 'M', teaMl: 0, toppings: [] }, 3);
     s.player.craft = { cup: null, anim: null, buffer: [] };
-    s.player.stock.teaMl = 200;
+    s.player.stock.teaMl = 199;
     expect(botStep(s, FRESH, { ...POLICY, closeWhenEmpty: true }).actions).toEqual([{ type: 'closeEarly' }]);
     expect(botStep(s, FRESH, POLICY).actions).toEqual([]);
+    // 200 ml still pours an S with no ice: it stays open for that order.
+    s.player.stock.teaMl = 200;
+    expect(botStep(s, FRESH, { ...POLICY, closeWhenEmpty: true }).actions).toEqual([]);
+  });
+
+  it('makes a "không đá" order without the ice: size, tea, then toppings', () => {
+    const s0 = street([], [cust(0, { order: dryOrder('M', 'pearl') })], { stock: stock(5000, 3) });
+    const s = structuredClone(runTo(s0, 1).state);
+    const next = (cup: RushState['player']['craft']['cup']) => {
+      s.player.craft = { cup, anim: null, buffer: [] };
+      return botStep(s, FRESH, POLICY).actions;
+    };
+    expect(next(null)).toEqual([{ type: 'craft', input: { k: 'size', size: 'M' } }]);
+    expect(next({ size: 'M', iced: false, teaMl: 0, toppings: [] })).toEqual([{ type: 'craft', input: { k: 'tea' } }]);
+    expect(next({ size: 'M', iced: false, teaMl: 300, toppings: [] }))
+      .toEqual([{ type: 'craft', input: { k: 'topping', id: 'pearl' } }]);
+    expect(next({ size: 'M', iced: false, teaMl: 300, toppings: ['pearl'] })).toEqual([{ type: 'deliver', customer: 0 }]);
+    // Ice in the cup: it can no longer be this order.
+    expect(next({ size: 'M', iced: true, teaMl: 0, toppings: [] })).toEqual([{ type: 'trash' }]);
+    // The other way round: tea poured with no ice is no cup for an iced order.
+    s.customers[0] = { ...s.customers[0], order: order('M', 'pearl') };
+    expect(next({ size: 'M', iced: false, teaMl: 300, toppings: [] })).toEqual([{ type: 'trash' }]);
+    expect(next({ size: 'M', iced: false, teaMl: 0, toppings: [] })).toEqual([{ type: 'craft', input: { k: 'ice' } }]);
   });
 
   it('serves the least patient servable customer first with urgent, the head with fifo', () => {
@@ -196,6 +219,31 @@ describe('mistakes (R37)', () => {
       expect(botStep(s, { cooldown: 0, rng }, { ...POLICY, mistakeRate: 1 }).actions)
         .not.toEqual([{ type: 'craft', input: { k: 'size', size: 'L' } }]);
     }
+  });
+
+  it('may get the ice the other way: ice for a "không đá" order', () => {
+    // A plain M with no ice and no topping left: the mistakes are the other sizes and the ice.
+    const s0 = street([], [cust(0, { order: dryOrder('M') })], { stock: stock(5000, 0) });
+    const s = structuredClone(runTo(s0, 1).state);
+    s.player.craft = { cup: { size: 'M', iced: false, teaMl: 0, toppings: [] }, anim: null, buffer: [] };
+    const seen = new Set<string>();
+    for (let rng = 1; rng <= 200; rng++) {
+      const [a] = botStep(s, { cooldown: 0, rng }, { ...POLICY, mistakeRate: 1 }).actions;
+      seen.add(a.type === 'craft' ? a.input.k : a.type);
+    }
+    expect([...seen].sort()).toEqual(['ice', 'trash']);   // an S or L target cannot use this M cup
+  });
+
+  it('makes the "không đá" orders right at rate 0, with their smaller tea', () => {
+    let dry = 0;
+    for (const seed of seeds.slice(0, 8)) {
+      const { rush } = playRush(day1(seed), POLICY, hashSeed(seed, 'bot/test/1'));
+      const served = rush.customers.filter(c => c.order.noIce && rush.rt[c.id].shop === 'player'
+        && rush.rt[c.id].outcome === 'served');
+      dry += served.length;
+      expect(rush.player.tally.wrong).toBe(0);
+    }
+    expect(dry).toBeGreaterThan(10);
   });
 });
 

@@ -140,6 +140,27 @@ describe('orders', () => {
     expect(p('pearl')).toBeGreaterThan(p('pudding') + 0.12);
     expect(Math.abs(p('jelly') - p('pudding'))).toBeLessThan(0.06);
   });
+
+  it('about 20% order "không đá", on every day, across sizes', () => {
+    for (const d of DAYS) {
+      const p = share(many(d), c => c.order.noIce);
+      expect(p, `day ${d}`).toBeGreaterThan(0.17);
+      expect(p, `day ${d}`).toBeLessThan(0.23);
+    }
+    for (const s of ['S', 'M', 'L'] as Size[]) expect(all.some(c => c.order.size === s && c.order.noIce)).toBe(true);
+    expect(generateAdCustomers(4, 2, 130, 40).some(c => c.order.noIce)).toBe(true);
+  });
+
+  it('the ice draw has its own stream: with no "không đá" at all, every other trait is the same', () => {
+    const none: SimConfig = { ...CONFIG, customers: { ...CONFIG.customers, noIcePercent: 0 } };
+    const strip = (list: Customer[]) => list.map(c => ({ ...c, order: { ...c.order, noIce: false } }));
+    for (const seed of SEEDS.slice(0, 3)) {
+      const plain = generateCustomers(seed, 2, none);
+      expect(plain.some(c => c.order.noIce)).toBe(false);
+      expect(strip(generateCustomers(seed, 2))).toEqual(plain);
+      expect(strip(generateAdCustomers(seed, 2, 130, 6))).toEqual(generateAdCustomers(seed, 2, 130, 6, none));
+    }
+  });
 });
 
 describe('other traits', () => {

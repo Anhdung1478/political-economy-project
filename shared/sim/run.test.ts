@@ -63,7 +63,7 @@ describe('newRun', () => {
 
   it('pre-fills day 1 at 30k, standard tea and the "mid" quick fill (§5)', () => {
     expect(run.plan).toEqual({ price: 30, tea: 'standard', upgrade: null, ...quickFill(run, 'mid') });
-    expect(run.plan.teaMl).toBe(5500);
+    expect(run.plan.teaMl).toBe(5250);
   });
 
   it('is plain data that survives a JSON round trip unchanged', () => {

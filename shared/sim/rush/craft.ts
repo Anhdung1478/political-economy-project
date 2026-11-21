@@ -4,24 +4,32 @@
 // rush engine runs on its draft.
 import { CONFIG, type SimConfig } from '../config';
 import type {
-  CraftInput, CraftState, Cup, InputReject, K, Order, SimEvent, Size, Stock, StockItem, Tick,
+  CraftInput, CraftState, Cup, InputReject, K, Ml, Order, SimEvent, Size, Stock, StockItem, Tick,
 } from '../types';
 
-/** The stock covers this order: tea for its size and a portion of each topping (§6 "Còn hàng cho một đơn"). */
+/** The tea poured into a cup of this size: the size's ml over ice, less with no ice (§6). */
+export const teaMlFor = (size: Size, iced: boolean, cfg: SimConfig = CONFIG): Ml =>
+  (iced ? cfg.supplies.sizeMl : cfg.supplies.noIceMl)[size];
+
+/** The tea this order takes. */
+export const orderTeaMl = (order: Order, cfg: SimConfig = CONFIG): Ml => teaMlFor(order.size, !order.noIce, cfg);
+
+/** The stock covers this order: its tea (less with no ice) and a portion of each topping (§6 "Còn hàng cho một đơn"). */
 export function canServe(stock: Stock, order: Order, cfg: SimConfig = CONFIG): boolean {
-  if (stock.teaMl < cfg.supplies.sizeMl[order.size]) return false;
+  if (stock.teaMl < orderTeaMl(order, cfg)) return false;
   for (const t of order.toppings) if (stock.toppings[t] < 1) return false;
   return true;
 }
 
 /** @internal The first item the stock lacks for this order, tea before toppings in canonical order; null if none. */
 export function missingFor(stock: Stock, order: Order, cfg: SimConfig): StockItem | null {
-  if (stock.teaMl < cfg.supplies.sizeMl[order.size]) return 'tea';
+  if (stock.teaMl < orderTeaMl(order, cfg)) return 'tea';
   for (const t of order.toppings) if (stock.toppings[t] < 1) return t;
   return null;
 }
 
-/** What the customer pays for this order made right: the M price, −5k for S, +5k for L, +5k per topping (§4). */
+/** What the customer pays for this order made right: the M price, −5k for S, +5k for L, +5k per topping (§4); no ice
+ *  costs the same. */
 export function orderPrice(price: K, order: Order, cfg: SimConfig = CONFIG): K {
   return price + cfg.pricing.sizeSurcharge[order.size] + cfg.pricing.toppingSurcharge * order.toppings.length;
 }
@@ -31,9 +39,9 @@ export function cupPrice(price: K, cup: Cup, cfg: SimConfig = CONFIG): K {
   return price + cfg.pricing.sizeSurcharge[cup.size] + cfg.pricing.toppingSurcharge * cup.toppings.length;
 }
 
-/** The cup is this order: same size, same set of toppings. */
+/** The cup is this order: same size, ice as ordered, same set of toppings. */
 function isOrder(cup: Cup, order: Order): boolean {
-  if (cup.size !== order.size || cup.toppings.length !== order.toppings.length) return false;
+  if (cup.size !== order.size || cup.iced === order.noIce || cup.toppings.length !== order.toppings.length) return false;
   for (const t of cup.toppings) if (!order.toppings.includes(t)) return false;
   return true;
 }
@@ -48,9 +56,13 @@ export function payment(price: K, order: Order, cup: Cup, cfg: SimConfig = CONFI
   return { correct: false, paid: Math.floor(Math.min(full, cupPrice(price, cup, cfg)) * cfg.pricing.wrongPayTenths / 10) };
 }
 
-/** The cup can still become this order: same size, and every topping already in it was ordered (§16.3). */
+/**
+ * The cup can still become this order: same size, no ice in a "không đá" order, no tea poured without ice in an iced
+ * one, and every topping already in it was ordered (§16.3).
+ */
 export function holds(order: Order, cup: Cup): boolean {
   if (order.size !== cup.size) return false;
+  if (order.noIce ? cup.iced : !cup.iced && cup.teaMl > 0) return false;
   for (const t of cup.toppings) if (!order.toppings.includes(t)) return false;
   return true;
 }
@@ -60,23 +72,26 @@ const NO_CUP = 0;
 const SIZED = 1;
 const ICED = 2;
 const POURED = 3;
-/** The stage a cup must be at for each step, and the stage it reaches. */
-const STAGE_NEEDED: Record<CraftInput['k'], number> = { size: NO_CUP, ice: SIZED, tea: ICED, topping: POURED };
+/** The stages a cup may be at for each step (tea goes over ice or straight into the sized cup), and the stage it reaches. */
+const STAGE_NEEDED: Record<CraftInput['k'], readonly number[]> = {
+  size: [NO_CUP], ice: [SIZED], tea: [SIZED, ICED], topping: [POURED],
+};
 const STAGE_AFTER: Record<CraftInput['k'], number> = { size: SIZED, ice: ICED, tea: POURED, topping: POURED };
 
 const stageOf = (cup: Cup | null): number =>
   cup === null ? NO_CUP : cup.teaMl > 0 ? POURED : cup.iced ? ICED : SIZED;
 
-/** The step order (§6): size, ice, tea, then 0–3 different toppings. */
+/** The step order (§6): size, ice (skipped for "không đá"), tea, then 0–3 different toppings. */
 function orderReject(input: CraftInput, stage: number, duplicate: boolean): InputReject | null {
   if (stage === NO_CUP && input.k !== 'size') return 'noCup';
-  if (stage !== STAGE_NEEDED[input.k]) return 'order';
+  if (!STAGE_NEEDED[input.k].includes(stage)) return 'order';
   return duplicate ? 'duplicate' : null;
 }
 
-/** The stock a step takes: the tea of the cup's size, or a portion of the topping. Size and ice take none. */
-function stockReject(input: CraftInput, size: Size | null, stock: Stock, cfg: SimConfig): InputReject | null {
-  if (input.k === 'tea') return size === null || stock.teaMl < cfg.supplies.sizeMl[size] ? 'noTea' : null;
+/** The stock a step takes: the cup's tea (less with no ice), or a portion of the topping. Size and ice take none. */
+function stockReject(input: CraftInput, size: Size | null, iced: boolean, stock: Stock,
+  cfg: SimConfig): InputReject | null {
+  if (input.k === 'tea') return size === null || stock.teaMl < teaMlFor(size, iced, cfg) ? 'noTea' : null;
   if (input.k === 'topping') return stock.toppings[input.id] < 1 ? 'noTopping' : null;
   return null;
 }
@@ -92,13 +107,17 @@ export function checkInput(craft: CraftState, input: CraftInput, stock: Stock | 
   const cup = craft.cup;
   let stage = stageOf(cup);
   let size = cup === null ? null : cup.size;
+  let iced = cup !== null && cup.iced;
   let duplicate = input.k === 'topping' && cup !== null && cup.toppings.includes(input.id);
   for (const b of craft.buffer) {
     stage = STAGE_AFTER[b.k];
-    if (b.k === 'size') size = b.size;
+    if (b.k === 'size') {
+      size = b.size;
+      iced = false;
+    } else if (b.k === 'ice') iced = true;
     else if (b.k === 'topping' && input.k === 'topping' && b.id === input.id) duplicate = true;
   }
-  return orderReject(input, stage, duplicate) ?? (stock === null ? null : stockReject(input, size, stock, cfg));
+  return orderReject(input, stage, duplicate) ?? (stock === null ? null : stockReject(input, size, iced, stock, cfg));
 }
 
 /** The cup can be handed over: it has tea and no animation is running (§6). */
@@ -129,7 +148,7 @@ function startStep(craft: CraftState, input: CraftInput, stock: Stock | null, t:
   if (input.k === 'ice') {
     cup.iced = true;
   } else if (input.k === 'tea') {
-    cup.teaMl = cfg.supplies.sizeMl[cup.size];
+    cup.teaMl = teaMlFor(cup.size, cup.iced, cfg);
     if (stock !== null) stock.teaMl -= cup.teaMl;
     took = stock !== null;
   } else if (input.k === 'topping') {
@@ -172,7 +191,8 @@ export function tickCraft(craft: CraftState, stock: Stock | null, t: Tick, machi
   craft.anim = null;
   const next = craft.buffer.shift();
   if (next === undefined) return false;
-  const why = stock === null ? null : stockReject(next, craft.cup === null ? null : craft.cup.size, stock, cfg);
+  const cup = craft.cup;
+  const why = stock === null || cup === null ? null : stockReject(next, cup.size, cup.iced, stock, cfg);
   if (why !== null) {
     craft.buffer.length = 0;
     events.push({ t, type: 'inputRejected', action: 'craft', why });

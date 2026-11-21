@@ -20,8 +20,9 @@ export type Choice = 'A' | 'B';
 /** Theme of a day in the 5-day schedule (spec section 3). */
 export type ThemeId = 'opening' | 'newShop' | 'priceCeiling' | 'tax' | 'rumor';
 
-/** 1..3 distinct toppings, in canonical order pearl → jelly → pudding. */
-export interface Order { size: Size; toppings: ToppingId[] }
+/** 0..3 distinct toppings, in canonical order pearl → jelly → pudding. `noIce`: "không đá", the cup skips the ice
+ *  step and takes less tea (§6). */
+export interface Order { size: Size; toppings: ToppingId[]; noIce: boolean }
 export interface Stock { teaMl: Ml; toppings: Record<ToppingId, number> }
 
 /** Fixed for the day; its index in RushState.customers equals its id. */

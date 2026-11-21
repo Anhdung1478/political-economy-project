@@ -122,6 +122,8 @@ export const CONFIG = {
     size: { mediumShare: 0.5, largeBase: 0.25, largeBudgetTilt: 0.3 },
     /** Chance (percent) of 0, 1, 2, 3 toppings: the index is the topping count; a plain cup is a fine order. */
     toppingCountPercent: [25, 40, 25, 10],
+    /** Chance (percent) a customer orders "không đá": no ice, less tea, same price (§6). */
+    noIcePercent: 20,
     /** Draw weights, without repetition. */
     toppingWeights: { pearl: 2, jelly: 1, pudding: 1 } as Record<ToppingId, number>,
     /** Canonical order toppings are stored in. */
@@ -153,6 +155,8 @@ export const CONFIG = {
   /** §4 Giá và chi phí. */
   supplies: {
     sizeMl: sizeTable(250, 350, 500),
+    /** Tea of a cup with no ice ("không đá", §6): about 80% of the size, in 50 ml so tea stays worth whole 0.5k. */
+    noIceMl: sizeTable(200, 300, 400),
     teaStepMl: 250,
     teaGrades: {
       skimp: { costPer100Ml: 2, rep: -12 },
@@ -160,8 +164,8 @@ export const CONFIG = {
       premium: { costPer100Ml: 4, rep: 8 },
     } as Record<TeaGrade, { costPer100Ml: K; rep: number }>,
     toppingCost: 2,
-    /** Sold-out sign below this much tea (§6). */
-    soldOutBelowMl: 250,
+    /** Sold-out sign below this much tea (§6): the smallest cup, an S with no ice. */
+    soldOutBelowMl: 200,
   },
 
   /** §4 Nâng cấp. */

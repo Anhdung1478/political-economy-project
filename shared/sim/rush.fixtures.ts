@@ -28,7 +28,9 @@ export const input = (over: Partial<RushInput> = {}, player: Partial<PlayerIn> =
   ...over,
 });
 
-export const order = (size: Size, ...toppings: ToppingId[]): Order => ({ size, toppings });
+export const order = (size: Size, ...toppings: ToppingId[]): Order => ({ size, toppings, noIce: false });
+/** The same order "không đá". */
+export const dryOrder = (size: Size, ...toppings: ToppingId[]): Order => ({ size, toppings, noIce: true });
 
 export const cust = (id: number, over: Partial<Customer> = {}): Customer => ({
   id, budget: 40, trust: 0, skeptic: 0, order: order('M', 'pearl'), arriveTick: 0, entry: 'left',
@@ -78,7 +80,7 @@ export const deliver = (customer: number): Action => ({ type: 'deliver', custome
 export const TRASH: Action = { type: 'trash' };
 export const CLOSE: Action = { type: 'closeEarly' };
 /** Every input of an order, in step order. */
-export const make = (o: Order): Action[] => [size(o.size), ICE, TEA, ...o.toppings.map(top)];
+export const make = (o: Order): Action[] => [size(o.size), ...(o.noIce ? [] : [ICE]), TEA, ...o.toppings.map(top)];
 
 export const about = (events: SimEvent[], id: number) => events.filter(e => 'customer' in e && e.customer === id);
 export const at = (events: SimEvent[], t: number) => events.filter(e => e.t === t);

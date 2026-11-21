@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, type SimConfig } from './config';
 import { customerCount } from './customers';
+import { teaMlFor } from './rush';
 import { restsToday } from './shops';
 import type { AiShopId, Day, DayRules, Size } from './types';
 
@@ -23,7 +24,7 @@ const streetCapacity = (day: Day, cfg: SimConfig) =>
   AI_IDS.filter(id => cfg.aiShops[id].firstDay <= day && !rests(id, day, cfg))
     .reduce((sum, id) => sum + cfg.aiShops[id].capacity, 0);
 
-/** Expected animation ticks of an average ordered cup (size, ice, tea, toppings, deliver). */
+/** Expected animation ticks of an average ordered cup (size, ice unless "không đá", tea, toppings, deliver). */
 const averageCupAnimation = (cfg: SimConfig, teaTicks: Record<Size, number>) => {
   const c = cfg.customers;
   const sizeShare: Record<Size, number> = {
@@ -33,7 +34,8 @@ const averageCupAnimation = (cfg: SimConfig, teaTicks: Record<Size, number>) => 
   };
   const tea = SIZES.reduce((sum, s) => sum + sizeShare[s] * teaTicks[s], 0);
   const toppings = c.toppingCountPercent.reduce((sum, p, i) => sum + (p / 100) * i, 0);
-  return cfg.craft.sizeTicks + cfg.craft.iceTicks + tea + toppings * cfg.craft.toppingTicks + cfg.craft.deliverTicks;
+  const ice = (1 - c.noIcePercent / 100) * cfg.craft.iceTicks;
+  return cfg.craft.sizeTicks + ice + tea + toppings * cfg.craft.toppingTicks + cfg.craft.deliverTicks;
 };
 
 const tickEntries = (node: unknown, path: string[] = []): [string, unknown][] => {
@@ -78,10 +80,10 @@ describe('CONFIG street capacity (spec section 4)', () => {
 });
 
 describe('CONFIG craft timings (spec section 6)', () => {
-  it('an average cup animates for about 39 ticks (a quarter of the orders take no topping)', () => {
+  it('an average cup animates for about 37.6 ticks (a quarter take no topping, a fifth no ice)', () => {
     const avg = averageCupAnimation(CONFIG, CONFIG.craft.teaTicks);
-    expect(avg).toBeGreaterThan(38);
-    expect(avg).toBeLessThan(40.5);
+    expect(avg).toBeGreaterThan(37);
+    expect(avg).toBeLessThan(38.5);
   });
 
   it('the machine pours tea in exactly half the ticks, as whole ticks', () => {
@@ -106,6 +108,24 @@ describe('CONFIG craft timings (spec section 6)', () => {
     expect(inside(CONFIG.rumor.inspectionTick)).toBe(true);
     expect(CONFIG.rush.arrivalWindowTicks).toBeLessThan(CONFIG.rush.ticks);
     expect(CONFIG.rush.enterLeadTicks).toBeLessThan(CONFIG.rush.arrivalWindowTicks);
+  });
+});
+
+describe('CONFIG tea per cup (§4, §6)', () => {
+  it('a cup with no ice takes 200, 300, 400 ml: about 80% of the size, in 50 ml so its tea is worth whole 0.5k', () => {
+    expect(SIZES.map(s => teaMlFor(s, false))).toEqual([200, 300, 400]);
+    expect(SIZES.map(s => teaMlFor(s, true))).toEqual(SIZES.map(s => CONFIG.supplies.sizeMl[s]));
+    for (const s of SIZES) {
+      const dry = CONFIG.supplies.noIceMl[s];
+      expect(dry % 50).toBe(0);
+      expect(dry / CONFIG.supplies.sizeMl[s]).toBeGreaterThanOrEqual(0.75);
+      expect(dry / CONFIG.supplies.sizeMl[s]).toBeLessThanOrEqual(0.9);
+      for (const g of Object.values(CONFIG.supplies.teaGrades)) expect(Number.isInteger(dry * g.costPer100Ml / 50)).toBe(true);
+    }
+  });
+
+  it('the sold-out sign hangs below the smallest cup, an S with no ice', () => {
+    expect(CONFIG.supplies.soldOutBelowMl).toBe(Math.min(...SIZES.flatMap(s => [teaMlFor(s, true), teaMlFor(s, false)])));
   });
 });
 

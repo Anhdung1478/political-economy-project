@@ -36,8 +36,8 @@ describe('craft buttons follow checkInput', () => {
   });
 
   it('judges against the projected cup: the next step is lit while earlier ones are queued', () => {
-    const c = press(empty(), 'M');           // size running
-    expect(lit(c)).toEqual(['ice']);
+    const c = press(empty(), 'M');           // size running: ice next, or tea for a cup with no ice
+    expect(lit(c)).toEqual(['ice', 'tea']);
     const c2 = press(c, 'ice', 'tea');        // queued behind the size step
     expect(lit(c2)).toEqual(['pearl', 'jelly', 'pudding']);
     const c3 = press(c2, 'pearl');            // buffer full (3)
@@ -71,7 +71,15 @@ describe('craft buttons follow checkInput', () => {
     expect(rejectText('order', { k: 'ice' }, cup)).toBe('Ly đã có đá');
     expect(rejectText('order', { k: 'size', size: 'M' }, cup)).toMatch(/Đang có ly/);
     expect(rejectText('order', { k: 'topping', id: 'pearl' }, cup)).toMatch(/Rót trà trước/);
-    expect(rejectText('order', { k: 'tea' }, projectCup(press(empty(), 'S')))).toBe('Đổ đá trước đã');
+    const dry = projectCup(runTo(press(empty(), 'S', 'tea'), 20));
+    expect(rejectText('order', { k: 'ice' }, dry)).toBe('Đã rót trà: ly này không đá');
+    expect(rejectText('order', { k: 'tea' }, dry)).toBe('Ly đã có trà');
+  });
+
+  it('a cup poured with no ice lights the toppings, never the ice', () => {
+    const c = press(empty(), 'M', 'tea');
+    expect(lit(c)).toEqual(['pearl', 'jelly', 'pudding']);
+    expect(lit(runTo(c, 40))).toEqual(['pearl', 'jelly', 'pudding']);
   });
 });
 
@@ -124,14 +132,23 @@ describe('the day-1 practice cup', () => {
     expect(practiceNext(press(empty(), 'L'), PRACTICE_ORDER)).toBe('trash');
     const wrongTop = runTo(press(empty(), 'M', 'ice', 'tea'), 40);
     expect(practiceNext(press(wrongTop, 'jelly'), PRACTICE_ORDER)).toBe('trash');
+    expect(practiceNext(press(empty(), 'M', 'tea'), PRACTICE_ORDER)).toBe('trash');   // tea with no ice
+  });
+
+  it('skips the ice for an order with no ice, and bins a cup with ice', () => {
+    const dry: Order = { ...PRACTICE_ORDER, noIce: true };
+    expect(practiceNext(press(empty(), 'M'), dry)).toBe('tea');
+    expect(practiceNext(press(empty(), 'M', 'tea'), dry)).toBe('pearl');
+    expect(practiceNext(press(empty(), 'M', 'ice'), dry)).toBe('trash');
   });
 });
 
 describe('orders and hand-over', () => {
-  const order: Order = { size: 'L', toppings: ['pearl', 'jelly'] };
+  const order: Order = { size: 'L', toppings: ['pearl', 'jelly'], noIce: false };
   it('labels an order', () => {
     expect(orderLabel(order)).toBe('L · trân châu, thạch');
-    expect(orderLabel({ size: 'S', toppings: [] })).toBe('S · không topping');
+    expect(orderLabel({ size: 'S', toppings: [], noIce: false })).toBe('S · không topping');
+    expect(orderLabel({ ...order, noIce: true })).toBe('L · không đá · trân châu, thạch');
   });
 
   it('pays the order in full when right; 70% of the cheaper, floored, when wrong (41k → 31k cup → 21k)', () => {
@@ -188,14 +205,15 @@ describe('patience and stock', () => {
     expect(v.toppings.pearl.level).toBe('out');
     expect(v.toppings.jelly.level).toBe('low');
     expect(v.toppings.pudding.level).toBe('ok');
-    expect(stockView(stock(200)).tea).toBe('out');
+    expect(stockView(stock(199)).tea).toBe('out');
+    expect(stockView(stock(200)).tea).toBe('low');   // still an S with no ice
     expect(fmtMl(4250)).toBe('4,3 L');
     expect(fmtMl(750)).toBe('750 ml');
   });
 });
 
 describe('the counter row', () => {
-  const o: Order = { size: 'M', toppings: [] };
+  const o: Order = { size: 'M', toppings: [], noIce: false };
   const live = (...ids: number[]): LiveSlot[] => ids.map(id => ({ customer: id, order: o, joinedTick: id }));
   const gone = (customer: number, index: number): Departure =>
     ({ customer, order: o, joinedTick: 0, index, kind: 'cheer', at: 0 });
@@ -244,7 +262,7 @@ describe('the counter as the sim will see it (pending actions folded in)', () =>
     const rush = rushAt();
     const one = projectCraft(rush.player.craft, rush.player.stock, [{ type: 'craft', input: { k: 'size', size: 'M' } }],
       rush.tick, false);
-    expect(lit(one.craft, one.stock)).toEqual(['ice']);
+    expect(lit(one.craft, one.stock)).toEqual(['ice', 'tea']);
     const keys: Action[] = (['M', 'ice', 'tea', 'pearl'] as const).map(id => ({ type: 'craft', input: inputOf(id) }));
     const all = projectCraft(rush.player.craft, rush.player.stock, keys, rush.tick, false);
     expect(all.craft.buffer.map(b => b.k)).toEqual(['ice', 'tea', 'topping']);

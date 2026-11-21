@@ -103,6 +103,12 @@ function perOrder(table: Record<Size, number>, cfg: SimConfig): number {
   return share.S * table.S + share.M * table.M + share.L * table.L;
 }
 
+/** Expected tea of an average order: its size's ml, or less for the "không đá" share (§6). */
+function teaPerOrder(cfg: SimConfig): number {
+  const noIce = cfg.customers.noIcePercent / 100;
+  return (1 - noIce) * perOrder(cfg.supplies.sizeMl, cfg) + noIce * perOrder(cfg.supplies.noIceMl, cfg);
+}
+
 /**
  * Expected portions of each topping in an average order: the topping count by `toppingCountPercent`, then
  * distinct toppings drawn by weight without repetition, as customers are generated.
@@ -150,7 +156,7 @@ export function quickFill(run: RunState, level: 'low' | 'mid' | 'high', plan: Mo
   cfg: SimConfig = CONFIG): Pick<MorningPlan, 'teaMl' | 'toppings'> {
   const cups = level === 'high' ? capacityEstimate(run, plan, cfg) : cfg.morning.quickFillCups[level];
   const step = cfg.supplies.teaStepMl;
-  const teaMl = ceilWhole((cups * perOrder(cfg.supplies.sizeMl, cfg)) / step) * step;
+  const teaMl = ceilWhole((cups * teaPerOrder(cfg)) / step) * step;
   const each = toppingsPerOrder(cfg);
   const toppings = { pearl: 0, jelly: 0, pudding: 0 };
   for (const t of cfg.customers.toppingOrder) toppings[t] = ceilWhole(cups * each[t]);

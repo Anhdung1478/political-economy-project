@@ -76,8 +76,8 @@ export function rejectText(why: InputReject, input: CraftInput | null, cup: Proj
     case 'order': {
       if (input === null) return 'Ly chưa có trà';
       if (input.k === 'size') return 'Đang có ly: giao hoặc bỏ ly này trước';
-      if (input.k === 'ice') return cup?.iced ? 'Ly đã có đá' : 'Chọn size trước';
-      if (input.k === 'tea') return cup?.tea ? 'Ly đã có trà' : 'Đổ đá trước đã';
+      if (input.k === 'ice') return cup?.iced ? 'Ly đã có đá' : cup?.tea ? 'Đã rót trà: ly này không đá' : 'Chọn size trước';
+      if (input.k === 'tea') return cup?.tea ? 'Ly đã có trà' : 'Chọn size trước';
       return 'Rót trà trước rồi mới thêm topping';
     }
   }
@@ -184,7 +184,7 @@ export function stepProgress(anim: CraftState['anim'], now: number, size: Size |
 // ── The day-1 practice cup ──────────────────────────────────────────────────────────────────────────────────────────
 
 /** The practice customer's order: an M with pearls, every step once. */
-export const PRACTICE_ORDER: Order = { size: 'M', toppings: ['pearl'] };
+export const PRACTICE_ORDER: Order = { size: 'M', toppings: ['pearl'], noIce: false };
 
 /**
  * What the practice cup needs next for `order`: a button, `deliver` once it is ready to hand over, `wait` while a step
@@ -194,7 +194,8 @@ export function practiceNext(craft: CraftState, order: Order): CraftButtonId | '
   const p = projectCup(craft);
   if (p === null) return order.size;
   if (p.size !== order.size || p.toppings.some(t => !order.toppings.includes(t))) return 'trash';
-  if (!p.iced) return 'ice';
+  if (order.noIce ? p.iced : !p.iced && p.tea) return 'trash';
+  if (!p.iced && !p.tea && !order.noIce) return 'ice';
   if (!p.tea) return 'tea';
   const missing = order.toppings.find(t => !p.toppings.includes(t));
   if (missing !== undefined) return missing;
@@ -216,11 +217,11 @@ export function practiceLine(next: ReturnType<typeof practiceNext>, order: Order
 
 // ── Orders, hand-over and payment ───────────────────────────────────────────────────────────────────────────────────
 
-/** "M · trân châu, thạch" / "L · không topping". */
+/** "M · trân châu, thạch" / "L · không đá · không topping". */
 export function orderLabel(order: Order): string {
   const tops = order.toppings.length === 0 ? 'không topping'
     : order.toppings.map(t => TOPPING_NAMES[t].toLowerCase()).join(', ');
-  return `${order.size} · ${tops}`;
+  return `${order.size}${order.noIce ? ' · không đá' : ''} · ${tops}`;
 }
 
 export interface HandOver {

@@ -4,7 +4,7 @@
 // works on a draft the caller owns (see `cloneRush`).
 import type { SimConfig } from '../config';
 import type { Action, InputReject, K, RushShop, RushState, SimEvent, Tick } from '../types';
-import { applyInput, canServe, dropCup, holds, orderPrice, payment, tickCraft } from './craft';
+import { applyInput, canServe, dropCup, holds, orderPrice, orderTeaMl, payment, tickCraft } from './craft';
 import { leaveStreet, noteMissed, rescoreQueue, shopOf, siftQueue } from './street';
 
 const reject = (events: SimEvent[], t: Tick, action: Action['type'], why: InputReject): false => {
@@ -150,9 +150,10 @@ function runStaff(d: RushState, staff: { progress: Tick }, t: Tick, cfg: SimConf
   const id = ps.queue[at];
   ps.queue.splice(at, 1);
   const order = d.customers[id].order;
-  stock.teaMl -= cfg.supplies.sizeMl[order.size];
+  const tea = orderTeaMl(order, cfg);
+  stock.teaMl -= tea;
   for (const k of order.toppings) stock.toppings[k]--;
-  d.player.handed.teaMl += cfg.supplies.sizeMl[order.size];
+  d.player.handed.teaMl += tea;
   for (const k of order.toppings) d.player.handed.toppings[k]++;
   const full = orderPrice(ps.price, order, cfg);
   sell(d, ps, id, 'staff', true, full, full, t, events);

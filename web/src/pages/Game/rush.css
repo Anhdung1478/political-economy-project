@@ -226,6 +226,7 @@
 .rorder__size b { font-family: var(--font-display); font-weight: 800; font-size: 15px; }
 .rorder--compact .rorder__size b { font-size: 13px; }
 .rorder__top { display: inline-flex; }
+.rorder__noice { display: inline-flex; margin-right: 1px; }
 .rorder__none { font-size: 9px; font-weight: 700; color: var(--ink-faint); white-space: nowrap; }
 .tico, .sico { display: block; flex: none; }
 

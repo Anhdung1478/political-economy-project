@@ -100,7 +100,7 @@ Ngày thường cũng có người về tay không, vì hàng khan hơn khách: 
 
 - Người chơi đặt **giá ly M không topping**, 10–50k, bước 1k.
 - Ly S rẻ hơn 5k, ly L đắt hơn 5k, mỗi phần topping thêm 5k. Phụ thu giống nhau ở mọi quán, nên các quán chỉ cạnh tranh trên một con số.
-- Size chỉ đổi lượng trà: S 250 ml, M 350 ml, L 500 ml. Topping tính theo phần, không phụ thuộc size.
+- Size chỉ đổi lượng trà: S 250 ml, M 350 ml, L 500 ml. Ly **không đá** ít trà hơn: S 200 ml, M 300 ml, L 400 ml, giá vẫn như ly có đá. Topping tính theo phần, không phụ thuộc size.
 - Trà mua theo ml (bước 250 ml), giá theo loại:
 
 | Loại trà | Giá mỗi 100 ml | Uy tín (tính vào buổi tối) |
@@ -156,6 +156,7 @@ Báo cáo tối liệt kê từng khoản.
   - độ đa nghi: 0–1
   - size: S 25%, M 50%, L 25%, túi tiền cao nghiêng về L
   - topping: 0–3 loại khác nhau (không topping 25% / 1 loại 40% / 2 loại 25% / 3 loại 10%), mỗi loại 1 phần, trân châu được gọi nhiều nhất
+  - đá: 20% gọi **không đá** (bỏ bước đá, ít trà hơn, cùng giá)
   - thời điểm đến: trong 75 giây đầu của trưa
 - Khi đến, khách chấm điểm từng quán đang mở, còn phục vụ được đơn của mình và có uy tín từ ngưỡng tin tưởng trở lên:
 
@@ -247,12 +248,12 @@ Các nút sáng lên theo đúng thứ tự:
 | Bước | Thao tác | Thời gian animation |
 |---|---|---|
 | 1. Chọn size | Chạm S / M / L, ly đặt xuống quầy | 0,4s |
-| 2. Đổ đá | Chạm một lần | 0,8s |
-| 3. Đổ trà | Chạm một lần, trà tự rót đến vạch của size | S 1,2s · M 1,6s · L 2,0s |
+| 2. Đổ đá | Chạm một lần. Ly **không đá** bỏ qua bước này | 0,8s |
+| 3. Đổ trà | Chạm một lần, trà tự rót đến vạch của size; ly không đá rót ít hơn (S 200 · M 300 · L 400 ml) | S 1,2s · M 1,6s · L 2,0s |
 | 4. Topping | Chạm mỗi loại một lần, từ 0 đến 3 loại | 0,6s mỗi loại |
 | 5. Giao | Kéo ly thả vào khách, hoặc chạm ly rồi chạm khách | 0,4s |
 
-- Animation chiếm khoảng 4,2 giây của một ly trung bình. Cả ly mất khoảng 5 giây.
+- Animation chiếm khoảng 3,8 giây của một ly trung bình. Cả ly mất khoảng 5 giây.
 - **Bấm trước được:** trong lúc một animation chạy, người chơi bấm sẵn tối đa 3 bước tiếp theo, chúng chạy nối đuôi. Vì vậy tay nhanh gần như không pha được nhiều hơn tay chậm.
 - Chỉ giao được khi ly đã có trà và không còn animation nào đang chạy.
 - Mỗi lúc người chơi pha 1 ly. Nhân viên, nếu có, pha song song ở quầy bên.
@@ -260,16 +261,16 @@ Các nút sáng lên theo đúng thứ tự:
 
 ### Quầy
 
-- Bảng pha chế hiện 4 khách đầu hàng, mỗi người có bong bóng ghi size, topping và thanh kiên nhẫn. Số khách còn lại hiện thành con số.
+- Bảng pha chế hiện 4 khách đầu hàng, mỗi người có bong bóng ghi size, dấu không đá (nếu có), topping và thanh kiên nhẫn. Số khách còn lại hiện thành con số.
 - Giao được cho bất kỳ ai trong 4 khách, nên người chơi tự chọn phục vụ ai trước.
-- **Giao đúng** (đúng size và đúng tập topping): nhận đủ tiền đơn.
-- **Giao sai** (sai size hoặc sai tập topping) bị phạt hai lần:
+- **Giao đúng** (đúng size, đúng có đá hay không đá, đúng tập topping): nhận đủ tiền đơn.
+- **Giao sai** (sai size, sai đá, tức gọi không đá mà ly có đá hoặc ngược lại, hoặc sai tập topping) bị phạt hai lần:
   - **Tiền:** khách chỉ trả 70% giá của ly rẻ hơn giữa đơn đã gọi và ly thực nhận, làm tròn xuống 1k. Phần topping thừa không được trả thêm. Ví dụ khách gọi ly 41k, nhận ly đáng 31k, quán thu 21k.
   - **Uy tín:** quán bị ghi 1 ly giao sai, −2 uy tín vào buổi tối.
 - **Thùng rác:** bỏ ly đang pha, mất phần nguyên liệu đã dùng.
-- **Còn hàng cho một đơn** nghĩa là trà còn lại (không tính phần đã rót vào ly đang pha) đủ cho size của đơn và mỗi topping của đơn còn ít nhất 1 phần. Khách mới chỉ xét quán người chơi khi còn hàng cho đơn của họ.
+- **Còn hàng cho một đơn** nghĩa là trà còn lại (không tính phần đã rót vào ly đang pha) đủ cho lượng trà của đơn (theo size, ít hơn nếu không đá) và mỗi topping của đơn còn ít nhất 1 phần. Khách mới chỉ xét quán người chơi khi còn hàng cho đơn của họ.
 - Mỗi khi kho thay đổi, khách đang xếp hàng mà quán hết hàng cho đơn của họ sẽ rời hàng và chọn lại quán, không trừ uy tín.
-- Trà dưới 250 ml thì quán treo biển hết hàng.
+- Trà dưới 200 ml (ly nhỏ nhất, S không đá) thì quán treo biển hết hàng.
 - **Đóng cửa sớm:** nút kết thúc trưa ngay. Phần còn lại của phố được mô phỏng tức thì. Dùng khi hết hàng.
 - **Hết 90 giây:** khách còn trong hàng ra về, không trừ uy tín. Ly đang pha dở bị bỏ.
 

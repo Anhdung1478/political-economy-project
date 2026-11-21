@@ -118,7 +118,7 @@ export class AmbientCrowd {
     const pick = r();
     const serveRoll = r();
     const c: Customer = {
-      id, budget: 40, trust: 0, skeptic: 0, order: { size: 'M', toppings: ['pearl'] }, arriveTick: arrive, entry,
+      id, budget: 40, trust: 0, skeptic: 0, order: { size: 'M', toppings: ['pearl'], noIce: false }, arriveTick: arrive, entry,
       tie: 0, look, scared: false, onlyShop: null,
     };
     const p = PACE[this.o.timeOfDay];

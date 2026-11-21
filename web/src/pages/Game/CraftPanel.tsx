@@ -146,7 +146,7 @@ function CraftButton({ b, price, stock, tea, next, onPress }: {
   if (id === 'S' || id === 'M' || id === 'L') {
     icon = <SizeIcon size={id} px={28} />;
     label = id;
-    sub = `${orderPrice(price, { size: id as Size, toppings: [] })}k`;
+    sub = `${orderPrice(price, { size: id as Size, toppings: [], noIce: false })}k`;
   } else if (id === 'ice') {
     icon = <IceIcon />;
     label = 'Đá';

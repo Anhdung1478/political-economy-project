@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from './config';
 import {
-  CLOSE, ICE, TEA, TRASH, about, at, cust, deliver, input, make, ofType, order, playerShop, rules, runTo,
+  CLOSE, ICE, TEA, TRASH, about, at, cust, deliver, dryOrder, input, make, ofType, order, playerShop, rules, runTo,
   shop, size, stock, street, top, tuned,
 } from './rush.fixtures';
 import {
-  canServe, checkInput, counterView, createRush, cupPrice, finishRush, orderPrice, payment, step, summarizeRush,
+  canServe, checkInput, counterView, createRush, cupPrice, finishRush, orderPrice, orderTeaMl, payment, step,
+  summarizeRush,
 } from './rush';
+import { holds as engineHolds } from './rush/craft';
 import type { Action, AiShopState, Cup, Day, Order, RushState, SimEvent, Stock, StockItem } from './types';
 
-const cupOf = (o: Order): Cup => ({ size: o.size, iced: true, teaMl: CONFIG.supplies.sizeMl[o.size], toppings: [...o.toppings] });
+const cupOf = (o: Order): Cup => ({ size: o.size, iced: !o.noIce, teaMl: orderTeaMl(o), toppings: [...o.toppings] });
 
 describe('prices and payment (§4 Giá, §6 Quầy)', () => {
   it('an order costs the M price, −5k for S, +5k for L, +5k per topping', () => {
@@ -45,6 +46,29 @@ describe('prices and payment (§4 Giá, §6 Quầy)', () => {
     expect(payment(30, o, cupOf(order('M', 'pearl'))).correct).toBe(false);
     expect(payment(30, o, cupOf(order('M', 'pearl', 'jelly', 'pudding'))).correct).toBe(false);
     expect(payment(30, o, cupOf(order('M', 'pearl', 'pudding'))).correct).toBe(false);
+  });
+
+  it('"không đá" costs the same: the right cup with no ice pays the order in full', () => {
+    expect(orderPrice(30, dryOrder('L', 'pearl'))).toBe(orderPrice(30, order('L', 'pearl')));
+    expect(cupPrice(30, cupOf(dryOrder('M')))).toBe(30);
+    expect(payment(30, dryOrder('L', 'pearl'), cupOf(dryOrder('L', 'pearl')))).toEqual({ correct: true, paid: 40 });
+  });
+
+  it('the ice the other way is a wrong cup, both ways: 70% of the order', () => {
+    // No ice ordered, ice given: 40k → 28k.
+    expect(payment(30, dryOrder('L', 'pearl'), cupOf(order('L', 'pearl')))).toEqual({ correct: false, paid: 28 });
+    // Ice ordered, none given: 35k → 24.5 → 24k.
+    expect(payment(30, order('M', 'jelly'), cupOf(dryOrder('M', 'jelly')))).toEqual({ correct: false, paid: 24 });
+  });
+
+  it('a cup still holds an order only if its ice can still match (§16.3)', () => {
+    const sized: Cup = { size: 'M', iced: false, teaMl: 0, toppings: [] };
+    const iced: Cup = { size: 'M', iced: true, teaMl: 0, toppings: [] };
+    const dry: Cup = { size: 'M', iced: false, teaMl: 300, toppings: [] };
+    const icedTea: Cup = { size: 'M', iced: true, teaMl: 350, toppings: ['pearl'] };
+    expect([sized, iced, dry, icedTea].map(c => engineHolds(order('M', 'pearl'), c))).toEqual([true, true, false, true]);
+    expect([sized, iced, dry, icedTea].map(c => engineHolds(dryOrder('M', 'pearl'), c))).toEqual([true, false, true, false]);
+    expect(engineHolds(dryOrder('S', 'pearl'), sized)).toBe(false);
   });
 });
 
@@ -294,6 +318,17 @@ describe('what ran out (R21)', () => {
 });
 
 describe('the staff helper (§4 Nâng cấp, plan)', () => {
+  it('makes a "không đá" order with its smaller tea', () => {
+    const s = street([], [cust(0, { arriveTick: 10, budget: 60, order: dryOrder('L', 'pearl') })],
+      { price: 30, staff: true, stock: stock(400, 1) });
+    const { events, state } = runTo(s);
+    expect(ofType(events, 'customerServed')).toEqual([
+      { t: 99, type: 'customerServed', customer: 0, shop: 'player', by: 'staff', correct: true, paid: 40, full: 40 },
+    ]);
+    expect(state.player.stock).toEqual({ teaMl: 0, toppings: { pearl: 0, jelly: 1, pudding: 1 } });
+    expect(state.player.handed.teaMl).toBe(400);
+  });
+
   it('serves the first customer it can every 90 ticks of waiting, correctly, from the shop\'s stock', () => {
     const s = street([], [
       cust(0, { arriveTick: 10, budget: 60 }), cust(1, { arriveTick: 10, budget: 60, order: order('S', 'jelly', 'pudding') }),
@@ -432,7 +467,8 @@ describe('closing early (§6, §16.7, R15)', () => {
 });
 
 describe('whole rushes played through actions', () => {
-  const holds = (o: Order, c: Cup) => o.size === c.size && c.toppings.every(t => o.toppings.includes(t));
+  const holds = (o: Order, c: Cup) => o.size === c.size && (o.noIce ? !c.iced : c.iced || c.teaMl === 0)
+    && c.toppings.every(t => o.toppings.includes(t));
 
   /** A plain bot: when the counter is idle it makes the cup of the first customer at the counter and hands it over;
    *  every fifth customer gets a cup without toppings. It throws the cup away when it cannot be finished. */
@@ -446,7 +482,7 @@ describe('whole rushes played through actions', () => {
     if (!target) return [TRASH];
     const sloppy = target.customer % 5 === 0;
     const steps: Action[] = [];
-    if (!cup.iced) steps.push(ICE);
+    if (!cup.iced && !target.order.noIce && cup.teaMl === 0) steps.push(ICE);
     if (cup.teaMl === 0) steps.push(TEA);
     if (!sloppy) for (const t of target.order.toppings) if (!cup.toppings.includes(t)) steps.push(top(t));
     if (steps.length === 0) return [deliver(target.customer)];

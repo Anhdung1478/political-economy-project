@@ -35,11 +35,14 @@ export function stepTea(ml: number, steps: number, cfg: SimConfig = CONFIG): num
 /** A topping count after `steps`, a whole number, never below 0. */
 export const stepCount = (n: number, steps: number): number => Math.max(0, Math.round(n) + steps);
 
-/** Tea of an average order (ml), from the size mix (S, M, L shares as customers are generated). */
+/** Tea of an average order (ml), from the size mix (S, M, L shares as customers are generated) and the share that
+ *  orders no ice (less tea). */
 export function avgOrderMl(cfg: SimConfig = CONFIG): number {
   const s = cfg.customers.size;
-  const ml = cfg.supplies.sizeMl;
-  return (1 - s.mediumShare - s.largeBase) * ml.S + s.mediumShare * ml.M + s.largeBase * ml.L;
+  const mix = (ml: Record<'S' | 'M' | 'L', number>) =>
+    (1 - s.mediumShare - s.largeBase) * ml.S + s.mediumShare * ml.M + s.largeBase * ml.L;
+  const dry = cfg.customers.noIcePercent / 100;
+  return (1 - dry) * mix(cfg.supplies.sizeMl) + dry * mix(cfg.supplies.noIceMl);
 }
 
 /** About how many average cups the tea makes. */

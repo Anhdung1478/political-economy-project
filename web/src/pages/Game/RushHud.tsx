@@ -171,7 +171,7 @@ function PriceDialogView({ open, morning, current, used, ceiling, onCancel, onCo
         </div>
         <div className="pdlg__menu" aria-label="Giá từng ly">
           {(['S', 'M', 'L'] as const).map(s => (
-            <span key={s}><small>{s}</small><b>{orderPrice(next, { size: s, toppings: [] })}k</b></span>
+            <span key={s}><small>{s}</small><b>{orderPrice(next, { size: s, toppings: [], noIce: false })}k</b></span>
           ))}
           <span><small>+topping</small><b>+{CONFIG.pricing.toppingSurcharge}k</b></span>
         </div>

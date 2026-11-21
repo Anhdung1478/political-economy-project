@@ -6,7 +6,7 @@ import {
   capacityEstimate, closeDay, dayRules, morningBrief, openDay, planCost, quickFill, validatePlan,
 } from './day';
 import { AI_SOLD, PLAYER_SOLD, USED, seasoned } from './day.fixtures';
-import { createRush, finishRush, type RushInput } from './rush';
+import { createRush, finishRush, orderTeaMl, type RushInput } from './rush';
 import { deepFreeze } from './rush.fixtures';
 import { endRush, newRun } from './run';
 import { STREET, aiProfit, morningPrices } from './shops';
@@ -59,28 +59,28 @@ describe('capacityEstimate', () => {
 });
 
 describe('quickFill', () => {
-  // Average order: 362.5 ml of tea and 0–3 distinct toppings (25/40/25/10 %), drawn without repetition at
-  // weights 2/1/1.
+  // Average order: 350 ml of tea (362.5 ml over ice, 300 ml for the 20% "không đá") and 0–3 distinct toppings
+  // (25/40/25/10 %), drawn without repetition at weights 2/1/1.
   it('fills ~10 cups for "low"', () => {
-    expect(quickFill(run(), 'low')).toEqual({ teaMl: 3750, toppings: { pearl: 6, jelly: 4, pudding: 4 } });
+    expect(quickFill(run(), 'low')).toEqual({ teaMl: 3500, toppings: { pearl: 6, jelly: 4, pudding: 4 } });
   });
 
   it('fills ~15 cups for "mid"', () => {
-    expect(quickFill(run(), 'mid')).toEqual({ teaMl: 5500, toppings: { pearl: 8, jelly: 6, pudding: 6 } });
+    expect(quickFill(run(), 'mid')).toEqual({ teaMl: 5250, toppings: { pearl: 8, jelly: 6, pudding: 6 } });
   });
 
   it("fills today's capacity for \"high\"", () => {
-    expect(quickFill(run(), 'high')).toEqual({ teaMl: 6750, toppings: { pearl: 10, jelly: 7, pudding: 7 } });
+    expect(quickFill(run(), 'high')).toEqual({ teaMl: 6500, toppings: { pearl: 10, jelly: 7, pudding: 7 } });
     const withMachine = run();
     const machine = { ...withMachine, plan: plan(withMachine, 'machine') };
-    expect(quickFill(machine, 'high')).toEqual({ teaMl: 7750, toppings: { pearl: 11, jelly: 8, pudding: 8 } });
+    expect(quickFill(machine, 'high')).toEqual({ teaMl: 7500, toppings: { pearl: 11, jelly: 8, pudding: 8 } });
   });
 
   it('"high" follows the upgrade of the draft plan passed in (R24)', () => {
     const r = run();
-    expect(quickFill(r, 'high', plan(r, 'machine'))).toEqual({ teaMl: 7750, toppings: { pearl: 11, jelly: 8, pudding: 8 } });
+    expect(quickFill(r, 'high', plan(r, 'machine'))).toEqual({ teaMl: 7500, toppings: { pearl: 11, jelly: 8, pudding: 8 } });
     expect(quickFill(r, 'high', plan(r, 'staff'))).toEqual(quickFill({ ...r, plan: plan(r, 'staff') }, 'high'));
-    expect(quickFill(r, 'high', plan(r, 'staff')).teaMl).toBe(10250);   // 28 cups × 362.5 ml, up to the step
+    expect(quickFill(r, 'high', plan(r, 'staff')).teaMl).toBe(10000);   // 28 cups × 350 ml, up to the step
     expect(quickFill(r, 'high')).toEqual(quickFill(r, 'high', r.plan));
   });
 
@@ -101,7 +101,7 @@ describe('quickFill', () => {
     for (let seed = 1; seed <= 40; seed++) {
       for (const c of generateCustomers(seed, 1)) {
         n++;
-        ml += CONFIG.supplies.sizeMl[c.order.size];
+        ml += orderTeaMl(c.order);
         for (const t of c.order.toppings) portions[t]++;
       }
     }
@@ -133,11 +133,11 @@ describe('dayRules', () => {
 
 describe('planCost', () => {
   it('prices tea per 100 ml by grade, each topping portion, and the upgrade (§4)', () => {
-    const r = run();   // 5,500 ml standard, 8/6/6 portions, 300k cash
-    expect(planCost(r, r.plan)).toEqual({ tea: 165, toppings: 40, upgrade: 0, total: 205, cashAfter: 95 });
-    expect(planCost(r, { ...r.plan, tea: 'skimp' }).tea).toBe(110);
-    expect(planCost(r, { ...r.plan, tea: 'premium' }).tea).toBe(220);
-    expect(planCost(r, plan(r, 'machine'))).toEqual({ tea: 165, toppings: 40, upgrade: 80, total: 285, cashAfter: 15 });
+    const r = run();   // 5,250 ml standard, 8/6/6 portions, 300k cash
+    expect(planCost(r, r.plan)).toEqual({ tea: 157.5, toppings: 40, upgrade: 0, total: 197.5, cashAfter: 102.5 });
+    expect(planCost(r, { ...r.plan, tea: 'skimp' }).tea).toBe(105);
+    expect(planCost(r, { ...r.plan, tea: 'premium' }).tea).toBe(210);
+    expect(planCost(r, plan(r, 'machine'))).toEqual({ tea: 157.5, toppings: 40, upgrade: 80, total: 277.5, cashAfter: 22.5 });
     expect(planCost(r, plan(r, 'staff')).upgrade).toBe(150);
     expect(planCost(r, plan(r, 'banner')).upgrade).toBe(CONFIG.upgrades.banner.cost);
     // The banner is no free score: its brand value is under its price (plan Task 31).
@@ -154,7 +154,7 @@ describe('planCost', () => {
     const shock = flags({ shockTopping: true });
     for (const day of [3, 4] as Day[]) {
       const r = run({ day, flags: shock });
-      expect(planCost(r, r.plan)).toMatchObject({ toppings: 10, total: 175 });
+      expect(planCost(r, r.plan)).toMatchObject({ toppings: 10, total: 167.5 });
     }
     for (const day of [1, 2, 5] as Day[]) expect(planCost(run({ day, flags: shock }), run().plan).toppings).toBe(40);
     expect(planCost(run({ day: 3 }), run().plan).toppings).toBe(40);
@@ -162,7 +162,7 @@ describe('planCost', () => {
 
   it('counts down from the cash in hand, below zero too', () => {
     const r = run({ cash: -100 });
-    expect(planCost(r, r.plan).cashAfter).toBe(-305);
+    expect(planCost(r, r.plan).cashAfter).toBe(-297.5);
     expect(planCost(r, zero(r))).toEqual({ tea: 0, toppings: 0, upgrade: 0, total: 0, cashAfter: -100 });
   });
 });
@@ -214,10 +214,10 @@ describe('validatePlan', () => {
 
   it('buys on credit down to −150k, no further (§4)', () => {
     const at = (cash: number) => run({ cash });
-    expect(validatePlan(at(55), at(55).plan)).toEqual([]);           // 55 − 205 = −150
-    expect(validatePlan(at(54.5), at(54.5).plan)).toEqual(['credit']);
-    expect(validatePlan(at(205), plan(at(205), 'machine'))).toEqual([]);           // 205 − 285 = −80
-    expect(validatePlan(at(100), plan(at(100), 'staff'))).toEqual(['credit']);     // 100 − 355 = −255
+    expect(validatePlan(at(47.5), at(47.5).plan)).toEqual([]);       // 47.5 − 197.5 = −150
+    expect(validatePlan(at(47), at(47).plan)).toEqual(['credit']);
+    expect(validatePlan(at(197.5), plan(at(197.5), 'machine'))).toEqual([]);       // 197.5 − 277.5 = −80
+    expect(validatePlan(at(100), plan(at(100), 'staff'))).toEqual(['credit']);     // 100 − 347.5 = −247.5
   });
 
   it('always lets the shop open with no stock and no upgrade, however deep in debt (§5)', () => {
@@ -242,8 +242,8 @@ describe('validatePlan', () => {
 
   it("judges credit on the cash at opening: this morning's pending cash included (R28)", () => {
     const tab: PendingEffect = { day: 1, source: 'tab', cash: 30, rep: 3 };
-    const r = run({ cash: 25, pending: [tab] });
-    expect(planCost(r, r.plan).cashAfter).toBe(-150);                   // 25 + 30 − 205
+    const r = run({ cash: 17.5, pending: [tab] });
+    expect(planCost(r, r.plan).cashAfter).toBe(-150);                   // 17.5 + 30 − 197.5
     expect(validatePlan(r, r.plan)).toEqual([]);
     expect(validatePlan({ ...r, pending: [] }, r.plan)).toEqual(['credit']);
     expect(validatePlan({ ...r, pending: [{ ...tab, day: 2 }] }, r.plan)).toEqual(['credit']);
@@ -363,11 +363,11 @@ describe('openDay', () => {
   it('pays for the stock, moves to the rush and keeps the plan (R27)', () => {
     const r = deepFreeze(run());
     const { run: next, rush, events } = openDay(r, r.plan);
-    expect(next.cash).toBe(95);
+    expect(next.cash).toBe(102.5);
     expect(next.phase).toBe('rush');
     expect(next.plan).toStrictEqual(r.plan);
     expect(next.today).toStrictEqual({
-      plan: r.plan, cost: { tea: 165, toppings: 40, upgrade: 0 }, tempStaff: false, applied: [], cardCash: 0,
+      plan: r.plan, cost: { tea: 157.5, toppings: 40, upgrade: 0 }, tempStaff: false, applied: [], cardCash: 0,
     });
     expect(next.rep).toBe(50);
     expect(next.morningNews).toEqual([]);
@@ -390,7 +390,7 @@ describe('openDay', () => {
     const r = run();
     const { run: next, rush } = openDay(r, plan(r, 'machine'));
     expect(next.upgrades).toEqual(['machine']);
-    expect(next.cash).toBe(15);
+    expect(next.cash).toBe(22.5);
     expect(rush.player.machine).toBe(true);
     const tomorrow: RunState = { ...seasoned(2), upgrades: next.upgrades };
     expect(validatePlan(tomorrow, plan(tomorrow, 'machine'))).toEqual(['upgradeOwned']);
@@ -446,7 +446,7 @@ describe('openDay', () => {
     const r = run({ rep: 70 });
     const opened = openDay(r, plan(r, 'banner'));
     expect(opened.run.rep).toBe(80);
-    expect(opened.run.cash).toBe(95 - CONFIG.upgrades.banner.cost);   // 300 − 205 of stock − the banner
+    expect(opened.run.cash).toBe(102.5 - CONFIG.upgrades.banner.cost);   // 300 − 197.5 of stock − the banner
     expect(opened.run.morningNews).toEqual([{ reason: 'banner', delta: 10, when: 'morning' }]);
     expect(playerOf(opened.rush).rep).toBe(80);
     expect(openDay(run({ rep: 95 }), plan(r, 'banner')).run.rep).toBe(100);
@@ -676,7 +676,7 @@ describe('closeDay: money (R27, §16 row 13)', () => {
     expect(p.tax).toBe(p.cups * 5);
     const e = evening(a, [['tax', 'A'], ['inspection', 'B']]);
     expect(last(e).summary).toMatchObject({
-      revenue: p.revenue, cost: 205, tax: p.tax, fines: 0, profit: p.revenue - 205 - p.tax, cash: a.cash,
+      revenue: p.revenue, cost: 197.5, tax: p.tax, fines: 0, profit: p.revenue - 197.5 - p.tax, cash: a.cash,
     });
     expect(e.cash).toBe(a.cash);
   });
@@ -685,9 +685,9 @@ describe('closeDay: money (R27, §16 row 13)', () => {
     const r = run();
     const a = afternoon(r, plan(r, 'staff'));
     const s = last(evening(a)).summary;
-    expect(s).toMatchObject({ cost: 205, upgrade: 'staff', profit: a.rushResult!.player.revenue - 205 });
+    expect(s).toMatchObject({ cost: 197.5, upgrade: 'staff', profit: a.rushResult!.player.revenue - 197.5 });
     expect(last(evening(a)).upgradeCost).toBe(150);
-    expect(last(evening(a))).toMatchObject({ teaCost: 165, toppingCost: 40 });
+    expect(last(evening(a))).toMatchObject({ teaCost: 157.5, toppingCost: 40 });
     expect(last(quiet(r)).upgradeCost).toBe(0);
   });
 
@@ -702,7 +702,7 @@ describe('closeDay: money (R27, §16 row 13)', () => {
 
   it('pays the shock price for toppings on days 3–4, as reported', () => {
     const r = seasoned(3, 20, { flags: shock() });
-    expect(last(quiet(r, at20(r)))).toMatchObject({ teaCost: 165, toppingCost: 10 });
+    expect(last(quiet(r, at20(r)))).toMatchObject({ teaCost: 157.5, toppingCost: 10 });
   });
 
   it('does not refund the evaded tax again: it is already in cash, as card money', () => {
@@ -711,7 +711,7 @@ describe('closeDay: money (R27, §16 row 13)', () => {
     expect(p.tax).toBeGreaterThan(0);
     const e = evening(a, [['tax', 'B'], ['inspection', 'B']]);
     expect(e.cash).toBe(a.cash + p.tax);
-    expect(last(e).summary).toMatchObject({ tax: p.tax, profit: p.revenue - 205 - p.tax });
+    expect(last(e).summary).toMatchObject({ tax: p.tax, profit: p.revenue - 197.5 - p.tax });
     expect(last(e).cardCash).toBe(p.tax);
   });
 
@@ -756,7 +756,7 @@ describe('closeDay: money (R27, §16 row 13)', () => {
     const handed = { teaMl: 600, toppings: toppings(1, 0, 0) };
     const left = { teaMl: 0, toppings: toppings(0, 0, 0) };
     expect(last(quiet(r, r.plan, { used, handed, left })).summary.wasteValue).toBe(27 + 6);
-    // Everything bought, nothing handed over: all of it is waste (the 0-cups, 205k-bought report).
+    // Everything bought, nothing handed over: all of it is waste (the 0-cups, 197.5k-bought report).
     const bought = last(quiet(r, r.plan, { used: left, handed: left, left: { teaMl: r.plan.teaMl, toppings: r.plan.toppings } }));
     expect(bought.summary.wasteValue).toBe(planCost(r, r.plan).tea + planCost(r, r.plan).toppings);
   });
@@ -1006,10 +1006,10 @@ describe('closeDay: the day summary (§11)', () => {
     const left = p.left.toppings.pearl + p.left.toppings.jelly + p.left.toppings.pudding;
     expect(last(e).summary).toStrictEqual({
       day: 4, openPrice: 31, closePrice: p.closePrice, tea: 'premium',
-      bought: { teaMl: 5500, toppings: { pearl: 8, jelly: 6, pudding: 6 } }, used: p.used,
+      bought: { teaMl: 5250, toppings: { pearl: 8, jelly: 6, pudding: 6 } }, used: p.used,
       wasteValue: (p.left.teaMl * 4) / 100 + 2 * left,
       cups: p.cups, wrong: p.wrong, walkouts: p.walkouts,
-      revenue: p.revenue, cost: 220 + 40, tax: p.tax, fines: 0, profit: p.revenue - 260 - p.tax,
+      revenue: p.revenue, cost: 210 + 40, tax: p.tax, fines: 0, profit: p.revenue - 250 - p.tax,
       cash: e.cash, rep: e.rep, score: e.cash - 300 + e.rep * CONFIG.run.brandPerRep,
       upgrade: null, cards: [{ id: 'tax', choice: 'B' }, { id: 'inspection', choice: 'A' }],
       labels: ['taxEvaded', 'inspectPass'], lost: false,

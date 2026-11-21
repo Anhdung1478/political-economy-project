@@ -6,7 +6,7 @@
 import { CONFIG, type SimConfig } from './config';
 import { morningBrief, openDay, quickFill, validatePlan } from './day';
 import { hashSeed, nextState } from './rng';
-import { advance, canDeliver, checkInput, cloneRush } from './rush';
+import { advance, canDeliver, checkInput, cloneRush, teaMlFor } from './rush';
 import { chooseCard, endRush, newRun, nextDay, score } from './run';
 import type {
   Action, CardId, Choice, CraftInput, CraftState, Cup, Day, DayRules, DayReport, K, MorningBrief, MorningPlan, Order,
@@ -17,8 +17,8 @@ import type {
 export interface RushPolicy {
   /** Ticks from one input to the next (a human's reaction time); inputs may still queue in the 3-step buffer. */
   delayTicks: number;
-  /** Share of cups the bot makes wrong: a wrong size, one extra topping or one missing topping, among those the stock
-   *  can make (R42a). */
+  /** Share of cups the bot makes wrong: a wrong size, one extra topping, one missing topping or the ice the other way,
+   *  among those the stock can make (R42a). */
   mistakeRate: number;
   /** `urgent`: of the first four whose order can be made, the one with the least patience left; `fifo`: the first. */
   serve: 'urgent' | 'fifo';
@@ -48,8 +48,8 @@ export interface BotState { cooldown: Tick; rng: number }
 const SIZES: readonly Size[] = ['S', 'M', 'L'];
 const NO_TOPPINGS: Record<ToppingId, number> = { pearl: 0, jelly: 0, pudding: 0 };
 
-/** What the bot means to hand over: a size and toppings in canonical order. */
-interface Target { size: Size; toppings: ToppingId[] }
+/** What the bot means to hand over: a size, toppings in canonical order, with or without ice. */
+type Target = Order;
 
 /** The cup's plan, drawn from the bot's PRNG state: made wrong or not, which wrong cup, and the state for the next cup. */
 interface CupDraw { wrong: boolean; pick: number; next: number }
@@ -63,22 +63,23 @@ function drawCup(rng: number, policy: RushPolicy): CupDraw {
 /**
  * The cup the bot makes for this order (R42a). `plainS` makes an S cup with no topping for everyone. A cup drawn wrong
  * is one of the wrong cups the stock can still make, given the steps already started (`cup`): each other size,
- * each extra topping not ordered, each ordered topping left out, in that order, the draw picking among them. If none
- * can be made, the order is made right, so the bot never waits on a mistake it cannot make.
+ * each extra topping not ordered, each ordered topping left out, the ice the other way, in that order, the draw
+ * picking among them. If none can be made, the order is made right, so the bot never waits on a mistake it cannot make.
  */
 function targetFor(order: Order, draw: CupDraw, policy: RushPolicy, cup: Cup | null, stock: Stock,
   cfg: SimConfig): Target {
-  if (policy.cup === 'plainS') return { size: 'S', toppings: [] };
+  if (policy.cup === 'plainS') return { size: 'S', toppings: [], noIce: false };
   if (!draw.wrong) return order;
   const all = cfg.customers.toppingOrder;
   const options: Target[] = [];
-  for (const size of SIZES) if (size !== order.size) options.push({ size, toppings: order.toppings });
+  for (const size of SIZES) if (size !== order.size) options.push({ ...order, size });
   for (const extra of all) {
     if (!order.toppings.includes(extra)) {
-      options.push({ size: order.size, toppings: all.filter(t => t === extra || order.toppings.includes(t)) });
+      options.push({ ...order, toppings: all.filter(t => t === extra || order.toppings.includes(t)) });
     }
   }
-  for (const drop of order.toppings) options.push({ size: order.size, toppings: order.toppings.filter(t => t !== drop) });
+  for (const drop of order.toppings) options.push({ ...order, toppings: order.toppings.filter(t => t !== drop) });
+  options.push({ ...order, noIce: !order.noIce });
   const makeable = options.filter(t => stockCovers(cup, t, stock, cfg));
   return makeable.length === 0 ? order : makeable[Math.floor(draw.pick * makeable.length)];
 }
@@ -100,24 +101,26 @@ function project(craft: CraftState): Projected | null {
   return p;
 }
 
-/** The cup so far can still become the target: same size, nothing in it the target lacks. */
+/** The cup so far can still become the target: same size, ice only if wanted, tea not poured without ice the target
+ *  wants, nothing in it the target lacks. */
 const fits = (p: Projected | null, t: Target) =>
-  p === null || (p.size === t.size && p.toppings.every(x => t.toppings.includes(x)));
+  p === null || (p.size === t.size && (t.noIce ? !p.iced : p.iced || !p.poured)
+    && p.toppings.every(x => t.toppings.includes(x)));
 
 /** The stock covers every step of the target not started yet (a buffered step takes its stock when it starts). */
 function stockCovers(cup: Cup | null, t: Target, stock: Stock, cfg: SimConfig): boolean {
-  if ((cup === null || cup.teaMl === 0) && stock.teaMl < cfg.supplies.sizeMl[t.size]) return false;
+  if ((cup === null || cup.teaMl === 0) && stock.teaMl < teaMlFor(t.size, !t.noIce, cfg)) return false;
   for (const x of t.toppings) if (stock.toppings[x] < 1 && (cup === null || !cup.toppings.includes(x))) return false;
   return true;
 }
 
-/** The stock can make some order: tea for an S cup (a plain cup is an order too). */
-const anyOrder = (stock: Stock, cfg: SimConfig) => stock.teaMl >= cfg.supplies.sizeMl.S;
+/** The stock can make some order: the tea of the smallest cup, an S with no ice (a plain cup is an order too). */
+const anyOrder = (stock: Stock, cfg: SimConfig) => stock.teaMl >= teaMlFor('S', false, cfg);
 
 /** The next input toward the target, in step order; null when the cup is the target. */
 function nextInput(p: Projected | null, t: Target): CraftInput | null {
   if (p === null) return { k: 'size', size: t.size };
-  if (!p.iced) return { k: 'ice' };
+  if (!p.iced && !p.poured && !t.noIce) return { k: 'ice' };
   if (!p.poured) return { k: 'tea' };
   for (const x of t.toppings) if (!p.toppings.includes(x)) return { k: 'topping', id: x };
   return null;

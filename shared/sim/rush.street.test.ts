@@ -44,7 +44,7 @@ const input = (over: Partial<RushInput> = {}, player: Partial<PlayerIn> = {}): R
 });
 
 const cust = (id: number, over: Partial<Customer> = {}): Customer => ({
-  id, budget: 40, trust: 0, skeptic: 0, order: { size: 'M', toppings: ['pearl'] }, arriveTick: 0, entry: 'left',
+  id, budget: 40, trust: 0, skeptic: 0, order: { size: 'M', toppings: ['pearl'], noIce: false }, arriveTick: 0, entry: 'left',
   tie: 0, look: 0, scared: false, onlyShop: null, ...over,
 });
 
@@ -148,11 +148,11 @@ describe('createRush', () => {
     expect(free.shops.some(s => s.ai?.frozen)).toBe(false);
   });
 
-  it('hangs the sold-out sign on the player\'s shop when it opens with under 250 ml of tea', () => {
-    const at249 = createRush(input({}, { stock: stock(249, 5) })).state;
-    expect(at249.shops.find(s => s.id === 'player')?.status).toBe('soldOut');
-    const at250 = createRush(input({}, { stock: stock(250, 5) })).state;
-    expect(at250.shops.find(s => s.id === 'player')?.status).toBe('open');
+  it('hangs the sold-out sign on the player\'s shop when it opens with under 200 ml of tea', () => {
+    const at199 = createRush(input({}, { stock: stock(199, 5) })).state;
+    expect(at199.shops.find(s => s.id === 'player')?.status).toBe('soldOut');
+    const at200 = createRush(input({}, { stock: stock(200, 5) })).state;
+    expect(at200.shops.find(s => s.id === 'player')?.status).toBe('open');
   });
 
   it('does not change its input', () => {
@@ -593,16 +593,25 @@ describe('summarizeRush (street part)', () => {
 
 describe('canServe (§6 "còn hàng cho một đơn")', () => {
   it('needs the tea of the order\'s size', () => {
-    expect(canServe(stock(300, 1), { size: 'S', toppings: ['pearl'] })).toBe(true);
-    expect(canServe(stock(300, 1), { size: 'M', toppings: ['pearl'] })).toBe(false);
-    expect(canServe(stock(350, 1), { size: 'M', toppings: ['pearl'] })).toBe(true);
-    expect(canServe(stock(499, 1), { size: 'L', toppings: ['pearl'] })).toBe(false);
+    expect(canServe(stock(300, 1), { size: 'S', toppings: ['pearl'], noIce: false })).toBe(true);
+    expect(canServe(stock(300, 1), { size: 'M', toppings: ['pearl'], noIce: false })).toBe(false);
+    expect(canServe(stock(350, 1), { size: 'M', toppings: ['pearl'], noIce: false })).toBe(true);
+    expect(canServe(stock(499, 1), { size: 'L', toppings: ['pearl'], noIce: false })).toBe(false);
+  });
+
+  it('needs less tea for an order with no ice: 200, 300, 400 ml', () => {
+    expect(canServe(stock(200, 1), { size: 'S', toppings: ['pearl'], noIce: true })).toBe(true);
+    expect(canServe(stock(199, 1), { size: 'S', toppings: ['pearl'], noIce: true })).toBe(false);
+    expect(canServe(stock(300, 0), { size: 'M', toppings: [], noIce: true })).toBe(true);
+    expect(canServe(stock(299, 0), { size: 'M', toppings: [], noIce: true })).toBe(false);
+    expect(canServe(stock(400, 1), { size: 'L', toppings: ['pearl'], noIce: true })).toBe(true);
+    expect(canServe(stock(400, 1), { size: 'L', toppings: ['pearl'], noIce: false })).toBe(false);
   });
 
   it('needs one portion of every ordered topping', () => {
     const s: Stock = { teaMl: 1000, toppings: { pearl: 0, jelly: 1, pudding: 2 } };
-    expect(canServe(s, { size: 'M', toppings: ['jelly', 'pudding'] })).toBe(true);
-    expect(canServe(s, { size: 'M', toppings: ['pearl', 'jelly'] })).toBe(false);
+    expect(canServe(s, { size: 'M', toppings: ['jelly', 'pudding'], noIce: false })).toBe(true);
+    expect(canServe(s, { size: 'M', toppings: ['pearl', 'jelly'], noIce: false })).toBe(false);
   });
 });
 

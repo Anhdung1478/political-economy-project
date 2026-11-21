@@ -146,6 +146,18 @@ export function ToppingIcon({ id, size = 18 }: { id: ToppingId; size?: number })
   );
 }
 
+/** "Không đá": the craft panel's ice cube in a strawberry-red "no" sign. */
+export function NoIceIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg className="tico tico--noice" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx={10} cy={10} r={8.4} fill="#fffcf7" stroke="#de4f5a" strokeWidth={2.2} />
+      <rect x={5.6} y={5.6} width={8.8} height={8.8} rx={2.4} fill="#e8f6ff" stroke="#6fa8c9" strokeWidth={1.4} transform="rotate(-10 10 10)" />
+      <path d="M7.6 8.4 L10.2 7.8" stroke="#fff" strokeWidth={1.4} strokeLinecap="round" />
+      <path d="M4.2 15.8 L15.8 4.2" stroke="#de4f5a" strokeWidth={2.2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** A cup with the size letter, scaled by size. */
 export function SizeIcon({ size, px = 22 }: { size: 'S' | 'M' | 'L'; px?: number }) {
   const k = size === 'S' ? 0.78 : size === 'M' ? 0.9 : 1;
@@ -164,6 +176,7 @@ export function OrderBubble({ order, compact }: { order: Order; compact?: boolea
   return (
     <span className={cx('rorder', compact && 'rorder--compact')} aria-label={`Đơn: ${orderLabel(order)}`}>
       <span className="rorder__size"><SizeIcon size={order.size} px={compact ? 16 : 22} /><b>{order.size}</b></span>
+      {order.noIce && <span className="rorder__noice" title="Không đá"><NoIceIcon size={compact ? 14 : 18} /></span>}
       {order.toppings.map(t => (
         <span key={t} className="rorder__top" title={TOPPING_NAMES[t]}><ToppingIcon id={t} size={compact ? 14 : 18} /></span>
       ))}
@@ -235,7 +248,7 @@ function CounterCustomerView(p: CounterCustomerProps) {
     <div ref={card} role="button" tabIndex={p.leaving === null ? 0 : -1}
       className={cx('rccard', p.leaving && `rccard--${p.leaving}`, p.hot && 'is-hot', p.target && 'is-target')}
       data-drop-customer={p.leaving === null ? p.customer : undefined} data-customer={p.customer}
-      data-order={`${p.order.size}:${p.order.toppings.join('+')}`}
+      data-order={`${p.order.size}${p.order.noIce ? '-noice' : ''}:${p.order.toppings.join('+')}`}
       aria-label={`Khách ${p.index + 1}: ${orderLabel(p.order)}${p.target ? ' — chạm để giao ly' : ''}`}
       onClick={pick} onKeyDown={onKey} onPointerDown={stop}>
       <div className="rccard__bubble"><OrderBubble order={p.order} compact /></div>

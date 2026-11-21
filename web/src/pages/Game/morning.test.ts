@@ -35,8 +35,9 @@ describe('price and stock steps', () => {
   });
 
   it('counts average cups from tea', () => {
-    expect(avgOrderMl()).toBeCloseTo(362.5);
-    expect(cupsFromTea(3625)).toBe(10);
+    expect(avgOrderMl()).toBeCloseTo(350);   // 362.5 ml over ice, 300 ml for the 20% with no ice
+    expect(cupsFromTea(3500)).toBe(10);
+    expect(cupsFromTea(3499)).toBe(9);
     expect(cupsFromTea(0)).toBe(0);
   });
 });

@@ -5,7 +5,7 @@ import type { Customer, ShopId } from './types';
 
 const cust = (over: Partial<Customer> = {}): Customer => ({
   id: 0, budget: 35, trust: 20, skeptic: 500,
-  order: { size: 'M', toppings: ['pearl'] }, arriveTick: 0, entry: 'left',
+  order: { size: 'M', toppings: ['pearl'], noIce: false }, arriveTick: 0, entry: 'left',
   tie: 0, look: 0, scared: false, onlyShop: null, ...over,
 });
 

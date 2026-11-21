@@ -53,7 +53,8 @@ const int = (rng: Rng, max: number) => Math.floor(rng() * (max + 1));
  * Every trait after budget and trust, drawn in a fixed order; the variable-length
  * topping draws come last so they never shift another trait.
  */
-function traits(rng: Rng, id: number, budget: K, trust: number, day: Day, look: number, cfg: SimConfig): Customer {
+function traits(rng: Rng, id: number, budget: K, trust: number, day: Day, look: number, noIce: boolean,
+  cfg: SimConfig): Customer {
   const c = cfg.customers;
   const schedule = cfg.days[day];
   const skeptic = int(rng, c.skepticMax);
@@ -63,7 +64,7 @@ function traits(rng: Rng, id: number, budget: K, trust: number, day: Day, look: 
   const sideRoll = rng();
   const tie = int(rng, c.tieMax);
   const scaredRoll = rng();
-  const order: Order = { size: drawSize(sizeRoll, budget, cfg), toppings: drawToppings(rng, cfg) };
+  const order: Order = { size: drawSize(sizeRoll, budget, cfg), toppings: drawToppings(rng, cfg), noIce };
   const side = sideRoll < c.entryLeftShare ? 'left' : 'right';
   return {
     id, budget, trust, skeptic, order, arriveTick,
@@ -77,6 +78,10 @@ function traits(rng: Rng, id: number, budget: K, trust: number, day: Day, look: 
 /** Display-only appearance seed of customer `id` (stream `look/{day}/{id}`), a 32-bit unsigned integer. */
 const lookOf = (seed: number, day: Day, id: number) => Math.floor(stream(seed, `look/${day}/${id}`)() * 4294967296);
 
+/** Whether customer `id` orders "không đá" (stream `ice/{day}/{id}`, so it never shifts another trait's draw). */
+const noIceOf = (seed: number, day: Day, id: number, cfg: SimConfig) =>
+  stream(seed, `ice/${day}/${id}`)() * 100 < cfg.customers.noIcePercent;
+
 /** The day's street customers, id = index. Budget and trust are stratified so they cover their range evenly. */
 export function generateCustomers(seed: number, day: Day, cfg: SimConfig = CONFIG): Customer[] {
   const c = cfg.customers;
@@ -88,7 +93,7 @@ export function generateCustomers(seed: number, day: Day, cfg: SimConfig = CONFI
     const rng = stream(seed, `cust/${day}/${i}`);
     const budget = roundTo(stratum(c.budgetMin, c.budgetMax, budgetStrata[i], rng(), n), c.budgetStep);
     const trust = Math.round(stratum(c.trustMin, c.trustMax, trustStrata[i], rng(), n));
-    return traits(rng, i, budget, trust, day, lookOf(seed, day, i), cfg);
+    return traits(rng, i, budget, trust, day, lookOf(seed, day, i), noIceOf(seed, day, i, cfg), cfg);
   });
 }
 
@@ -104,7 +109,7 @@ export function generateAdCustomers(seed: number, day: Day, firstId: number, cou
     const id = firstId + j;
     const rng = stream(seed, `ad/${day}/${j}`);
     const budget = roundTo(ad.budgetMin + (ad.budgetMax - ad.budgetMin) * rng(), cfg.customers.budgetStep);
-    const c = traits(rng, id, budget, ad.trust, day, lookOf(seed, day, id), cfg);
+    const c = traits(rng, id, budget, ad.trust, day, lookOf(seed, day, id), noIceOf(seed, day, id, cfg), cfg);
     return { ...c, scared: false, onlyShop: 'player' };
   });
 }

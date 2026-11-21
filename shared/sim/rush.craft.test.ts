@@ -36,7 +36,7 @@ const tickThrough = (r: CraftResult, from: number, to: number, machine = false):
 };
 const start = (s: Stock | null): CraftResult => ({ craft: EMPTY, stock: s, events: [] });
 
-describe('checkInput: the steps go size → ice → tea → toppings (§6 Pha một ly)', () => {
+describe('checkInput: the steps go size → ice → tea → toppings, the ice skipped for "không đá" (§6 Pha một ly)', () => {
   const S = stock(10000, 5);
 
   it('an empty counter takes only a size', () => {
@@ -46,9 +46,9 @@ describe('checkInput: the steps go size → ice → tea → toppings (§6 Pha m�
     expect(checkInput(EMPTY, TOP('pearl'), S)).toBe('noCup');
   });
 
-  it('after the size the ice, after the ice the tea, after the tea up to three different toppings', () => {
+  it('after the size the ice or the tea, after the ice the tea, after the tea up to three different toppings', () => {
     const sized = idle(cup('M', false, 0));
-    expect([SIZE('S'), ICE_IN, TEA_IN, TOP('pearl')].map(i => checkInput(sized, i, S))).toEqual(['order', null, 'order', 'order']);
+    expect([SIZE('S'), ICE_IN, TEA_IN, TOP('pearl')].map(i => checkInput(sized, i, S))).toEqual(['order', null, null, 'order']);
     const iced = idle(cup('M', true, 0));
     expect([SIZE('S'), ICE_IN, TEA_IN, TOP('pearl')].map(i => checkInput(iced, i, S))).toEqual(['order', 'order', null, 'order']);
     const poured = idle(cup('M', true, 350));
@@ -59,6 +59,13 @@ describe('checkInput: the steps go size → ice → tea → toppings (§6 Pha m�
     expect(checkInput(pearl, TOP('jelly'), S)).toBeNull();
     const full = idle(cup('M', true, 350, 'jelly', 'pearl', 'pudding'));
     expect(['pearl', 'jelly', 'pudding'].map(id => checkInput(full, TOP(id as ToppingId), S))).toEqual(['duplicate', 'duplicate', 'duplicate']);
+  });
+
+  it('a cup poured with no ice takes no ice after the tea, only toppings', () => {
+    const dry = idle(cup('M', false, 300));
+    expect([SIZE('S'), ICE_IN, TEA_IN, TOP('pearl')].map(i => checkInput(dry, i, S))).toEqual(['order', 'order', 'order', null]);
+    const dryPearl = idle(cup('M', false, 300, 'pearl'));
+    expect([ICE_IN, TOP('pearl'), TOP('jelly')].map(i => checkInput(dryPearl, i, S))).toEqual(['order', 'duplicate', null]);
   });
 
   it('judges an input against the cup as it will be once the running step and the buffer are done', () => {
@@ -75,6 +82,11 @@ describe('checkInput: the steps go size → ice → tea → toppings (§6 Pha m�
     expect([SIZE('L'), ICE_IN].map(i => checkInput(handing, i, S))).toEqual([null, 'noCup']);
     const next = running(null, { step: 'deliver', endsAt: 60 }, [SIZE('L'), ICE_IN]);
     expect([SIZE('S'), ICE_IN, TEA_IN].map(i => checkInput(next, i, S))).toEqual(['order', 'order', null]);
+    // Size then tea in the buffer: a "không đá" cup, which takes toppings next and no more ice.
+    const dry = running(null, { step: 'deliver', endsAt: 60 }, [SIZE('L'), TEA_IN]);
+    expect([SIZE('S'), ICE_IN, TEA_IN, TOP('jelly')].map(i => checkInput(dry, i, S))).toEqual(['order', 'order', 'order', null]);
+    const sizingDry = running(cup('S', false, 0), { step: 'size', endsAt: 4 }, [TEA_IN]);
+    expect([ICE_IN, TEA_IN, TOP('pearl')].map(i => checkInput(sizingDry, i, S))).toEqual(['order', 'order', null]);
   });
 
   it('holds at most 3 inputs behind a running step: the 4th is rejected, whatever it is', () => {
@@ -98,9 +110,23 @@ describe('checkInput: the steps go size → ice → tea → toppings (§6 Pha m�
     expect(checkInput(EMPTY, SIZE('L'), stock(0))).toBeNull();
   });
 
+  it('a cup with no ice needs 80% of its size\'s tea: 200, 280, 400 ml, the queued ice counting too', () => {
+    expect(checkInput(idle(cup('S', false, 0)), TEA_IN, stock(200))).toBeNull();
+    expect(checkInput(idle(cup('S', false, 0)), TEA_IN, stock(199))).toBe('noTea');
+    expect(checkInput(idle(cup('M', false, 0)), TEA_IN, stock(300))).toBeNull();
+    expect(checkInput(idle(cup('M', false, 0)), TEA_IN, stock(299))).toBe('noTea');
+    expect(checkInput(idle(cup('L', false, 0)), TEA_IN, stock(400))).toBeNull();
+    expect(checkInput(idle(cup('L', true, 0)), TEA_IN, stock(400))).toBe('noTea');
+    const queuedDry: CraftState = { cup: null, anim: { step: 'deliver', endsAt: 60 }, buffer: [SIZE('L')] };
+    expect(checkInput(queuedDry, TEA_IN, stock(400))).toBeNull();
+    const sizingIced: CraftState = { cup: cup('L', false, 0), anim: { step: 'size', endsAt: 4 }, buffer: [ICE_IN] };
+    expect(checkInput(sizingIced, TEA_IN, stock(400))).toBe('noTea');
+  });
+
   it('checks the step order before the stock', () => {
     expect(checkInput(EMPTY, TEA_IN, stock(0))).toBe('noCup');
-    expect(checkInput(idle(cup('M', false, 0)), TEA_IN, stock(0))).toBe('order');
+    expect(checkInput(idle(cup('M', true, 350)), TEA_IN, stock(0))).toBe('order');
+    expect(checkInput(idle(cup('M', false, 300)), ICE_IN, stock(0))).toBe('order');
     expect(checkInput(idle(cup('M', true, 350, 'pearl')), TOP('pearl'), stock(0))).toBe('duplicate');
   });
 
@@ -155,6 +181,19 @@ describe('craftInput and craftTick (R14)', () => {
     ]);
     expect(r.craft).toEqual({ cup: cup(sz, true, { S: 250, M: 350, L: 500 }[sz], 'pearl', 'jelly'), anim: null, buffer: [] });
   });
+
+  it.each([['S', 200, 12], ['M', 300, 16], ['L', 400, 20]] as [Size, number, number][])(
+    'a %s cup with no ice skips the ice: size, then %i ml of tea over the same %i ticks, then toppings', (sz, ml, pour) => {
+      let r = press(start(stock(1000, 2)), [SIZE(sz), TEA_IN, TOP('pearl')], 0);
+      r = tickThrough(r, 1, 3);
+      expect(r.stock?.teaMl).toBe(1000);
+      r = tickThrough(r, 4, 60);
+      expect(ofType(r.events, 'craftStep').map(e => [e.t, e.step, e.endsAt])).toEqual([
+        [0, 'size', 4], [4, 'tea', 4 + pour], [4 + pour, 'topping', 10 + pour],
+      ]);
+      expect(r.craft).toEqual({ cup: cup(sz, false, ml, 'pearl'), anim: null, buffer: [] });
+      expect(r.stock).toEqual({ teaMl: 1000 - ml, toppings: { pearl: 1, jelly: 2, pudding: 2 } });
+    });
 
   it('takes the stock when a step starts: the ml of the size, one portion per topping', () => {
     for (const [sz, ml] of [['S', 250], ['M', 350], ['L', 500]] as [Size, number][]) {
@@ -325,8 +364,8 @@ describe('crafting during the rush', () => {
     ]);
   });
 
-  it('hangs the sold-out sign once the tea drops under 250 ml', () => {
-    const s = street([], [cust(0, { order: order('M', 'pearl'), budget: 60 })], { price: 30, stock: stock(599, 5) });
+  it('hangs the sold-out sign once the tea drops under 200 ml, the smallest cup (an S with no ice)', () => {
+    const s = street([], [cust(0, { order: order('M', 'pearl'), budget: 60 })], { price: 30, stock: stock(549, 5) });
     const { events, states } = runTo(s, 40, { 10: make(order('M', 'pearl')) });
     expect(playerShop(states[21]).status).toBe('open');
     expect(ofType(events, 'shopStatus')).toEqual([{ t: 22, type: 'shopStatus', shop: 'player', status: 'soldOut' }]);
