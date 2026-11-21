@@ -110,7 +110,7 @@ describe('checkInput: the steps go size → ice → tea → toppings, the ice sk
     expect(checkInput(EMPTY, SIZE('L'), stock(0))).toBeNull();
   });
 
-  it('a cup with no ice needs 80% of its size\'s tea: 200, 280, 400 ml, the queued ice counting too', () => {
+  it('a cup with no ice needs less tea: 200, 300, 400 ml, the queued ice counting too', () => {
     expect(checkInput(idle(cup('S', false, 0)), TEA_IN, stock(200))).toBeNull();
     expect(checkInput(idle(cup('S', false, 0)), TEA_IN, stock(199))).toBe('noTea');
     expect(checkInput(idle(cup('M', false, 0)), TEA_IN, stock(300))).toBeNull();

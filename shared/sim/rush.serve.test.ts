@@ -238,7 +238,7 @@ describe('stock running out at the player\'s counter (§6, §16.3, §16.5, R15)'
     expect(state.player.tally.missedNoStock).toBe(1);
   });
 
-  it('under 250 ml the sign flips; later arrivals find the shop out of stock, each counted once', () => {
+  it('under 200 ml the sign flips; later arrivals find the shop out of stock, each counted once', () => {
     const cfg = tuned({ batu: { ticksPerCup: 400 } }); // nobody gets served at Bà Tư: they all walk out
     const s = street(batu(), [cust(0), cust(1, { order: order('S', 'pearl') }), cust(2, { arriveTick: 100 })],
       { price: 20, stock: stock(500, 5) }, {}, cfg);

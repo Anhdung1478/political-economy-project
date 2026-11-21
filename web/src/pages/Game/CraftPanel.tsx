@@ -37,8 +37,8 @@ export interface CraftPanelProps {
   /** When the staff last served (ms), for the hop. */
   staffServedAt: number;
   practice: PracticeHint;
-  /** A message from the screen (a refused input); a new `id` shows it again. */
-  notice: { id: number; text: string } | null;
+  /** A message from the screen (a refused input, or a coach `tip` that stays longer); a new `id` shows it again. */
+  notice: { id: number; text: string; tip?: boolean } | null;
   open: boolean;
   /** Each returns why it was refused (shown in the message line), or null when sent. */
   onInput: (id: CraftButtonId) => string | null;
@@ -187,18 +187,18 @@ function CraftPanelView(p: CraftPanelProps) {
   const hasCup = craft.cup !== null;
 
   // ── messages ──
-  const [hint, setHint] = useState<{ id: number; text: string; bad: boolean } | null>(null);
+  const [hint, setHint] = useState<{ id: number; text: string; bad: boolean; ms: number } | null>(null);
   const hintId = useRef(0);
-  const say = useCallback((text: string, bad = true) => {
+  const say = useCallback((text: string, bad = true, ms = 1900) => {
     hintId.current += 1;
-    setHint({ id: hintId.current, text, bad });
+    setHint({ id: hintId.current, text, bad, ms });
   }, []);
   useEffect(() => {
-    if (p.notice !== null) say(p.notice.text);
+    if (p.notice !== null) say(p.notice.text, !p.notice.tip, p.notice.tip ? 4500 : 1900);
   }, [p.notice, say]);
   useEffect(() => {
     if (hint === null) return;
-    const t = window.setTimeout(() => setHint(h => (h?.id === hint.id ? null : h)), 1900);
+    const t = window.setTimeout(() => setHint(h => (h?.id === hint.id ? null : h)), hint.ms);
     return () => window.clearTimeout(t);
   }, [hint]);
 
@@ -531,7 +531,8 @@ function CraftPanelView(p: CraftPanelProps) {
         </div>
       </div>
 
-      <div className={cx('chint', hint !== null && 'is-on', hint?.bad && 'is-bad')} role="status" aria-live="polite">
+      <div className={cx('chint', hint !== null && 'is-on', hint?.bad && 'is-bad', hint !== null && !hint.bad && hint.ms > 1900 && 'is-tip')}
+        role="status" aria-live="polite">
         {hint?.text ?? ''}
       </div>
 

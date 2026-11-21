@@ -212,8 +212,8 @@ export function runOutOfPatience(d: RushState, t: Tick, cfg: SimConfig, events: 
 
 /**
  * @internal Sold-out signs, in slot order. An AI shop out of cups flips its sign and its whole queue leaves to
- * re-shop, no rep hit. The player's shop flips once its tea is under 250 ml (§6); its queue was already re-checked
- * against the stock in this tick (phase 6), so only the sign changes.
+ * re-shop, no rep hit. The player's shop flips once its tea is under `soldOutBelowMl` (200 ml, an S with no ice,
+ * §6); its queue was already re-checked against the stock in this tick (phase 6), so only the sign changes.
  */
 export function flipSoldOut(d: RushState, t: Tick, cfg: SimConfig, events: SimEvent[]): void {
   for (const s of d.shops) {

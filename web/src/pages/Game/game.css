@@ -69,11 +69,16 @@ html.game-lock #root { min-height: 0; }
 .hud__stat b { font-family: var(--font-display); font-size: 16px; font-variant-numeric: tabular-nums; }
 .hud__stat .fx--bad { color: #ff9aa2; }
 
-/* A top-bar number that explains itself on hover, focus or tap (StatTip). */
-.stat-tip { cursor: help; border-radius: var(--r-pill); }
+/* A top-bar number that explains itself on hover, focus or tap (StatTip): a button without the button chrome, at no
+   specificity, so the pill's own class (.hud__stat, .rhud__stat) still sets its box. */
+:where(.stat-tip) {
+  appearance: none; margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; line-height: inherit; text-align: inherit; letter-spacing: inherit;
+}
+.stat-tip { cursor: help; border-radius: var(--r-pill); -webkit-tap-highlight-color: transparent; }
 .stat-tip:focus-visible { outline: 2px solid var(--caramel); outline-offset: 2px; }
 .stat-tip__pop {
-  position: fixed; z-index: 100; pointer-events: none;
+  position: fixed; z-index: 100;
   padding: 10px 12px; border-radius: var(--r-md);
   background: var(--ink); color: var(--paper); box-shadow: var(--shadow-lg);
   font-size: 13px; font-weight: 500; line-height: 1.45; white-space: normal; text-align: left;

@@ -47,6 +47,9 @@ const OUTRO_MS = 2600;
 const LEAVE_MS = 1000;
 /** The street shrinks to the strip above the panel once it has slid up. */
 const SLIDE_MS = 320;
+/** Said once a session, when the first "không đá" order reaches the counter (touch screens show no title). */
+const NO_ICE_TIP = 'Khách gọi không đá (dấu đỏ trên ly): bỏ qua bước Đá, rót trà luôn.';
+let noIceTold = false;
 /** The practice customer's look and id. */
 const PRACTICE_LOOK = 90210;
 const PRACTICE_ID = -1;
@@ -246,7 +249,7 @@ function RushView({ rush, run, dispatch, act, setHold, hidden, simTime, subscrib
   }, []);
 
   // ── The sim's events: reactions at the counter, coins, refusals ──
-  const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ id: number; text: string; tip?: boolean } | null>(null);
   const [staffServedAt, setStaffServedAt] = useState(-1e9);
   const noticeId = useRef(0);
   useEffect(() => subscribe({
@@ -282,6 +285,15 @@ function RushView({ rush, run, dispatch, act, setHold, hidden, simTime, subscrib
       if (leaves.length > 0) setDeparting(ds => [...ds.filter(d => !leaves.some(l => l.customer === d.customer)), ...leaves]);
     },
   }), [subscribe, spawn]);
+
+  // The first "không đá" order at the counter, with the panel open, gets a one-time coach line.
+  const noIceHere = !practice.on && showPanel && live.some(l => l.order.noIce);
+  useEffect(() => {
+    if (!noIceHere || noIceTold) return;
+    noIceTold = true;
+    noticeId.current += 1;
+    setNotice({ id: noticeId.current, text: NO_ICE_TIP, tip: true });
+  }, [noIceHere]);
 
   // ── Player actions ──
   // What was sent for the next tick: the panel judges its buttons against the counter with these folded in, so a

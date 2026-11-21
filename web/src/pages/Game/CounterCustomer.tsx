@@ -172,15 +172,29 @@ export function SizeIcon({ size, px = 22 }: { size: 'S' | 'M' | 'L'; px?: number
   );
 }
 
+/**
+ * Size (with the "không đá" sign as a badge on its cup) and topping icons. The compact bubble of a counter card leaves
+ * out "không topping" (no topping icon says it; the label keeps it) and puts the toppings on a second line when the
+ * card is too narrow for one.
+ */
 export function OrderBubble({ order, compact }: { order: Order; compact?: boolean }) {
   return (
     <span className={cx('rorder', compact && 'rorder--compact')} aria-label={`Đơn: ${orderLabel(order)}`}>
-      <span className="rorder__size"><SizeIcon size={order.size} px={compact ? 16 : 22} /><b>{order.size}</b></span>
-      {order.noIce && <span className="rorder__noice" title="Không đá"><NoIceIcon size={compact ? 14 : 18} /></span>}
-      {order.toppings.map(t => (
-        <span key={t} className="rorder__top" title={TOPPING_NAMES[t]}><ToppingIcon id={t} size={compact ? 14 : 18} /></span>
-      ))}
-      {order.toppings.length === 0 && <span className="rorder__none">không topping</span>}
+      <span className="rorder__size">
+        <span className={cx('rorder__cup', order.noIce && 'has-noice')}>
+          <SizeIcon size={order.size} px={compact ? 16 : 22} />
+          {order.noIce && <span className="rorder__noice" title="Không đá"><NoIceIcon size={compact ? 11 : 14} /></span>}
+        </span>
+        <b>{order.size}</b>
+      </span>
+      {order.toppings.length > 0 && (
+        <span className="rorder__tops">
+          {order.toppings.map(t => (
+            <span key={t} className="rorder__top" title={TOPPING_NAMES[t]}><ToppingIcon id={t} size={compact ? 14 : 18} /></span>
+          ))}
+        </span>
+      )}
+      {order.toppings.length === 0 && !compact && <span className="rorder__none">không topping</span>}
     </span>
   );
 }
